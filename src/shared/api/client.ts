@@ -6,7 +6,9 @@
  * Provides typed GET/POST/PATCH/DELETE with ApiError handling.
  */
 
-const BASE_URL = 'http://localhost:8081';
+const BASE_URL = import.meta.env.PROD
+  ? 'https://geminihydra-v15-backend.fly.dev'
+  : 'http://localhost:8081';
 
 // ============================================================================
 // ERROR CLASS
