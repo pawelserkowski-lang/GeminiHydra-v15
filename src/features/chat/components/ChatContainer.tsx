@@ -21,6 +21,7 @@ import {
   type ReactNode,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from 'react';
@@ -28,7 +29,7 @@ import { toast } from 'sonner';
 
 import { useViewTheme } from '@/shared/hooks/useViewTheme';
 import { cn } from '@/shared/utils/cn';
-import { type Message, selectCurrentMessages, useViewStore } from '@/stores/viewStore';
+import { type Message, useViewStore } from '@/stores/viewStore';
 
 import { ChatInput } from './ChatInput';
 import { MessageBubble } from './MessageBubble';
@@ -292,7 +293,12 @@ export const ChatContainer = memo<ChatContainerProps>(({ isStreaming, onSubmit, 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   // Store
-  const messages = useViewStore(selectCurrentMessages);
+  const currentSessionId = useViewStore((s) => s.currentSessionId);
+  const chatHistory = useViewStore((s) => s.chatHistory);
+  const messages = useMemo<Message[]>(
+    () => (currentSessionId ? chatHistory[currentSessionId] ?? [] : []),
+    [currentSessionId, chatHistory],
+  );
 
   // Local state
   const [pendingImage, setPendingImage] = useState<string | null>(null);

@@ -25,7 +25,7 @@ import { memo, useCallback, useMemo } from 'react';
 import { Badge, Button } from '@/components/atoms';
 import { useViewTheme } from '@/shared/hooks/useViewTheme';
 import { cn } from '@/shared/utils/cn';
-import { type Session, selectSortedSessions, useViewStore } from '@/stores/viewStore';
+import { type Session, useViewStore } from '@/stores/viewStore';
 
 // ============================================================================
 // CONSTANTS
@@ -149,14 +149,17 @@ SessionRow.displayName = 'SessionRow';
 export const WelcomeScreen = memo(() => {
   const theme = useViewTheme();
 
-  const sessions = useViewStore(selectSortedSessions);
+  const rawSessions = useViewStore((s) => s.sessions);
   const chatHistory = useViewStore((s) => s.chatHistory);
   const selectSession = useViewStore((s) => s.selectSession);
   const createSession = useViewStore((s) => s.createSession);
   const setCurrentView = useViewStore((s) => s.setCurrentView);
   const openTab = useViewStore((s) => s.openTab);
 
-  const recentSessions = useMemo(() => sessions.slice(0, MAX_RECENT_SESSIONS), [sessions]);
+  const recentSessions = useMemo(
+    () => [...rawSessions].sort((a, b) => b.createdAt - a.createdAt).slice(0, MAX_RECENT_SESSIONS),
+    [rawSessions],
+  );
 
   const handleNewChat = useCallback(() => {
     createSession();

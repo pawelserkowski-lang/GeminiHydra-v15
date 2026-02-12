@@ -14,7 +14,7 @@ import { type ReactNode, useCallback, useMemo, useState } from 'react';
 import { Badge, Button, Card, Input } from '@/components/atoms';
 import { useViewTheme } from '@/shared/hooks/useViewTheme';
 import { cn } from '@/shared/utils/cn';
-import { type Message, type Session, selectSortedSessions, useViewStore } from '@/stores/viewStore';
+import { type Message, type Session, useViewStore } from '@/stores/viewStore';
 
 // ============================================================================
 // TYPES
@@ -239,7 +239,8 @@ export function HistoryView(): ReactNode {
   const [deleteTarget, setDeleteTarget] = useState<Session | null>(null);
 
   // Store selectors
-  const sortedSessions = useViewStore(selectSortedSessions);
+  const rawSessions = useViewStore((s) => s.sessions);
+  const sortedSessions = useMemo(() => [...rawSessions].sort((a, b) => b.createdAt - a.createdAt), [rawSessions]);
   const chatHistory = useViewStore((s) => s.chatHistory);
   const currentSessionId = useViewStore((s) => s.currentSessionId);
   const selectSession = useViewStore((s) => s.selectSession);
