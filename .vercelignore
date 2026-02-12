@@ -1,0 +1,12 @@
+node_modules
+.git
+backend
+e2e
+docs
+*.test.ts
+*.test.tsx
+__test_ls.test.ts
+vitest.config.ts
+playwright.config.ts
+biome.json
+pnpm-lock.yaml
