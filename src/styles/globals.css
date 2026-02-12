@@ -1,0 +1,925 @@
+/* GeminiHydra v15 - Matrix Glass Theme (Tissaia Design System) */
+/* Ported pixel-perfect from GeminiHydra legacy */
+
+@import "tailwindcss";
+
+/* ============================================
+   TAILWIND v4 THEME CONFIGURATION
+   ============================================ */
+@theme {
+  --color-matrix-bg-primary: #0f1419;
+  --color-matrix-bg-secondary: #0a0e13;
+  --color-matrix-bg-tertiary: #141a21;
+  --color-matrix-accent: #ffffff;
+  --color-matrix-accent-dim: #d1d5db;
+  --color-matrix-accent-glow: #e5e7eb;
+  --color-matrix-text: #e5e7eb;
+  --color-matrix-text-dim: #9ca3af;
+  --color-matrix-border: #1e2a35;
+  --color-matrix-glass: rgba(15, 20, 25, 0.8);
+  --color-matrix-glass-light: rgba(255, 255, 255, 0.05);
+
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+
+  --shadow-matrix-glow: 0 0 20px rgba(255, 255, 255, 0.15);
+  --shadow-matrix-glow-sm: 0 0 10px rgba(255, 255, 255, 0.1);
+  --shadow-glass: 0 8px 32px rgba(0, 0, 0, 0.3);
+
+  /* Witcher-inspired accents */
+  --color-witcher-silver: #c0c0c0;
+  --color-witcher-gold: #ffd700;
+  --color-witcher-blood: #8b0000;
+  --color-witcher-dark: #1a1a2e;
+  --color-witcher-steel: #4a5568;
+
+  /* Animations */
+  --animate-pulse-slow: pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  --animate-glow: glow 2s ease-in-out infinite alternate;
+}
+
+/* ============================================
+   ROOT VARIABLES (DARK MODE - DEFAULT)
+   ============================================ */
+:root {
+  --matrix-bg-primary: #0f1419;
+  --matrix-bg-secondary: #0a0e13;
+  --matrix-bg-tertiary: #141a21;
+  --matrix-accent: #ffffff;
+  --matrix-accent-dim: #d1d5db;
+  --matrix-accent-glow: #e5e7eb;
+  --matrix-text-primary: #e5e7eb;
+  --matrix-text-secondary: #9ca3af;
+  --matrix-border: #1e2a35;
+  --matrix-glass-bg: rgba(15, 20, 25, 0.7);
+
+  /* Glass physics */
+  --glass-light-bg: rgba(255, 255, 255, 0.4);
+  --glass-light-border: 1px solid rgba(255, 255, 255, 0.3);
+  --glass-light-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+  --glass-light-text: #1a1a1a;
+
+  --glass-dark-bg: rgba(17, 25, 40, 0.75);
+  --glass-dark-border: 1px solid rgba(255, 255, 255, 0.125);
+  --glass-dark-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+  --glass-dark-text: #ffffff;
+
+  --glass-blur: blur(16px) saturate(180%);
+  --glass-radius: 12px;
+
+  /* GeminiHydra compat aliases */
+  --matrix-text: #e5e7eb;
+  --matrix-text-dim: #9ca3af;
+  --matrix-panel-bg: rgba(15, 20, 25, 0.55);
+  --matrix-input-bg: rgba(0, 0, 0, 0.5);
+  --matrix-hover-bg: rgba(255, 255, 255, 0.08);
+  --matrix-active-bg: rgba(255, 255, 255, 0.12);
+  --matrix-divider: rgba(255, 255, 255, 0.06);
+  --matrix-overlay: rgba(0, 0, 0, 0.6);
+  --matrix-tooltip-bg: rgba(15, 20, 25, 0.95);
+  --matrix-focus-ring: rgba(255, 255, 255, 0.4);
+  --matrix-code-bg: rgba(0, 0, 0, 0.3);
+  --matrix-badge-bg: rgba(255, 255, 255, 0.15);
+  --matrix-error: #f87171;
+  --matrix-error-bg: rgba(127, 29, 29, 0.2);
+  --matrix-warning: #facc15;
+  --matrix-warning-bg: rgba(113, 63, 18, 0.2);
+  --matrix-success: #4ade80;
+  --matrix-success-bg: rgba(20, 83, 45, 0.2);
+}
+
+/* ============================================
+   LIGHT MODE (The White Wolf)
+   ============================================ */
+:root.light,
+[data-theme='light'] {
+  --matrix-bg-primary: #f5f8f5;
+  --matrix-bg-secondary: #e8ede8;
+  --matrix-accent: #2d6a4f;
+  --matrix-accent-dim: #1b4332;
+  --matrix-accent-glow: #40916c;
+  --matrix-text-primary: #1a2a1a;
+  --matrix-text-secondary: #2d3d2d;
+  --matrix-border: #d0e0d0;
+  --matrix-glass-bg: rgba(255, 255, 255, 0.92);
+
+  --matrix-text: #1e293b;
+  --matrix-text-dim: #475569;
+  --matrix-panel-bg: rgba(255, 255, 255, 0.7);
+  --matrix-input-bg: rgba(255, 255, 255, 0.8);
+  --matrix-hover-bg: rgba(5, 150, 105, 0.08);
+  --matrix-active-bg: rgba(5, 150, 105, 0.12);
+  --matrix-divider: rgba(5, 150, 105, 0.08);
+  --matrix-overlay: rgba(255, 255, 255, 0.6);
+  --matrix-tooltip-bg: rgba(255, 255, 255, 0.95);
+  --matrix-focus-ring: rgba(5, 120, 87, 0.4);
+  --matrix-code-bg: rgba(0, 0, 0, 0.06);
+  --matrix-badge-bg: rgba(5, 150, 105, 0.12);
+  --matrix-error: #dc2626;
+  --matrix-error-bg: rgba(239, 68, 68, 0.1);
+  --matrix-warning: #b45309;
+  --matrix-warning-bg: rgba(245, 158, 11, 0.1);
+  --matrix-success: #047857;
+  --matrix-success-bg: rgba(16, 185, 129, 0.1);
+}
+
+/* ============================================
+   BASE STYLES
+   ============================================ */
+html {
+  font-size: 100%;
+  height: 100%;
+  background: var(--matrix-bg-primary);
+  transition: background-color 0.5s ease, color 0.5s ease;
+}
+
+body {
+  margin: 0;
+  background: transparent;
+  color: #ffffff;
+  font-family: 'JetBrains Mono', monospace;
+  font-feature-settings: "rlig" 1, "calt" 1;
+  overflow: hidden;
+  height: 100%;
+  transition: background-color 0.5s ease, color 0.5s ease;
+}
+
+:root.light body,
+[data-theme='light'] body {
+  background: var(--matrix-bg-primary);
+  color: var(--matrix-text-primary);
+}
+
+:root.light html,
+[data-theme='light'] html {
+  background: var(--matrix-bg-primary);
+}
+
+#root {
+  height: 100%;
+  width: 100%;
+}
+
+/* ============================================
+   SCROLLBAR
+   ============================================ */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.3), rgba(255, 255, 255, 0.15));
+  border-radius: 10px;
+  transition: all 0.3s ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0.3));
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.2);
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.25) transparent;
+}
+
+:root.light ::-webkit-scrollbar-thumb,
+[data-theme='light'] ::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, rgba(45, 106, 79, 0.5), rgba(45, 106, 79, 0.25));
+}
+
+:root.light ::-webkit-scrollbar-thumb:hover,
+[data-theme='light'] ::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, rgba(45, 106, 79, 0.7), rgba(45, 106, 79, 0.45));
+  box-shadow: 0 0 6px rgba(45, 106, 79, 0.3);
+}
+
+:root.light *,
+[data-theme='light'] * {
+  scrollbar-color: rgba(45, 106, 79, 0.4) transparent;
+}
+
+/* Selection */
+::selection {
+  background: var(--matrix-accent);
+  color: black;
+  text-shadow: none;
+}
+
+:root.light ::selection,
+[data-theme='light'] ::selection {
+  background: #a7f3d0;
+  color: #064e3b;
+}
+
+/* ============================================
+   GLASS PANEL STYLES (Tissaia Design)
+   ============================================ */
+.glass-panel-light {
+  background: rgba(255, 255, 255, 0.3);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: none;
+  box-shadow: var(--glass-light-shadow);
+  color: var(--glass-light-text);
+  border-radius: var(--glass-radius);
+}
+
+.glass-panel-dark {
+  background: rgba(0, 0, 0, 0.3);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: none;
+  box-shadow: var(--glass-dark-shadow);
+  color: var(--glass-dark-text);
+  border-radius: var(--glass-radius);
+}
+
+/* Legacy glass-panel */
+.glass-panel {
+  background: rgba(15, 25, 40, 0.65);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-radius: 1rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+}
+
+:root.light .glass-panel,
+[data-theme='light'] .glass-panel {
+  background: rgba(255, 255, 255, 0.8);
+  border-color: rgba(45, 106, 79, 0.15);
+  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.08);
+}
+
+.glass-card {
+  background: rgba(15, 25, 40, 0.65);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-radius: 1rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+}
+
+:root.light .glass-card,
+[data-theme='light'] .glass-card {
+  background: rgba(255, 255, 255, 0.55);
+  border-color: rgba(45, 106, 79, 0.2);
+  box-shadow: 0 8px 32px rgba(0, 50, 0, 0.1);
+}
+
+.glass-input {
+  background: rgba(10, 20, 30, 0.6);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+:root.light .glass-input,
+[data-theme='light'] .glass-input {
+  background: rgba(255, 255, 255, 0.7);
+  border-color: rgba(45, 106, 79, 0.2);
+}
+
+.glass-button {
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  transition: all 0.2s ease;
+  cursor: pointer;
+  color: var(--matrix-accent);
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.glass-button:hover {
+  background: rgba(255, 255, 255, 0.2);
+  border-color: rgba(255, 255, 255, 0.4);
+  box-shadow: 0 0 20px rgba(255, 255, 255, 0.1);
+}
+
+.glass-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+:root.light .glass-button,
+[data-theme='light'] .glass-button {
+  background: rgba(45, 106, 79, 0.1);
+  border-color: rgba(45, 106, 79, 0.2);
+}
+
+:root.light .glass-button:hover,
+[data-theme='light'] .glass-button:hover {
+  background: rgba(45, 106, 79, 0.2);
+  border-color: rgba(45, 106, 79, 0.4);
+  box-shadow: 0 0 15px rgba(45, 106, 79, 0.15);
+}
+
+/* ============================================
+   UTILITY CLASSES
+   ============================================ */
+.text-glow {
+  text-shadow: 0 0 10px rgba(255, 255, 255, 0.4);
+}
+
+.matrix-rain-bg {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100'%3E%3Ctext fill='%23ffffff15' font-family='monospace' font-size='10'%3E%3Ctspan x='10' y='20'%3E01%3C/tspan%3E%3Ctspan x='30' y='40'%3E10%3C/tspan%3E%3Ctspan x='50' y='60'%3E11%3C/tspan%3E%3Ctspan x='70' y='80'%3E00%3C/tspan%3E%3C/text%3E%3C/svg%3E");
+  background-size: 100px 100px;
+}
+
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+.scrollbar-thin::-webkit-scrollbar {
+  width: 4px;
+}
+
+/* ============================================
+   BUTTON VARIANTS
+   ============================================ */
+.btn-primary {
+  @apply px-4 py-2 rounded-lg bg-emerald-400 hover:bg-emerald-300
+         text-emerald-950 font-medium transition-colors cursor-pointer;
+}
+
+/* ============================================
+   INPUT STYLES
+   ============================================ */
+.matrix-input {
+  background: var(--matrix-input-bg);
+  border: none;
+  border-radius: 0.75rem;
+  color: var(--matrix-text);
+  backdrop-filter: blur(8px);
+}
+
+.matrix-input:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--matrix-focus-ring);
+}
+
+/* ============================================
+   STATUS BADGES
+   ============================================ */
+.status-badge {
+  padding: 0.25rem 0.75rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: bold;
+  text-transform: uppercase;
+}
+
+.status-pending {
+  background: var(--matrix-warning-bg);
+  color: var(--matrix-warning);
+}
+
+.status-approved {
+  background: var(--matrix-badge-bg);
+  color: var(--matrix-accent);
+}
+
+/* ============================================
+   MESSAGE BUBBLES
+   ============================================ */
+.message-bubble-user {
+  @apply max-w-[80%] p-4 rounded-2xl rounded-br-md text-base overflow-hidden relative;
+  @apply font-mono;
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  color: #1a1a1a;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.5);
+}
+
+.message-bubble-assistant {
+  @apply max-w-[80%] p-4 rounded-2xl rounded-bl-md text-base overflow-hidden relative;
+  @apply font-mono;
+  background: rgba(200, 200, 210, 0.75);
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  color: #1a1a1a;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+}
+
+.message-bubble-system {
+  @apply max-w-[95%] p-3 rounded-xl text-sm overflow-hidden relative;
+  @apply font-mono;
+  background: rgba(82, 82, 91, 0.8);
+  backdrop-filter: blur(14px) saturate(160%);
+  -webkit-backdrop-filter: blur(14px) saturate(160%);
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+:root.light .message-bubble-user,
+[data-theme='light'] .message-bubble-user {
+  background: rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  color: #1a1a1a;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+:root.light .message-bubble-assistant,
+[data-theme='light'] .message-bubble-assistant {
+  background: rgba(228, 228, 231, 0.75);
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  color: #1a1a1a;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+:root.light .message-bubble-system,
+[data-theme='light'] .message-bubble-system {
+  background: rgba(82, 82, 91, 0.75);
+  backdrop-filter: blur(14px) saturate(160%);
+  -webkit-backdrop-filter: blur(14px) saturate(160%);
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+/* Force white text inside system output in light mode */
+:root.light .message-bubble-system .markdown-body,
+:root.light .message-bubble-system .markdown-body *,
+[data-theme='light'] .message-bubble-system .markdown-body,
+[data-theme='light'] .message-bubble-system .markdown-body * {
+  color: #ffffff !important;
+}
+:root.light .message-bubble-system .markdown-body code,
+[data-theme='light'] .message-bubble-system .markdown-body code {
+  background: rgba(255, 255, 255, 0.1) !important;
+  color: #ffffff !important;
+}
+:root.light .message-bubble-system .markdown-body pre,
+[data-theme='light'] .message-bubble-system .markdown-body pre {
+  background: rgba(0, 0, 0, 0.2) !important;
+  color: #ffffff !important;
+}
+
+/* ============================================
+   MARKDOWN STYLES
+   ============================================ */
+.markdown-body p { margin-bottom: 0.5em; }
+.markdown-body p:last-child { margin-bottom: 0; }
+.markdown-body pre {
+  background: var(--matrix-code-bg);
+  padding: 0.75rem;
+  border-radius: 0.75rem;
+  overflow-x: auto;
+  border: none;
+  margin: 0.5rem 0;
+}
+.markdown-body code {
+  background: rgba(0, 0, 0, 0.08);
+  padding: 0.1em 0.3em;
+  border-radius: 0.25rem;
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  color: inherit;
+}
+.markdown-body pre code {
+  background: transparent;
+  padding: 0;
+  color: #ffffff;
+}
+.markdown-body ul, .markdown-body ol { margin-left: 1.5em; margin-bottom: 0.5em; }
+.markdown-body li { margin-bottom: 0.2em; }
+.markdown-body strong { color: inherit; font-weight: bold; }
+.markdown-body a { color: #3b82f6; text-decoration: underline; }
+.markdown-body h1, .markdown-body h2, .markdown-body h3, .markdown-body h4, .markdown-body h5, .markdown-body h6 {
+  color: inherit;
+  margin-top: 0.5em;
+  margin-bottom: 0.2em;
+  font-weight: bold;
+}
+.markdown-body blockquote {
+  border-left: 2px solid var(--matrix-accent);
+  padding-left: 0.5em;
+  margin-left: 0;
+  font-style: italic;
+  opacity: 0.8;
+  color: var(--matrix-text-dim);
+}
+
+:root.light .markdown-body code,
+[data-theme='light'] .markdown-body code {
+  background: rgba(0, 0, 0, 0.07);
+  color: var(--matrix-text);
+}
+
+:root.light .markdown-body pre,
+[data-theme='light'] .markdown-body pre {
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--matrix-text);
+}
+
+/* ============================================
+   PROGRESS BAR
+   ============================================ */
+.progress-bar {
+  @apply w-full rounded-full h-2.5 overflow-hidden;
+  background: rgba(0, 0, 0, 0.15);
+}
+
+.progress-bar-fill {
+  @apply h-2.5 rounded-full transition-all duration-300;
+  background: var(--matrix-accent);
+}
+
+/* ============================================
+   DATA DISPLAY
+   ============================================ */
+.data-box {
+  @apply text-xs font-mono p-2 rounded-lg;
+  background: rgba(0, 0, 0, 0.15);
+}
+
+.data-box-scroll {
+  @apply text-xs font-mono p-2 rounded-lg overflow-auto;
+  background: rgba(0, 0, 0, 0.15);
+}
+
+:root.light .data-box,
+[data-theme='light'] .data-box {
+  background: rgba(0, 0, 0, 0.04);
+  color: var(--matrix-text);
+}
+
+:root.light .data-box-scroll,
+[data-theme='light'] .data-box-scroll {
+  background: rgba(0, 0, 0, 0.04);
+  color: var(--matrix-text);
+}
+
+/* ============================================
+   WELCOME SCREEN
+   ============================================ */
+.welcome-screen {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1.5rem;
+  padding: 2rem;
+  animation: welcomeFadeIn 0.4s ease-out;
+}
+
+.welcome-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  text-align: center;
+}
+
+.welcome-logo-icon {
+  width: 56px;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--matrix-accent) 10%, transparent);
+  color: var(--matrix-accent);
+  filter: drop-shadow(0 0 12px color-mix(in srgb, var(--matrix-accent) 25%, transparent));
+}
+
+.welcome-title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  color: var(--matrix-accent);
+}
+
+.welcome-subtitle {
+  font-size: 0.8rem;
+  max-width: 36rem;
+  color: var(--matrix-text-dim);
+  line-height: 1.5;
+}
+
+.welcome-status {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 0.7rem;
+  font-family: var(--font-mono);
+  color: var(--matrix-text-dim);
+}
+
+.welcome-status-pill {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.25rem 0.625rem;
+  border-radius: 9999px;
+  background: color-mix(in srgb, var(--matrix-accent) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--matrix-accent) 12%, transparent);
+}
+
+.welcome-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.welcome-status-dot--ok {
+  background: var(--matrix-success);
+  box-shadow: 0 0 6px var(--matrix-success);
+}
+
+.welcome-status-dot--warn {
+  background: var(--matrix-warning);
+  box-shadow: 0 0 6px var(--matrix-warning);
+}
+
+.welcome-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.625rem;
+  max-width: 36rem;
+  width: 100%;
+}
+
+@media (min-width: 768px) {
+  .welcome-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+.welcome-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.625rem;
+  padding: 0.75rem;
+  border-radius: 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  background: var(--matrix-panel-bg);
+  backdrop-filter: blur(8px);
+  border: 1px solid transparent;
+  color: inherit;
+  font-family: inherit;
+}
+
+.welcome-card:hover {
+  background: var(--matrix-hover-bg);
+  border-color: color-mix(in srgb, var(--matrix-accent) 20%, transparent);
+}
+
+.welcome-card:active {
+  transform: scale(0.98);
+}
+
+.welcome-card-icon {
+  padding: 0.375rem;
+  border-radius: 8px;
+  flex-shrink: 0;
+  background: color-mix(in srgb, var(--matrix-accent) 10%, transparent);
+  color: var(--matrix-accent);
+}
+
+.welcome-card-label {
+  display: block;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--matrix-text);
+}
+
+.welcome-card-desc {
+  display: block;
+  font-size: 0.675rem;
+  margin-top: 0.125rem;
+  color: var(--matrix-text-dim);
+}
+
+.welcome-hints {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 0.675rem;
+  color: var(--matrix-text-dim);
+  opacity: 0.5;
+}
+
+.welcome-hints kbd {
+  display: inline-block;
+  padding: 0.125rem 0.375rem;
+  border-radius: 4px;
+  font-size: 0.6rem;
+  font-family: var(--font-mono);
+  background: color-mix(in srgb, var(--matrix-accent) 8%, transparent);
+  color: var(--matrix-text);
+  border: 1px solid color-mix(in srgb, var(--matrix-accent) 12%, transparent);
+}
+
+:root.light .welcome-card,
+[data-theme='light'] .welcome-card {
+  background: rgba(255, 255, 255, 0.6);
+}
+
+:root.light .welcome-card:hover,
+[data-theme='light'] .welcome-card:hover {
+  background: rgba(5, 150, 105, 0.08);
+}
+
+/* ============================================
+   ALERTS
+   ============================================ */
+.error-alert {
+  @apply text-xs rounded-xl;
+  padding: 0.5rem;
+  background: var(--matrix-error-bg);
+  color: var(--matrix-error);
+}
+
+.warning-alert {
+  @apply text-[10px] rounded-xl text-center;
+  padding: 0.25rem 0.5rem;
+  background: var(--matrix-warning-bg);
+  color: var(--matrix-warning);
+}
+
+.success-alert {
+  @apply text-[10px] rounded-xl text-center;
+  padding: 0.25rem 0.5rem;
+  background: var(--matrix-success-bg);
+  color: var(--matrix-success);
+}
+
+/* ============================================
+   DROPZONE
+   ============================================ */
+.dropzone {
+  border: 2px dashed rgba(255, 255, 255, 0.2);
+  border-radius: 0.75rem;
+  padding: 2rem;
+  text-align: center;
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.dropzone:hover,
+.dropzone.active {
+  border-color: rgba(255, 255, 255, 0.5);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.dropzone.active {
+  transform: scale(1.02);
+}
+
+:root.light .dropzone,
+[data-theme='light'] .dropzone {
+  border-color: rgba(0, 0, 0, 0.15);
+}
+
+:root.light .dropzone:hover,
+[data-theme='light'] .dropzone:hover,
+:root.light .dropzone.active,
+[data-theme='light'] .dropzone.active {
+  border-color: #2d6a4f;
+  background: rgba(45, 106, 79, 0.05);
+}
+
+/* ============================================
+   FOCUS STATES (Accessibility)
+   ============================================ */
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+[role="button"]:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--matrix-accent);
+  outline-offset: 2px;
+}
+
+/* ============================================
+   USER SELECTION CONTROL
+   ============================================ */
+img, button, header, footer, .sidebar-item, .status-badge, .noselect {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.markdown-body, .matrix-input {
+  user-select: text;
+  cursor: text;
+}
+
+/* ============================================
+   ANIMATIONS
+   ============================================ */
+@keyframes glow {
+  0% { box-shadow: 0 0 5px rgba(255, 255, 255, 0.15); }
+  100% { box-shadow: 0 0 20px rgba(255, 255, 255, 0.15); }
+}
+
+@keyframes shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+@keyframes pulse-slow {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.8; }
+}
+
+@keyframes welcomeFadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-pulse-slow {
+  animation: pulse-slow 3s ease-in-out infinite;
+}
+
+.animate-in {
+  animation: welcomeFadeIn 0.3s ease-out;
+}
+
+/* ============================================
+   REDUCED MOTION
+   ============================================ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms;
+    animation-iteration-count: 1;
+    transition-duration: 0.01ms;
+  }
+}
+
+/* ============================================
+   RESPONSIVE
+   ============================================ */
+@media (max-width: 640px) {
+  .message-bubble-user,
+  .message-bubble-assistant,
+  .message-bubble-system {
+    max-width: 100%;
+  }
+}
+
+@media (min-width: 1024px) {
+  .message-bubble-user,
+  .message-bubble-assistant {
+    max-width: 75%;
+  }
+  .message-bubble-system {
+    max-width: 90%;
+  }
+}
+
+/* ============================================
+   SKIP LINK (Accessibility)
+   ============================================ */
+.skip-link {
+  position: absolute;
+  top: -100%;
+  left: 1rem;
+  padding: 0.5rem 1rem;
+  background: var(--matrix-accent);
+  color: var(--matrix-bg-primary);
+  border-radius: 0.5rem;
+  z-index: 9999;
+  font-weight: bold;
+  text-decoration: none;
+}
+
+.skip-link:focus {
+  top: 1rem;
+}

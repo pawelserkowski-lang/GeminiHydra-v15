@@ -1,0 +1,51 @@
+{
+  "nav": {
+    "home": "Start",
+    "chat": "Czat",
+    "agents": "Agenci",
+    "history": "Historia",
+    "settings": "Ustawienia",
+    "status": "Status"
+  },
+  "common": {
+    "save": "Zapisz",
+    "cancel": "Anuluj",
+    "delete": "Usun",
+    "confirm": "Potwierdz",
+    "retry": "Ponow",
+    "loading": "Ladowanie...",
+    "error": "Blad",
+    "send": "Wyslij",
+    "clear": "Wyczysc",
+    "search": "Szukaj",
+    "close": "Zamknij",
+    "back": "Wstecz",
+    "next": "Dalej",
+    "reset": "Resetuj"
+  },
+  "features": {
+    "welcome_title": "GeminiHydra",
+    "welcome_subtitle": "Centrum Sterowania Rojem AI",
+    "new_chat": "Nowy Czat",
+    "no_sessions": "Brak sesji",
+    "start_conversation": "Rozpocznij nowa rozmowe",
+    "recent_chats": "Ostatnie Czaty",
+    "session_history": "Historia Sesji",
+    "hydra_agents": "Agenci Hydra",
+    "system_status": "Status Systemu",
+    "settings_title": "Ustawienia",
+    "coming_soon": "Wkrotce",
+    "type_message": "Wpisz wiadomosc...",
+    "generating": "Generowanie...",
+    "empty_chat": "Wpisz wiadomosc, aby rozpoczac rozmowe...",
+    "delete_session": "Usun Sesje",
+    "delete_confirm": "Czy na pewno chcesz usunac te sesje? Tej operacji nie mozna cofnac.",
+    "sort_newest": "Najnowsze",
+    "sort_oldest": "Najstarsze",
+    "search_sessions": "Szukaj sesji...",
+    "all_agents": "Wszyscy Agenci",
+    "commander": "Dowodca",
+    "coordinators": "Koordynatorzy",
+    "executors": "Wykonawcy"
+  }
+}

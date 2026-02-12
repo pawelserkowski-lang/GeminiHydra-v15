@@ -1,0 +1,335 @@
+use std::sync::Arc;
+use std::time::Instant;
+
+use axum::extract::State;
+use axum::Json;
+use serde_json::{json, Value};
+use sysinfo::System;
+use tokio::sync::Mutex;
+use uuid::Uuid;
+
+use crate::models::{
+    ClassifyRequest, ClassifyResponse, DetailedHealthResponse, ExecutePlan, ExecuteRequest,
+    ExecuteResponse, GeminiModelInfo, GeminiModelsResponse, HealthResponse, ProviderInfo,
+    SystemStats,
+};
+use crate::state::AppState;
+
+/// Shared application state type alias used by all handlers.
+pub type SharedState = Arc<Mutex<AppState>>;
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+fn build_providers(state: &AppState) -> Vec<ProviderInfo> {
+    let google_key = state.api_keys.get("google");
+    let anthropic_key = state.api_keys.get("anthropic");
+
+    vec![
+        ProviderInfo {
+            name: "Google Gemini".to_string(),
+            available: google_key.is_some() && !google_key.unwrap().is_empty(),
+            model: Some(state.settings.default_model.clone()),
+        },
+        ProviderInfo {
+            name: "Anthropic Claude".to_string(),
+            available: anthropic_key.is_some() && !anthropic_key.unwrap().is_empty(),
+            model: Some("claude-sonnet-4-20250514".to_string()),
+        },
+    ]
+}
+
+/// Simple keyword-based agent classification.
+fn classify_prompt(prompt: &str) -> (String, f64, String) {
+    let lower = prompt.to_lowercase();
+
+    // Order matters — first match wins. More specific patterns first.
+    let rules: &[(&[&str], &str, &str)] = &[
+        (&["architecture", "design", "pattern", "struct"],   "yennefer", "Prompt relates to architecture and design"),
+        (&["test", "quality", "qa", "assert", "coverage"],   "vesemir",  "Prompt relates to testing and quality assurance"),
+        (&["security", "protect", "auth", "encrypt", "threat", "vulnerability"], "geralt", "Prompt relates to security and protection"),
+        (&["monitor", "audit", "incident", "alert", "log"],  "philippa", "Prompt relates to security monitoring"),
+        (&["data", "analytic", "database", "sql", "query"],  "triss",    "Prompt relates to data and analytics"),
+        (&["doc", "document", "readme", "comment", "communication"], "jaskier", "Prompt relates to documentation"),
+        (&["perf", "optim", "speed", "latency", "benchmark"],"ciri",     "Prompt relates to performance and optimization"),
+        (&["plan", "strateg", "roadmap", "priorit"],         "dijkstra", "Prompt relates to strategy and planning"),
+        (&["devops", "deploy", "ci", "cd", "docker", "infra", "pipeline"], "lambert", "Prompt relates to DevOps and infrastructure"),
+        (&["backend", "api", "server", "endpoint", "rest"],  "eskel",    "Prompt relates to backend and APIs"),
+        (&["research", "knowledge", "learn", "study", "paper"], "regis", "Prompt relates to research and knowledge"),
+        (&["frontend", "ui", "ux", "component", "css", "react"], "zoltan", "Prompt relates to frontend and UI"),
+    ];
+
+    for (keywords, agent_id, reasoning) in rules {
+        if keywords.iter().any(|kw| lower.contains(kw)) {
+            return (agent_id.to_string(), 0.85, reasoning.to_string());
+        }
+    }
+
+    // Default to Dijkstra (strategy) when nothing matches.
+    (
+        "dijkstra".to_string(),
+        0.4,
+        "No strong keyword match — defaulting to Strategy & Planning".to_string(),
+    )
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/health
+// ---------------------------------------------------------------------------
+
+pub async fn health(State(state): State<SharedState>) -> Json<HealthResponse> {
+    let state = state.lock().await;
+    let uptime = state.start_time.elapsed().as_secs();
+
+    Json(HealthResponse {
+        status: "ok".to_string(),
+        version: "15.0.0".to_string(),
+        app: "GeminiHydra".to_string(),
+        uptime_seconds: uptime,
+        providers: build_providers(&state),
+    })
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/health/detailed
+// ---------------------------------------------------------------------------
+
+pub async fn health_detailed(State(state): State<SharedState>) -> Json<DetailedHealthResponse> {
+    let state = state.lock().await;
+    let uptime = state.start_time.elapsed().as_secs();
+
+    let mut sys = System::new();
+    sys.refresh_memory();
+    sys.refresh_cpu_all();
+
+    let cpu_usage: f32 = sys.cpus().iter().map(|c| c.cpu_usage()).sum::<f32>()
+        / sys.cpus().len().max(1) as f32;
+    let memory_used_mb = sys.used_memory() as f64 / 1_048_576.0;
+
+    Json(DetailedHealthResponse {
+        status: "ok".to_string(),
+        version: "15.0.0".to_string(),
+        app: "GeminiHydra".to_string(),
+        uptime_seconds: uptime,
+        providers: build_providers(&state),
+        memory_usage_mb: memory_used_mb,
+        cpu_usage_percent: cpu_usage,
+        platform: std::env::consts::OS.to_string(),
+    })
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/agents
+// ---------------------------------------------------------------------------
+
+pub async fn list_agents(State(state): State<SharedState>) -> Json<Value> {
+    let state = state.lock().await;
+    Json(json!({ "agents": state.agents }))
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/agents/classify
+// ---------------------------------------------------------------------------
+
+pub async fn classify_agent(
+    State(_state): State<SharedState>,
+    Json(body): Json<ClassifyRequest>,
+) -> Json<ClassifyResponse> {
+    let (agent_id, confidence, reasoning) = classify_prompt(&body.prompt);
+
+    Json(ClassifyResponse {
+        agent: agent_id,
+        confidence,
+        reasoning,
+    })
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/execute
+// ---------------------------------------------------------------------------
+
+pub async fn execute(
+    State(shared): State<SharedState>,
+    Json(body): Json<ExecuteRequest>,
+) -> Json<Value> {
+    let start = Instant::now();
+
+    // Read what we need from the locked state, then drop the lock before the
+    // async HTTP call so we don't hold the guard across a long await.
+    let (agent_id, confidence, reasoning, model, api_key, client) = {
+        let state = shared.lock().await;
+        let (agent_id, confidence, reasoning) = classify_prompt(&body.prompt);
+        let model = body
+            .model
+            .clone()
+            .unwrap_or_else(|| state.settings.default_model.clone());
+        let api_key = state.api_keys.get("google").cloned().unwrap_or_default();
+        let client = state.client.clone();
+        (agent_id, confidence, reasoning, model, api_key, client)
+    };
+
+    // If no API key, return a graceful error-like response.
+    if api_key.is_empty() {
+        let duration = start.elapsed().as_millis() as u64;
+        return Json(json!(ExecuteResponse {
+            id: Uuid::new_v4().to_string(),
+            result: "Error: No Google/Gemini API key configured. Set GOOGLE_API_KEY or GEMINI_API_KEY in your environment.".to_string(),
+            plan: Some(ExecutePlan {
+                agent: Some(agent_id),
+                steps: vec!["classify prompt".into(), "call Gemini API".into(), "return result".into()],
+                estimated_time: None,
+            }),
+            duration_ms: duration,
+            mode: body.mode.clone(),
+        }));
+    }
+
+    // Build Gemini generateContent request.
+    let url = format!(
+        "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent?key={}",
+        model, api_key
+    );
+
+    let gemini_body = json!({
+        "contents": [{
+            "parts": [{ "text": body.prompt }]
+        }]
+    });
+
+    let gemini_result = client.post(&url).json(&gemini_body).send().await;
+
+    let result_text = match gemini_result {
+        Ok(resp) => {
+            if resp.status().is_success() {
+                let json_resp: Value = resp.json().await.unwrap_or(json!({}));
+                json_resp["candidates"][0]["content"]["parts"][0]["text"]
+                    .as_str()
+                    .unwrap_or("No content in response")
+                    .to_string()
+            } else {
+                let status = resp.status();
+                let error_body = resp.text().await.unwrap_or_default();
+                format!("Gemini API error ({}): {}", status, error_body)
+            }
+        }
+        Err(e) => format!("Request failed: {}", e),
+    };
+
+    let duration = start.elapsed().as_millis() as u64;
+
+    let response = ExecuteResponse {
+        id: Uuid::new_v4().to_string(),
+        result: result_text,
+        plan: Some(ExecutePlan {
+            agent: Some(agent_id),
+            steps: vec![
+                "classify prompt".into(),
+                format!("route to agent (confidence {:.0}%)", confidence * 100.0),
+                format!("call Gemini model {}", model),
+                "return result".into(),
+            ],
+            estimated_time: Some(format!("{}ms", duration)),
+        }),
+        duration_ms: duration,
+        mode: body.mode.clone(),
+    };
+
+    // Store in history.
+    {
+        let now = chrono::Utc::now().to_rfc3339();
+        let mut state = shared.lock().await;
+        state.history.push(crate::models::ChatMessage {
+            id: response.id.clone(),
+            role: "user".into(),
+            content: body.prompt.clone(),
+            model: Some(model.clone()),
+            timestamp: now.clone(),
+            agent: Some(response.plan.as_ref().unwrap().agent.clone().unwrap_or_default()),
+        });
+        state.history.push(crate::models::ChatMessage {
+            id: Uuid::new_v4().to_string(),
+            role: "assistant".into(),
+            content: response.result.clone(),
+            model: Some(model),
+            timestamp: now,
+            agent: Some(reasoning),
+        });
+    }
+
+    Json(json!(response))
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/gemini/models
+// ---------------------------------------------------------------------------
+
+pub async fn gemini_models(State(shared): State<SharedState>) -> Json<Value> {
+    let (api_key, client) = {
+        let state = shared.lock().await;
+        let key = state.api_keys.get("google").cloned().unwrap_or_default();
+        let client = state.client.clone();
+        (key, client)
+    };
+
+    if api_key.is_empty() {
+        return Json(json!({ "models": [], "error": "No Google/Gemini API key configured" }));
+    }
+
+    let url = format!(
+        "https://generativelanguage.googleapis.com/v1beta/models?key={}",
+        api_key
+    );
+
+    let resp = client.get(&url).send().await;
+
+    match resp {
+        Ok(r) if r.status().is_success() => {
+            let body: Value = r.json().await.unwrap_or(json!({}));
+            let raw_models = body["models"].as_array();
+
+            let models: Vec<GeminiModelInfo> = raw_models
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|m| serde_json::from_value::<GeminiModelInfo>(m.clone()).ok())
+                        .filter(|m| {
+                            m.supported_generation_methods
+                                .iter()
+                                .any(|method| method == "generateContent")
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+
+            Json(json!(GeminiModelsResponse { models }))
+        }
+        Ok(r) => {
+            let status = r.status().to_string();
+            let text = r.text().await.unwrap_or_default();
+            Json(json!({ "models": [], "error": format!("Gemini API error ({}): {}", status, text) }))
+        }
+        Err(e) => Json(json!({ "models": [], "error": format!("Request failed: {}", e) })),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/system/stats
+// ---------------------------------------------------------------------------
+
+pub async fn system_stats() -> Json<SystemStats> {
+    let mut sys = System::new_all();
+    sys.refresh_all();
+
+    let cpu_usage: f32 = sys.cpus().iter().map(|c| c.cpu_usage()).sum::<f32>()
+        / sys.cpus().len().max(1) as f32;
+
+    let memory_used_mb = sys.used_memory() as f64 / 1_048_576.0;
+    let memory_total_mb = sys.total_memory() as f64 / 1_048_576.0;
+
+    Json(SystemStats {
+        cpu_usage_percent: cpu_usage,
+        memory_used_mb,
+        memory_total_mb,
+        platform: std::env::consts::OS.to_string(),
+    })
+}
