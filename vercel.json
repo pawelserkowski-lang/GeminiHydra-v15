@@ -1,0 +1,6 @@
+{
+  "buildCommand": "tsc -b && vite build",
+  "outputDirectory": "dist",
+  "installCommand": "pnpm install",
+  "framework": "vite"
+}
