@@ -11,7 +11,7 @@ use uuid::Uuid;
 use crate::models::{
     ClassifyRequest, ClassifyResponse, DetailedHealthResponse, ExecutePlan, ExecuteRequest,
     ExecuteResponse, GeminiModelInfo, GeminiModelsResponse, HealthResponse, ProviderInfo,
-    SystemStats,
+    SystemStats, WitcherAgent,
 };
 use crate::state::AppState;
 
@@ -135,6 +135,55 @@ fn classify_prompt(prompt: &str) -> (String, f64, String) {
 }
 
 // ---------------------------------------------------------------------------
+// System prompt builder (hidden from main chat)
+// ---------------------------------------------------------------------------
+
+/// Build a system instruction for the Gemini API call.
+/// This is sent as `systemInstruction` and never displayed in the chat UI.
+fn build_system_prompt(agent_id: &str, agents: &[WitcherAgent]) -> String {
+    let agent = agents.iter().find(|a| a.id == agent_id);
+
+    let (name, role, description, tier) = match agent {
+        Some(a) => (a.name.as_str(), a.role.as_str(), a.description.as_str(), a.tier.as_str()),
+        None => ("Dijkstra", "Strategy & Planning", "The Spymaster — plans project strategy.", "Coordinator"),
+    };
+
+    let roster: String = agents
+        .iter()
+        .map(|a| format!("  - {} ({}) — {}", a.name, a.role, a.description))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    format!(
+        r#"You are **{name}**, a specialized AI agent in the **GeminiHydra v15 Wolf Swarm** — a multi-agent system themed after The Witcher universe.
+
+## Your Identity
+- **Name:** {name}
+- **Role:** {role}
+- **Tier:** {tier}
+- **Description:** {description}
+
+## GeminiHydra Pipeline
+1. User sends a prompt through the GeminiHydra chat interface.
+2. The backend classifies the prompt using keyword analysis (EN + PL) and routes it to the best-matching agent.
+3. You (the selected agent) receive the prompt with this system context.
+4. You respond with expertise in your domain ({role}).
+5. The response is stored in chat history and displayed to the user.
+
+## Wolf Swarm — All 12 Agents
+{roster}
+
+## Guidelines
+- Stay in character as {name}. Reference your Witcher persona when natural, but prioritize being helpful.
+- Answer in the **same language** as the user's prompt (Polish or English).
+- You specialize in **{role}** — leverage this expertise, but help with any topic if asked.
+- Be concise and actionable. Use markdown formatting for code, lists, and structure.
+- If a question falls outside your expertise, acknowledge it and suggest which swarm agent would be better suited.
+- You can reference other agents by name when collaborating would help the user."#
+    )
+}
+
+// ---------------------------------------------------------------------------
 // GET /api/health
 // ---------------------------------------------------------------------------
 
@@ -217,7 +266,7 @@ pub async fn execute(
 
     // Read what we need from the locked state, then drop the lock before the
     // async HTTP call so we don't hold the guard across a long await.
-    let (agent_id, confidence, reasoning, model, api_key, client) = {
+    let (agent_id, confidence, reasoning, model, api_key, client, system_prompt) = {
         let state = shared.lock().await;
         let (agent_id, confidence, reasoning) = classify_prompt(&body.prompt);
         let model = body
@@ -226,7 +275,8 @@ pub async fn execute(
             .unwrap_or_else(|| state.settings.default_model.clone());
         let api_key = state.api_keys.get("google").cloned().unwrap_or_default();
         let client = state.client.clone();
-        (agent_id, confidence, reasoning, model, api_key, client)
+        let system_prompt = build_system_prompt(&agent_id, &state.agents);
+        (agent_id, confidence, reasoning, model, api_key, client, system_prompt)
     };
 
     // If no API key, return a graceful error-like response.
@@ -252,6 +302,9 @@ pub async fn execute(
     );
 
     let gemini_body = json!({
+        "systemInstruction": {
+            "parts": [{ "text": system_prompt }]
+        },
         "contents": [{
             "parts": [{ "text": body.prompt }]
         }]
