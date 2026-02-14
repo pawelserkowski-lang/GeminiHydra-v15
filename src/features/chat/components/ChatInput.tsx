@@ -80,7 +80,7 @@ const ImagePreview = memo<ImagePreviewProps>(({ src, onRemove }) => (
       className={cn(
         'h-24 w-auto rounded-xl border shadow-lg',
         'border-[var(--matrix-accent)]/50',
-        'shadow-[0_0_15px_rgba(0,255,0,0.1)]',
+        'shadow-[0_0_15px_rgba(255,255,255,0.1)]',
       )}
     />
     <button
@@ -256,6 +256,7 @@ export const ChatInput = memo<ChatInputProps>(
           <div className="relative flex-1 group">
             <textarea
               ref={textareaRef}
+              data-testid="chat-textarea"
               value={value}
               onChange={handleChange}
               onKeyDown={handleKeyDown}
@@ -265,7 +266,7 @@ export const ChatInput = memo<ChatInputProps>(
               placeholder={pendingImage ? 'Describe the visual context...' : 'Type a message...'}
               className={cn(
                 'w-full rounded-xl px-5 py-3 pr-24 resize-none',
-                'font-mono text-sm leading-6',
+                'font-mono text-base leading-6',
                 'transition-all duration-300 shadow-inner',
                 'focus:outline-none focus:ring-2 focus:ring-[var(--matrix-accent)]/50',
                 'disabled:opacity-50 disabled:cursor-not-allowed',
@@ -284,7 +285,7 @@ export const ChatInput = memo<ChatInputProps>(
               {charCount > 0 && (
                 <div
                   className={cn(
-                    'text-[10px] font-mono transition-colors duration-300',
+                    'text-xs font-mono transition-colors duration-300',
                     isOverLimit ? 'text-red-500 font-bold' : 'text-[var(--matrix-text-dim)] opacity-50',
                   )}
                 >
@@ -303,6 +304,7 @@ export const ChatInput = memo<ChatInputProps>(
               onClick={onStop}
               className="mb-[1px]"
               title="Stop generation"
+              data-testid="btn-stop"
             >
               <StopCircle size={20} className="animate-pulse" />
             </Button>
@@ -314,6 +316,7 @@ export const ChatInput = memo<ChatInputProps>(
               disabled={!canSubmit}
               className="mb-[1px]"
               title="Send (Enter)"
+              data-testid="btn-send"
             >
               <Send size={20} strokeWidth={2.5} className="ml-0.5" />
             </Button>
@@ -322,11 +325,11 @@ export const ChatInput = memo<ChatInputProps>(
 
         {/* Footer hints */}
         <div className="flex justify-between px-2 mt-2">
-          <span className={cn('text-[10px] flex items-center gap-1 opacity-50', theme.textMuted)}>
+          <span className={cn('text-xs flex items-center gap-1 opacity-50', theme.textMuted)}>
             <Paperclip size={10} />
             Ctrl+V: paste image or file
           </span>
-          <span className={cn('text-[10px] font-mono opacity-50', theme.textMuted)}>Shift+Enter: new line</span>
+          <span className={cn('text-xs font-mono opacity-50', theme.textMuted)}>Shift+Enter: new line</span>
         </div>
       </form>
     );

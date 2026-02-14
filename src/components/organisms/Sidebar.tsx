@@ -178,16 +178,16 @@ export function Sidebar() {
   const glassPanel = isLight ? 'glass-panel-light' : 'glass-panel-dark';
 
   // Light-mode text classes for better readability
-  const textMuted = isLight ? 'text-slate-700' : 'text-slate-300';
-  const textDim = isLight ? 'text-slate-600' : 'text-slate-400';
+  const textMuted = isLight ? 'text-slate-700' : 'text-white/80';
+  const textDim = isLight ? 'text-slate-600' : 'text-white/50';
   const textHover = isLight ? 'hover:text-slate-900' : 'hover:text-white';
-  const iconMuted = isLight ? 'text-slate-600' : 'text-slate-400';
+  const iconMuted = isLight ? 'text-slate-600' : 'text-white/50';
   const iconHover = isLight ? 'group-hover:text-emerald-700' : 'group-hover:text-white';
   const hoverBg = isLight ? 'hover:bg-black/5' : 'hover:bg-white/5';
   const collapseBtn = isLight
     ? 'bg-white/70 border-emerald-600/30 hover:bg-emerald-50 hover:border-emerald-600/50'
-    : 'bg-black/40 border-matrix-accent/30 hover:bg-matrix-accent/20 hover:border-matrix-accent/50';
-  const collapseIcon = isLight ? 'text-emerald-700' : 'text-matrix-accent';
+    : 'bg-black/40 border-white/30 hover:bg-white/20 hover:border-white/50';
+  const collapseIcon = isLight ? 'text-emerald-700' : 'text-white';
 
   // ========================================
   // SIDEBAR CONTENT (shared between desktop & mobile)
@@ -195,16 +195,17 @@ export function Sidebar() {
   const sidebarContent = (
     <div
       className={cn(
-        'h-full flex flex-col z-20 relative p-2 gap-2 overflow-y-auto scrollbar-hide hover:scrollbar-thin hover:scrollbar-thumb-matrix-accent/20',
+        'h-full flex flex-col z-20 relative p-2 gap-2 overflow-y-auto scrollbar-hide hover:scrollbar-thin hover:scrollbar-thumb-white/20',
         glassPanel,
       )}
     >
       {/* Collapse Toggle Button (desktop only) */}
       <button
         type="button"
+        data-testid="btn-sidebar-collapse"
         onClick={toggleSidebar}
         className={cn(
-          'absolute -right-3 top-20 z-30 hidden md:flex items-center justify-center w-7 h-7 border rounded-full shadow-md transition-all',
+          'absolute -right-3 top-1/2 -translate-y-1/2 z-30 hidden md:flex items-center justify-center w-7 h-7 border rounded-full shadow-md transition-all',
           collapseBtn,
         )}
         title={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
@@ -216,16 +217,24 @@ export function Sidebar() {
         )}
       </button>
 
-      {/* Logo */}
-      <div className="flex items-center justify-center py-3 flex-shrink-0">
+      {/* Logo - click navigates to home */}
+      <button
+        type="button"
+        onClick={() => handleNavClick('home')}
+        className="flex items-center justify-center py-3 flex-shrink-0 cursor-pointer"
+      >
         <motion.div
-          className={cn('flex items-center justify-center', isCollapsed ? 'w-12 h-12' : 'gap-3')}
+          className={cn('flex items-center justify-center', isCollapsed ? '' : 'gap-2')}
           layout
           transition={{ type: 'spring', stiffness: 300, damping: 30 }}
         >
-          <Swords
-            size={isCollapsed ? 28 : 32}
-            className={cn('flex-shrink-0 transition-colors', isLight ? 'text-emerald-700' : 'text-matrix-accent')}
+          <img
+            src={isLight ? '/logolight.webp' : '/logodark.webp'}
+            alt="GeminiHydra Logo"
+            className={cn(
+              'flex-shrink-0 object-contain transition-all',
+              isCollapsed ? 'w-16 h-16' : 'h-36',
+            )}
             style={{
               filter: isLight
                 ? 'drop-shadow(0 0 12px rgba(45,106,79,0.5))'
@@ -246,7 +255,7 @@ export function Sidebar() {
             </motion.span>
           )}
         </motion.div>
-      </div>
+      </button>
 
       {/* Divider */}
       {!isCollapsed && <div className={cn('mx-3 border-t', isLight ? 'border-slate-200/40' : 'border-white/10')} />}
@@ -270,7 +279,7 @@ export function Sidebar() {
                     hasActiveItem
                       ? isLight
                         ? 'text-emerald-700 bg-emerald-500/10'
-                        : 'text-matrix-accent bg-matrix-accent/5'
+                        : 'text-white bg-white/5'
                       : cn(textMuted, textHover, hoverBg),
                   )}
                 >
@@ -297,6 +306,7 @@ export function Sidebar() {
                   <button
                     type="button"
                     key={item.id}
+                    data-testid={`nav-${item.id}`}
                     onClick={() => handleNavClick(item.id)}
                     className={cn(
                       'relative w-full flex items-center px-3 py-2 rounded-lg transition-all duration-200 group hover:translate-x-0.5',
@@ -304,7 +314,7 @@ export function Sidebar() {
                       currentView === item.id
                         ? isLight
                           ? 'bg-emerald-500/15 text-emerald-800'
-                          : 'bg-matrix-accent/15 text-matrix-accent'
+                          : 'bg-white/10 text-white'
                         : cn(textMuted, hoverBg, textHover),
                     )}
                     title={isCollapsed ? item.label : undefined}
@@ -316,11 +326,11 @@ export function Sidebar() {
                         currentView === item.id
                           ? isLight
                             ? 'text-emerald-700'
-                            : 'text-matrix-accent'
+                            : 'text-white'
                           : cn(iconMuted, iconHover),
                       )}
                     />
-                    {!isCollapsed && <span className="font-medium text-sm tracking-wide truncate">{item.label}</span>}
+                    {!isCollapsed && <span className="font-medium text-base tracking-wide truncate">{item.label}</span>}
                     {currentView === item.id && (
                       <motion.div
                         layoutId="sidebar-active-indicator"
@@ -328,7 +338,7 @@ export function Sidebar() {
                           'absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 rounded-r-full',
                           isLight
                             ? 'bg-emerald-600 shadow-[0_0_8px_rgba(5,150,105,0.5)]'
-                            : 'bg-white shadow-[0_0_8px_rgba(255,255,255,0.5)]',
+                            : 'bg-white shadow-[0_0_8px_rgba(255,255,255,0.4)]',
                         )}
                       />
                     )}
@@ -345,7 +355,7 @@ export function Sidebar() {
         <div className="flex flex-col gap-1 flex-1 min-h-0 overflow-hidden">
           {/* Section Header */}
           <div className="flex items-center justify-between px-3 py-1.5">
-            <span className={cn('text-xs font-bold tracking-[0.12em] uppercase', textDim)}>
+            <span className={cn('text-base font-bold tracking-[0.12em] uppercase', textDim)}>
               {t('sidebar.chats', 'CZATY')}
             </span>
             <button
@@ -362,7 +372,7 @@ export function Sidebar() {
           </div>
 
           {/* Session List */}
-          <div className="flex-1 overflow-y-auto scrollbar-hide hover:scrollbar-thin hover:scrollbar-thumb-matrix-accent/20 space-y-0.5 px-1.5">
+          <div className="flex-1 overflow-y-auto scrollbar-hide hover:scrollbar-thin hover:scrollbar-thumb-white/20 space-y-0.5 px-1.5">
             {sortedSessions.map((session) => {
               const isActive = session.id === currentSessionId;
               const msgCount = (chatHistory[session.id] || []).length;
@@ -377,7 +387,7 @@ export function Sidebar() {
                     isActive
                       ? isLight
                         ? 'bg-emerald-500/15 text-emerald-800'
-                        : 'bg-matrix-accent/15 text-matrix-accent'
+                        : 'bg-white/10 text-white'
                       : cn(textMuted, hoverBg, textHover),
                   )}
                   title={session.title}
@@ -386,13 +396,13 @@ export function Sidebar() {
                     size={14}
                     className={cn(
                       'flex-shrink-0 transition-colors',
-                      isActive ? (isLight ? 'text-emerald-700' : 'text-matrix-accent') : iconMuted,
+                      isActive ? (isLight ? 'text-emerald-700' : 'text-white') : iconMuted,
                     )}
                   />
                   <div className="flex-1 min-w-0">
-                    <span className="text-xs truncate block leading-tight">{session.title}</span>
+                    <span className="text-base truncate block leading-tight">{session.title}</span>
                     {msgCount > 0 && (
-                      <span className={cn('text-[11px] font-mono', textDim)}>
+                      <span className={cn('text-xs font-mono', textDim)}>
                         {msgCount} {msgCount === 1 ? 'msg' : 'msgs'}
                       </span>
                     )}
@@ -438,7 +448,7 @@ export function Sidebar() {
             className={cn('p-2 rounded-lg transition-all', hoverBg)}
             title={t('sidebar.newChat', 'Nowy czat')}
           >
-            <Plus size={18} className={cn(iconMuted, 'hover:text-matrix-accent transition-colors')} />
+            <Plus size={18} className={cn(iconMuted, 'hover:text-white transition-colors')} />
           </button>
         </div>
       )}
@@ -448,6 +458,7 @@ export function Sidebar() {
         {/* Theme Toggle */}
         <button
           type="button"
+          data-testid="btn-theme-toggle"
           onClick={toggleTheme}
           className={cn(
             'flex items-center gap-3 w-full p-2 rounded-lg transition-all group',
@@ -458,13 +469,13 @@ export function Sidebar() {
         >
           <div className="relative">
             {resolvedTheme === 'dark' ? (
-              <Moon size={18} className="text-slate-400 group-hover:text-matrix-accent transition-colors" />
+              <Moon size={18} className="text-slate-400 group-hover:text-white transition-colors" />
             ) : (
               <Sun size={18} className="text-amber-600 group-hover:text-amber-500 transition-colors" />
             )}
           </div>
           {!isCollapsed && (
-            <span className={cn('text-sm font-mono tracking-tight truncate', textMuted, textHover)}>
+            <span className={cn('text-base font-mono tracking-tight truncate', textMuted, textHover)}>
               {resolvedTheme === 'dark'
                 ? i18n.language === 'pl'
                   ? 'TRYB CIEMNY'
@@ -493,9 +504,9 @@ export function Sidebar() {
                 <Globe size={18} className={cn(iconMuted, iconHover, 'transition-colors')} />
               </div>
               {!isCollapsed && (
-                <span className={cn('text-sm font-mono truncate', textMuted, textHover)}>
+                <span className={cn('text-base font-mono truncate', textMuted, textHover)}>
                   <span className="mr-1.5">{currentLang?.flag}</span>
-                  <span className={cn('font-bold', isLight ? 'text-emerald-700' : 'text-matrix-accent')}>
+                  <span className={cn('font-bold', isLight ? 'text-emerald-700' : 'text-white')}>
                     {currentLang?.code.toUpperCase()}
                   </span>
                 </span>
@@ -521,7 +532,7 @@ export function Sidebar() {
                   'absolute bottom-full left-0 right-0 mb-1 rounded-xl backdrop-blur-xl border overflow-hidden z-50',
                   isLight
                     ? 'bg-white/95 border-emerald-600/20 shadow-[0_8px_32px_rgba(0,0,0,0.15)]'
-                    : 'bg-black/90 border-matrix-accent/20 shadow-[0_8px_32px_rgba(0,0,0,0.6)]',
+                    : 'bg-black/90 border-white/20 shadow-[0_8px_32px_rgba(0,0,0,0.6)]',
                 )}
               >
                 {languages.map((lang) => (
@@ -534,7 +545,7 @@ export function Sidebar() {
                       i18n.language === lang.code
                         ? isLight
                           ? 'bg-emerald-500/15 text-emerald-800'
-                          : 'bg-matrix-accent/20 text-matrix-accent'
+                          : 'bg-white/15 text-white'
                         : cn(textMuted, hoverBg, textHover),
                     )}
                   >
@@ -560,8 +571,8 @@ export function Sidebar() {
 
       {/* Version */}
       {!isCollapsed && (
-        <div className={cn('text-center text-sm py-2', isLight ? 'text-slate-600' : 'text-slate-500')}>
-          <span className={isLight ? 'text-emerald-700' : 'text-matrix-accent'}>GeminiHydra</span> v15.0.0 | Wolf Swarm
+        <div className={cn('text-center text-xs py-2', isLight ? 'text-slate-600' : 'text-white/50')}>
+          <span className={isLight ? 'text-emerald-700' : 'text-white'}>GeminiHydra</span> v15.0.0 | Wolf Swarm
         </div>
       )}
     </div>

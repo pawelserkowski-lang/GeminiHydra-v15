@@ -93,7 +93,7 @@ export const MessageBubble = memo<MessageBubbleProps>(({ message, isLast, isStre
 
   const bubbleClass = cn(
     'relative max-w-[85%] rounded-2xl px-4 py-3',
-    'text-sm leading-relaxed font-mono',
+    'text-base leading-relaxed font-mono',
     isUser && [
       theme.isLight
         ? 'bg-emerald-500/15 border border-emerald-500/20 text-black'
@@ -171,17 +171,17 @@ export const MessageBubble = memo<MessageBubbleProps>(({ message, isLast, isStre
 
         {/* System header */}
         {isSystem && (
-          <div className="flex items-center gap-2 mb-1.5 border-b border-white/15 pb-1.5 text-white/70">
+          <div className="flex items-center gap-2 mb-1.5 border-b border-matrix-accent/15 pb-1.5 text-matrix-accent/70">
             <Terminal size={14} />
-            <span className="font-bold text-xs uppercase tracking-wider">System Output</span>
+            <span className="font-bold text-sm uppercase tracking-wider">System Output</span>
           </div>
         )}
 
         {/* Model badge */}
         {!isUser && !isSystem && message.model && (
-          <div className="flex items-center gap-1.5 mb-1.5 pb-1 border-b border-white/10">
+          <div className="flex items-center gap-1.5 mb-1.5 pb-1 border-b border-matrix-accent/10">
             <Cpu size={11} className={cn(theme.accentText, 'opacity-70')} />
-            <span className={cn('text-[10px] font-mono tracking-wide opacity-70', theme.accentText)}>
+            <span className={cn('text-xs font-mono tracking-wide opacity-70', theme.accentText)}>
               {message.model}
             </span>
           </div>
@@ -200,7 +200,7 @@ export const MessageBubble = memo<MessageBubbleProps>(({ message, isLast, isStre
                   return <CodeBlock language={match[1]} code={String(children).replace(/\n$/, '')} />;
                 }
                 return (
-                  <code {...rest} className={cn(className, 'bg-black/20 px-1.5 py-0.5 rounded text-[13px]')}>
+                  <code {...rest} className={cn(className, 'bg-black/20 px-1.5 py-0.5 rounded text-sm')}>
                     {children}
                   </code>
                 );
@@ -217,7 +217,7 @@ export const MessageBubble = memo<MessageBubbleProps>(({ message, isLast, isStre
 
         {/* Timestamp */}
         {message.timestamp > 0 && (
-          <div className={cn('text-[10px] mt-1.5 font-mono', theme.textMuted)}>
+          <div className={cn('text-xs mt-1.5 font-mono', theme.textMuted)}>
             {new Date(message.timestamp).toLocaleTimeString('en-US', {
               hour: '2-digit',
               minute: '2-digit',
@@ -236,7 +236,7 @@ export const MessageBubble = memo<MessageBubbleProps>(({ message, isLast, isStre
         <div
           className={cn(
             'flex-shrink-0 w-7 h-7 rounded-lg flex items-center justify-center mb-1',
-            theme.isLight ? 'bg-emerald-500/15' : 'bg-white/15',
+            theme.isLight ? 'bg-emerald-500/15' : 'bg-matrix-accent/15',
           )}
         >
           <User size={14} className={theme.accentText} />

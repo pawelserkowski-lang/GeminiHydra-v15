@@ -110,15 +110,16 @@ const StatusFooterComponent = ({
 
   return (
     <footer
+      data-testid="status-footer"
       className={cn(
-        'px-6 py-2.5 border-t text-xs flex items-center justify-between shrink-0 transition-all duration-500',
-        isLight ? 'border-slate-200/30 bg-white/40 text-slate-600' : 'border-white/10 bg-black/40 text-slate-300',
+        'px-6 py-2.5 border-t text-sm flex items-center justify-between shrink-0 transition-all duration-500',
+        isLight ? 'border-slate-200/30 bg-white/40 text-slate-600' : 'border-white/10 bg-black/20 text-slate-400',
       )}
     >
       {/* Left: Version + Connection + CPU + RAM */}
       <div className="flex items-center gap-4">
         {/* Version */}
-        <span className={isLight ? 'text-emerald-600' : 'text-matrix-accent'}>v15.0.0</span>
+        <span className={isLight ? 'text-emerald-600' : 'text-white'}>v15.0.0</span>
 
         <span className={dividerCls}>|</span>
 
@@ -152,7 +153,7 @@ const StatusFooterComponent = ({
         )}
 
         {/* Model name */}
-        <span className={isLight ? 'text-slate-700' : 'text-[var(--matrix-text-dim)]'}>{selectedModel}</span>
+        <span className={isLight ? 'text-slate-700' : 'text-white/50'}>{selectedModel}</span>
 
         <span className={dividerCls}>|</span>
 
@@ -175,7 +176,7 @@ const StatusFooterComponent = ({
 
         {/* Live time */}
         <span
-          className={cn('font-mono font-semibold tabular-nums', isLight ? 'text-emerald-600' : 'text-matrix-accent')}
+          className={cn('font-mono font-semibold tabular-nums', isLight ? 'text-emerald-600' : 'text-white')}
         >
           {currentTime}
         </span>
