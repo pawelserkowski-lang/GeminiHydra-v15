@@ -10,10 +10,9 @@ import { apiGet, apiPost } from '@/shared/api/client';
 import type { ExecuteResponse, GeminiModels } from '@/shared/api/schemas';
 
 interface ChatExecuteInput {
-  message: string;
-  agent_id?: string;
+  prompt: string;
+  mode: string;
   model?: string;
-  temperature?: number;
 }
 
 export function useChatExecuteMutation() {

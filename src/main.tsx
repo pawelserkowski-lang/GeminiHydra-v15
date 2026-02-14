@@ -48,14 +48,14 @@ function ChatViewWrapper() {
       setIsStreaming(true);
 
       executeMutation.mutate(
-        { message: prompt },
+        { prompt, mode: 'chat' },
         {
           onSuccess: (data) => {
             addMessage({
               role: 'assistant',
-              content: data.response,
+              content: data.result,
               timestamp: Date.now(),
-              model: data.model,
+              model: data.plan?.agent,
             });
             setIsStreaming(false);
           },

@@ -40,28 +40,80 @@ fn build_providers(state: &AppState) -> Vec<ProviderInfo> {
     ]
 }
 
-/// Simple keyword-based agent classification.
+/// Strip Polish diacritics so keywords work regardless of user input style.
+fn strip_diacritics(s: &str) -> String {
+    s.chars()
+        .map(|c| match c {
+            'ą' => 'a',
+            'ć' => 'c',
+            'ę' => 'e',
+            'ł' => 'l',
+            'ń' => 'n',
+            'ó' => 'o',
+            'ś' => 's',
+            'ź' | 'ż' => 'z',
+            _ => c,
+        })
+        .collect()
+}
+
+/// Check if `text` contains `keyword` with appropriate matching.
+/// Short keywords (< 4 chars) require whole-word matching to prevent false positives
+/// like "logike" (PL: logic) matching "log", or "cd" inside random words.
+/// Longer keywords use substring matching for prefix support (e.g. "optim" → "optimization").
+fn keyword_match(text: &str, keyword: &str) -> bool {
+    if keyword.len() >= 4 {
+        text.contains(keyword)
+    } else {
+        text.split(|c: char| !c.is_alphanumeric())
+            .any(|word| word == keyword)
+    }
+}
+
+/// Keyword-based agent classification with EN + PL support.
 fn classify_prompt(prompt: &str) -> (String, f64, String) {
-    let lower = prompt.to_lowercase();
+    let lower = strip_diacritics(&prompt.to_lowercase());
 
     // Order matters — first match wins. More specific patterns first.
+    // Keywords include both EN and PL variants (diacritics already stripped).
     let rules: &[(&[&str], &str, &str)] = &[
-        (&["architecture", "design", "pattern", "struct"],   "yennefer", "Prompt relates to architecture and design"),
-        (&["test", "quality", "qa", "assert", "coverage"],   "vesemir",  "Prompt relates to testing and quality assurance"),
-        (&["security", "protect", "auth", "encrypt", "threat", "vulnerability"], "geralt", "Prompt relates to security and protection"),
-        (&["monitor", "audit", "incident", "alert", "log"],  "philippa", "Prompt relates to security monitoring"),
-        (&["data", "analytic", "database", "sql", "query"],  "triss",    "Prompt relates to data and analytics"),
-        (&["doc", "document", "readme", "comment", "communication"], "jaskier", "Prompt relates to documentation"),
-        (&["perf", "optim", "speed", "latency", "benchmark"],"ciri",     "Prompt relates to performance and optimization"),
-        (&["plan", "strateg", "roadmap", "priorit"],         "dijkstra", "Prompt relates to strategy and planning"),
-        (&["devops", "deploy", "ci", "cd", "docker", "infra", "pipeline"], "lambert", "Prompt relates to DevOps and infrastructure"),
-        (&["backend", "api", "server", "endpoint", "rest"],  "eskel",    "Prompt relates to backend and APIs"),
-        (&["research", "knowledge", "learn", "study", "paper"], "regis", "Prompt relates to research and knowledge"),
-        (&["frontend", "ui", "ux", "component", "css", "react"], "zoltan", "Prompt relates to frontend and UI"),
+        (&["architecture", "design", "pattern", "struct", "architektur", "wzorzec", "refaktor"],
+         "yennefer", "Prompt relates to architecture and design"),
+        (&["test", "quality", "assert", "coverage", "testy", "jakosc", "pokrycie"],
+         "vesemir", "Prompt relates to testing and quality assurance"),
+        (&["security", "protect", "auth", "encrypt", "threat", "vulnerability",
+           "bezpieczenst", "zabezpiecz", "szyfrowa", "zagrozeni", "injection", "cors", "xss"],
+         "geralt", "Prompt relates to security and protection"),
+        (&["monitor", "audit", "incident", "alert", "logging",
+           "monitorowa", "audyt", "incydent"],
+         "philippa", "Prompt relates to security monitoring"),
+        (&["data", "analytic", "database", "sql", "query",
+           "dane", "baza danych", "zapytani"],
+         "triss", "Prompt relates to data and analytics"),
+        (&["document", "readme", "comment", "communication",
+           "dokumentacj", "komentarz", "komunikacj"],
+         "jaskier", "Prompt relates to documentation"),
+        (&["perf", "optim", "speed", "latency", "benchmark",
+           "wydajnosc", "szybkosc", "opoznieni"],
+         "ciri", "Prompt relates to performance and optimization"),
+        (&["plan", "strateg", "roadmap", "priorit",
+           "planowa", "priorytet"],
+         "dijkstra", "Prompt relates to strategy and planning"),
+        (&["devops", "deploy", "docker", "infra", "pipeline", "cicd", "kubernetes",
+           "wdrozeni", "kontener"],
+         "lambert", "Prompt relates to DevOps and infrastructure"),
+        (&["backend", "endpoint", "rest", "serwer", "api"],
+         "eskel", "Prompt relates to backend and APIs"),
+        (&["research", "knowledge", "learn", "study", "paper",
+           "badani", "wiedza", "nauka"],
+         "regis", "Prompt relates to research and knowledge"),
+        (&["frontend", "ui", "ux", "component", "react", "hook",
+           "komponent", "interfejs", "css"],
+         "zoltan", "Prompt relates to frontend and UI"),
     ];
 
     for (keywords, agent_id, reasoning) in rules {
-        if keywords.iter().any(|kw| lower.contains(kw)) {
+        if keywords.iter().any(|kw| keyword_match(&lower, kw)) {
             return (agent_id.to_string(), 0.85, reasoning.to_string());
         }
     }

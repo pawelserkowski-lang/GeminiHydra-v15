@@ -68,17 +68,18 @@ export type ClassifyResponse = z.infer<typeof classifyResponseSchema>;
 // EXECUTE
 // ============================================================================
 
-export const executePlanStepSchema = z.object({
-  steps: z.array(z.string()),
-});
-
-export type ExecutePlanStep = z.infer<typeof executePlanStepSchema>;
-
 export const executeResponseSchema = z.object({
-  response: z.string(),
-  agent_name: z.string(),
-  model: z.string(),
-  plan: executePlanStepSchema.optional(),
+  id: z.string(),
+  result: z.string(),
+  mode: z.string(),
+  duration_ms: z.number(),
+  plan: z
+    .object({
+      agent: z.string().optional(),
+      steps: z.array(z.string()),
+      estimated_time: z.string().optional(),
+    })
+    .optional(),
 });
 
 export type ExecuteResponse = z.infer<typeof executeResponseSchema>;
