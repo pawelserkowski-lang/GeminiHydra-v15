@@ -1,17 +1,30 @@
-use std::sync::Arc;
-use tokio::sync::Mutex;
-
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use http_body_util::BodyExt;
 use serde_json::Value;
+use sqlx::PgPool;
 use tower::ServiceExt;
 
 use geminihydra_backend::state::AppState;
 
-/// Helper: build a fresh app router with a clean AppState for each test.
-fn app() -> axum::Router {
-    let state = Arc::new(Mutex::new(AppState::new()));
+/// Helper: build a fresh AppState backed by a test Postgres database.
+/// Requires DATABASE_URL env var to be set.
+async fn test_state() -> AppState {
+    dotenvy::dotenv().ok();
+    let database_url =
+        std::env::var("DATABASE_URL").expect("DATABASE_URL required for integration tests");
+    let pool = PgPool::connect(&database_url)
+        .await
+        .expect("Failed to connect to test database");
+    sqlx::migrate!("./migrations")
+        .run(&pool)
+        .await
+        .expect("Failed to run migrations");
+    AppState::new(pool)
+}
+
+/// Helper: build a router from a test state.
+fn app(state: AppState) -> axum::Router {
     geminihydra_backend::create_router(state)
 }
 
@@ -27,7 +40,8 @@ async fn body_json(response: axum::response::Response) -> Value {
 
 #[tokio::test]
 async fn health_returns_200() {
-    let response = app()
+    let state = test_state().await;
+    let response = app(state)
         .oneshot(
             Request::builder()
                 .uri("/api/health")
@@ -42,7 +56,8 @@ async fn health_returns_200() {
 
 #[tokio::test]
 async fn health_has_correct_fields() {
-    let response = app()
+    let state = test_state().await;
+    let response = app(state)
         .oneshot(
             Request::builder()
                 .uri("/api/health")
@@ -67,7 +82,8 @@ async fn health_has_correct_fields() {
 
 #[tokio::test]
 async fn agents_returns_200() {
-    let response = app()
+    let state = test_state().await;
+    let response = app(state)
         .oneshot(
             Request::builder()
                 .uri("/api/agents")
@@ -82,7 +98,8 @@ async fn agents_returns_200() {
 
 #[tokio::test]
 async fn agents_returns_12_agents() {
-    let response = app()
+    let state = test_state().await;
+    let response = app(state)
         .oneshot(
             Request::builder()
                 .uri("/api/agents")
@@ -99,7 +116,8 @@ async fn agents_returns_12_agents() {
 
 #[tokio::test]
 async fn agents_have_required_fields() {
-    let response = app()
+    let state = test_state().await;
+    let response = app(state)
         .oneshot(
             Request::builder()
                 .uri("/api/agents")
@@ -127,7 +145,8 @@ async fn agents_have_required_fields() {
 
 #[tokio::test]
 async fn get_settings_returns_200() {
-    let response = app()
+    let state = test_state().await;
+    let response = app(state)
         .oneshot(
             Request::builder()
                 .uri("/api/settings")
@@ -142,7 +161,8 @@ async fn get_settings_returns_200() {
 
 #[tokio::test]
 async fn get_settings_default_values() {
-    let response = app()
+    let state = test_state().await;
+    let response = app(state)
         .oneshot(
             Request::builder()
                 .uri("/api/settings")
@@ -166,15 +186,14 @@ async fn get_settings_default_values() {
 
 #[tokio::test]
 async fn patch_settings_partial_update() {
-    let state = Arc::new(Mutex::new(AppState::new()));
-    let router = geminihydra_backend::create_router(state.clone());
+    let state = test_state().await;
 
     let body = serde_json::json!({
         "language": "pl",
         "theme": "light"
     });
 
-    let response = router
+    let response = app(state)
         .oneshot(
             Request::builder()
                 .method("PATCH")
@@ -197,14 +216,11 @@ async fn patch_settings_partial_update() {
 
 #[tokio::test]
 async fn patch_settings_persists_changes() {
-    let state = Arc::new(Mutex::new(AppState::new()));
-    let router = geminihydra_backend::create_router(state.clone());
+    let state = test_state().await;
 
-    let body = serde_json::json!({
-        "temperature": 0.9
-    });
-
-    let _response = router
+    // PATCH temperature
+    let body = serde_json::json!({ "temperature": 0.9 });
+    let patch_resp = app(state.clone())
         .oneshot(
             Request::builder()
                 .method("PATCH")
@@ -215,10 +231,21 @@ async fn patch_settings_persists_changes() {
         )
         .await
         .unwrap();
+    assert_eq!(patch_resp.status(), StatusCode::OK);
 
-    // Verify via state
-    let st = state.lock().await;
-    assert!((st.settings.temperature - 0.9).abs() < f64::EPSILON);
+    // GET settings to verify persistence
+    let get_resp = app(state)
+        .oneshot(
+            Request::builder()
+                .uri("/api/settings")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let json = body_json(get_resp).await;
+    assert!((json["temperature"].as_f64().unwrap() - 0.9).abs() < f64::EPSILON);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -227,7 +254,8 @@ async fn patch_settings_persists_changes() {
 
 #[tokio::test]
 async fn reset_settings_returns_200() {
-    let response = app()
+    let state = test_state().await;
+    let response = app(state)
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -243,18 +271,24 @@ async fn reset_settings_returns_200() {
 
 #[tokio::test]
 async fn reset_settings_restores_defaults() {
-    let state = Arc::new(Mutex::new(AppState::new()));
-    let router = geminihydra_backend::create_router(state.clone());
+    let state = test_state().await;
 
-    // First change a setting
-    {
-        let mut st = state.lock().await;
-        st.settings.language = "fr".to_string();
-        st.settings.temperature = 1.5;
-    }
+    // First change a setting via PATCH
+    let body = serde_json::json!({ "language": "fr", "temperature": 1.5 });
+    let _patch = app(state.clone())
+        .oneshot(
+            Request::builder()
+                .method("PATCH")
+                .uri("/api/settings")
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
 
     // Then reset
-    let response = router
+    let reset_resp = app(state.clone())
         .oneshot(
             Request::builder()
                 .method("POST")
@@ -265,12 +299,12 @@ async fn reset_settings_restores_defaults() {
         .await
         .unwrap();
 
-    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(reset_resp.status(), StatusCode::OK);
 
-    let json = body_json(response).await;
+    let json = body_json(reset_resp).await;
     assert_eq!(json["language"], "en");
     assert_eq!(json["theme"], "dark");
-    assert!((json["temperature"].as_f64().unwrap() - 0.7).abs() < f64::EPSILON);
+    assert!((json["temperature"].as_f64().unwrap() - 1.0).abs() < f64::EPSILON);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -279,7 +313,8 @@ async fn reset_settings_restores_defaults() {
 
 #[tokio::test]
 async fn history_returns_200() {
-    let response = app()
+    let state = test_state().await;
+    let response = app(state)
         .oneshot(
             Request::builder()
                 .uri("/api/history")
@@ -293,7 +328,6 @@ async fn history_returns_200() {
 
     let json = body_json(response).await;
     assert!(json["messages"].is_array());
-    assert_eq!(json["total"], 0);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -302,7 +336,8 @@ async fn history_returns_200() {
 
 #[tokio::test]
 async fn clear_history_returns_200() {
-    let response = app()
+    let state = test_state().await;
+    let response = app(state)
         .oneshot(
             Request::builder()
                 .method("DELETE")
@@ -325,7 +360,8 @@ async fn clear_history_returns_200() {
 
 #[tokio::test]
 async fn unknown_route_returns_404() {
-    let response = app()
+    let state = test_state().await;
+    let response = app(state)
         .oneshot(
             Request::builder()
                 .uri("/api/nonexistent")

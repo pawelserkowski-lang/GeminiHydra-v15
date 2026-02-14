@@ -42,10 +42,8 @@ function AppShellInner({ children, statusFooterProps }: AppShellProps) {
 
   const currentView = useViewStore((s) => s.currentView);
 
-  const glassPanel = isLight ? 'glass-panel-light' : 'glass-panel-dark';
-
   return (
-    <div className="relative flex h-screen w-full text-slate-100 overflow-hidden font-mono selection:bg-matrix-accent selection:text-black transition-colors duration-500">
+    <div className={`relative flex h-screen w-full ${isLight ? 'text-black selection:bg-emerald-500 selection:text-white' : 'text-white selection:bg-white/30 selection:text-white'} overflow-hidden font-mono transition-colors duration-500`}>
       {/* Background layers */}
       <LayeredBackground resolvedTheme={resolvedTheme} />
 
@@ -55,12 +53,12 @@ function AppShellInner({ children, statusFooterProps }: AppShellProps) {
       </Suspense>
 
       {/* Main Content */}
-      <div className="relative z-10 flex h-full w-full backdrop-blur-[1px] gap-3 p-3 overflow-hidden">
+      <div className="relative z-10 flex h-full w-full backdrop-blur-[1px] gap-4 p-4 overflow-hidden">
         {/* Sidebar */}
         <Sidebar />
 
         {/* Main Content Area */}
-        <main className={cn('flex-1 min-w-0 flex flex-col overflow-hidden relative rounded-2xl', glassPanel)}>
+        <main data-testid="main-content" className={cn('flex-1 min-w-0 flex flex-col overflow-hidden relative rounded-2xl', isLight ? 'bg-white/40 backdrop-blur-xl border border-white/20 shadow-lg' : 'bg-black/40 backdrop-blur-xl border border-white/10 shadow-2xl')}>
           {/* Chat Tab Bar — only visible in chat view */}
           {currentView === 'chat' && <TabBar />}
 

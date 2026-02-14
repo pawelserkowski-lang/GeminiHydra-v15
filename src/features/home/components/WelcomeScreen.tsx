@@ -15,7 +15,6 @@ import {
   Plus,
   Settings,
   Sparkles,
-  Swords,
   Users,
   Workflow,
 } from 'lucide-react';
@@ -189,6 +188,7 @@ export const WelcomeScreen = memo(() => {
     <div className="h-full flex flex-col items-center justify-center p-8 overflow-y-auto">
       {/* ====== Hero Card ====== */}
       <motion.div
+        data-testid="welcome-hero"
         className={cn('flex flex-col items-center gap-6 p-8 rounded-3xl max-w-lg w-full', theme.card)}
         variants={heroVariants}
         initial="hidden"
@@ -200,17 +200,11 @@ export const WelcomeScreen = memo(() => {
             className="absolute inset-0 rounded-2xl blur-xl opacity-40"
             style={{ background: 'var(--matrix-accent)' }}
           />
-          <div
-            className={cn(
-              'relative w-20 h-20 rounded-2xl flex items-center justify-center',
-              'shadow-lg',
-              theme.accentBg,
-              theme.accentBorder,
-              'border',
-            )}
-          >
-            <Swords size={36} className={theme.accentText} />
-          </div>
+          <img
+            src={theme.isLight ? '/logolight.webp' : '/logodark.webp'}
+            alt="GeminiHydra Logo"
+            className="relative w-56 h-56 object-contain drop-shadow-lg"
+          />
         </div>
 
         {/* Title */}
@@ -244,7 +238,7 @@ export const WelcomeScreen = memo(() => {
           initial="hidden"
           animate="visible"
         >
-          <Button variant="primary" size="md" leftIcon={<Plus size={16} />} onClick={handleNewChat} className="w-full">
+          <Button variant="primary" size="md" leftIcon={<Plus size={16} />} onClick={handleNewChat} className="w-full" data-testid="btn-new-chat">
             New Chat
           </Button>
           <Button

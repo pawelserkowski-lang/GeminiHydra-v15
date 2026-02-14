@@ -1,13 +1,26 @@
-use std::sync::Arc;
-use tokio::sync::Mutex;
+use sqlx::postgres::PgPoolOptions;
 use tower_http::cors::{AllowHeaders, AllowMethods, AllowOrigin, CorsLayer};
 use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::trace::TraceLayer;
 
 use geminihydra_backend::state::AppState;
 
-fn build_app() -> axum::Router {
-    let shared_state = Arc::new(Mutex::new(AppState::new()));
+async fn build_app() -> axum::Router {
+    dotenvy::dotenv().ok();
+
+    let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL required");
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&database_url)
+        .await
+        .expect("Failed to connect to Postgres");
+
+    sqlx::migrate!("./migrations")
+        .run(&pool)
+        .await
+        .expect("Failed to run migrations");
+
+    let state = AppState::new(pool);
 
     // CORS — allow Vite dev server + Vercel production
     let cors = CorsLayer::new()
@@ -16,12 +29,14 @@ fn build_app() -> axum::Router {
             "http://localhost:5173".parse().unwrap(),
             "http://localhost:3000".parse().unwrap(),
             "https://geminihydra-v15.vercel.app".parse().unwrap(),
-            "https://geminihydra-v15-pawelserkowskis-projects.vercel.app".parse().unwrap(),
+            "https://geminihydra-v15-pawelserkowskis-projects.vercel.app"
+                .parse()
+                .unwrap(),
         ]))
         .allow_methods(AllowMethods::any())
         .allow_headers(AllowHeaders::any());
 
-    geminihydra_backend::create_router(shared_state)
+    geminihydra_backend::create_router(state)
         .layer(RequestBodyLimitLayer::new(10 * 1024 * 1024))
         .layer(cors)
         .layer(TraceLayer::new_for_http())
@@ -31,10 +46,10 @@ fn build_app() -> axum::Router {
 #[cfg(feature = "shuttle")]
 #[shuttle_runtime::main]
 async fn main() -> shuttle_axum::ShuttleAxum {
-    Ok(build_app().into())
+    Ok(build_app().await.into())
 }
 
-// ── Local development entry point ───────────────────────────────────
+// ── Local / Fly.io entry point ──────────────────────────────────────
 #[cfg(not(feature = "shuttle"))]
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -46,9 +61,7 @@ async fn main() -> anyhow::Result<()> {
         )
         .init();
 
-    dotenvy::dotenv().ok();
-
-    let app = build_app();
+    let app = build_app().await;
 
     let port: u16 = std::env::var("PORT")
         .unwrap_or_else(|_| "8081".to_string())

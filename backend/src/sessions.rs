@@ -1,19 +1,23 @@
-//! Session, History, Settings & Memory endpoints (Agent 2).
+//! Session, History, Settings & Memory endpoints.
 //!
 //! This module is kept separate from `handlers.rs` to avoid merge conflicts.
-//! It owns the memory / knowledge-graph models and all related API handlers.
+//! It owns the memory / knowledge-graph response models and all related API handlers.
 
 use axum::extract::{Query, State};
+use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use crate::handlers::SharedState;
-use crate::models::{AppSettings, ChatMessage};
+use crate::models::{
+    AppSettings, ChatMessage, ChatMessageRow, KnowledgeEdgeRow, KnowledgeNodeRow, MemoryRow,
+    SettingsRow,
+};
+use crate::state::AppState;
 
 // ============================================================================
-// Models (re-exported so state.rs can reference them)
+// Response models
 // ============================================================================
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -21,7 +25,7 @@ pub struct MemoryEntry {
     pub id: String,
     pub agent: String,
     pub content: String,
-    pub importance: f64, // 0.0 – 1.0
+    pub importance: f64,
     pub timestamp: String,
 }
 
@@ -48,7 +52,7 @@ pub struct SearchQuery {
 
 #[derive(Debug, Deserialize)]
 pub struct AddMessageRequest {
-    pub role: String, // "user" | "assistant" | "system"
+    pub role: String,
     pub content: String,
     #[serde(default)]
     pub model: Option<String>,
@@ -99,28 +103,61 @@ pub struct AddMemoryRequest {
 }
 
 // ============================================================================
-// Helpers
+// Conversions
 // ============================================================================
 
-/// ISO 8601 timestamp via chrono.
-fn now_iso() -> String {
-    chrono::Utc::now().to_rfc3339()
+fn row_to_message(row: ChatMessageRow) -> ChatMessage {
+    ChatMessage {
+        id: row.id.to_string(),
+        role: row.role,
+        content: row.content,
+        model: row.model,
+        timestamp: row.created_at.to_rfc3339(),
+        agent: row.agent,
+    }
+}
+
+fn row_to_settings(row: SettingsRow) -> AppSettings {
+    AppSettings {
+        temperature: row.temperature,
+        max_tokens: row.max_tokens as u32,
+        default_model: row.default_model,
+        language: row.language,
+        theme: row.theme,
+    }
+}
+
+fn row_to_memory(row: MemoryRow) -> MemoryEntry {
+    MemoryEntry {
+        id: row.id.to_string(),
+        agent: row.agent,
+        content: row.content,
+        importance: row.importance,
+        timestamp: row.created_at.to_rfc3339(),
+    }
+}
+
+fn row_to_node(row: KnowledgeNodeRow) -> KnowledgeNode {
+    KnowledgeNode {
+        id: row.id,
+        node_type: row.node_type,
+        label: row.label,
+    }
+}
+
+fn row_to_edge(row: KnowledgeEdgeRow) -> KnowledgeEdge {
+    KnowledgeEdge {
+        source: row.source,
+        target: row.target,
+        label: row.label,
+    }
 }
 
 // ============================================================================
 // Route builder — merge this into the main Router
 // ============================================================================
 
-/// Returns all session/history/settings/memory routes.
-///
-/// Usage in `main.rs`:
-/// ```ignore
-/// let app = Router::new()
-///     .merge(session_routes())
-///     // ... other routes ...
-///     .with_state(shared_state);
-/// ```
-pub fn session_routes() -> Router<SharedState> {
+pub fn session_routes() -> Router<AppState> {
     Router::new()
         .route(
             "/api/history",
@@ -144,67 +181,95 @@ pub fn session_routes() -> Router<SharedState> {
 
 /// GET /api/history?limit=50
 async fn get_history(
-    State(state): State<SharedState>,
+    State(state): State<AppState>,
     Query(params): Query<HistoryParams>,
-) -> Json<Value> {
-    let state = state.lock().await;
-    let limit = params.limit.unwrap_or(50);
-    let total = state.history.len();
-    let start = total.saturating_sub(limit);
-    let messages: Vec<&ChatMessage> = state.history[start..].iter().collect();
+) -> Result<Json<Value>, StatusCode> {
+    let limit = params.limit.unwrap_or(50) as i64;
 
-    Json(json!({
+    let total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM gh_chat_messages")
+        .fetch_one(&state.db)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let rows = sqlx::query_as::<_, ChatMessageRow>(
+        "SELECT * FROM (\
+            SELECT id, role, content, model, agent, created_at \
+            FROM gh_chat_messages ORDER BY created_at DESC LIMIT $1\
+        ) sub ORDER BY created_at ASC",
+    )
+    .bind(limit)
+    .fetch_all(&state.db)
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let messages: Vec<ChatMessage> = rows.into_iter().map(row_to_message).collect();
+    let returned = messages.len();
+
+    Ok(Json(json!({
         "messages": messages,
         "total": total,
-        "returned": messages.len(),
-    }))
+        "returned": returned,
+    })))
 }
 
 /// GET /api/history/search?q=...
 async fn search_history(
-    State(state): State<SharedState>,
+    State(state): State<AppState>,
     Query(params): Query<SearchQuery>,
-) -> Json<Value> {
-    let state = state.lock().await;
-    let query_lower = params.q.to_lowercase();
-    let matches: Vec<&ChatMessage> = state
-        .history
-        .iter()
-        .filter(|m| m.content.to_lowercase().contains(&query_lower))
-        .collect();
+) -> Result<Json<Value>, StatusCode> {
+    let pattern = format!("%{}%", params.q);
 
-    Json(json!({
+    let rows = sqlx::query_as::<_, ChatMessageRow>(
+        "SELECT id, role, content, model, agent, created_at \
+         FROM gh_chat_messages WHERE content ILIKE $1 ORDER BY created_at ASC",
+    )
+    .bind(&pattern)
+    .fetch_all(&state.db)
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let results: Vec<ChatMessage> = rows.into_iter().map(row_to_message).collect();
+    let count = results.len();
+
+    Ok(Json(json!({
         "query": params.q,
-        "results": matches,
-        "count": matches.len(),
-    }))
+        "results": results,
+        "count": count,
+    })))
 }
 
-/// POST /api/history  — add a single message
+/// POST /api/history — add a single message
 async fn add_message(
-    State(state): State<SharedState>,
+    State(state): State<AppState>,
     Json(body): Json<AddMessageRequest>,
-) -> Json<Value> {
-    let mut state = state.lock().await;
-    let msg = ChatMessage {
-        id: uuid::Uuid::new_v4().to_string(),
-        role: body.role,
-        content: body.content,
-        model: body.model,
-        timestamp: now_iso(),
-        agent: body.agent,
-    };
-    state.history.push(msg.clone());
+) -> Result<Json<Value>, StatusCode> {
+    let row = sqlx::query_as::<_, ChatMessageRow>(
+        "INSERT INTO gh_chat_messages (role, content, model, agent) \
+         VALUES ($1, $2, $3, $4) \
+         RETURNING id, role, content, model, agent, created_at",
+    )
+    .bind(&body.role)
+    .bind(&body.content)
+    .bind(&body.model)
+    .bind(&body.agent)
+    .fetch_one(&state.db)
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    Json(json!(msg))
+    let msg = row_to_message(row);
+    Ok(Json(json!(msg)))
 }
 
-/// DELETE /api/history  — clear all history
-async fn clear_history(State(state): State<SharedState>) -> Json<Value> {
-    let mut state = state.lock().await;
-    state.history.clear();
+/// DELETE /api/history — clear all history
+async fn clear_history(
+    State(state): State<AppState>,
+) -> Result<Json<Value>, StatusCode> {
+    sqlx::query("DELETE FROM gh_chat_messages")
+        .execute(&state.db)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    Json(json!({ "cleared": true }))
+    Ok(Json(json!({ "cleared": true })))
 }
 
 // ============================================================================
@@ -212,43 +277,71 @@ async fn clear_history(State(state): State<SharedState>) -> Json<Value> {
 // ============================================================================
 
 /// GET /api/settings
-async fn get_settings(State(state): State<SharedState>) -> Json<AppSettings> {
-    let state = state.lock().await;
-    Json(state.settings.clone())
+async fn get_settings(
+    State(state): State<AppState>,
+) -> Result<Json<AppSettings>, StatusCode> {
+    let row = sqlx::query_as::<_, SettingsRow>(
+        "SELECT temperature, max_tokens, default_model, language, theme \
+         FROM gh_settings WHERE id = 1",
+    )
+    .fetch_one(&state.db)
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(row_to_settings(row)))
 }
 
-/// PATCH /api/settings  — partial update
+/// PATCH /api/settings — partial update (read-modify-write)
 async fn update_settings(
-    State(state): State<SharedState>,
+    State(state): State<AppState>,
     Json(patch): Json<PartialSettings>,
-) -> Json<AppSettings> {
-    let mut state = state.lock().await;
+) -> Result<Json<AppSettings>, StatusCode> {
+    let current = sqlx::query_as::<_, SettingsRow>(
+        "SELECT temperature, max_tokens, default_model, language, theme \
+         FROM gh_settings WHERE id = 1",
+    )
+    .fetch_one(&state.db)
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    if let Some(v) = patch.temperature {
-        state.settings.temperature = v;
-    }
-    if let Some(v) = patch.max_tokens {
-        state.settings.max_tokens = v;
-    }
-    if let Some(v) = patch.default_model {
-        state.settings.default_model = v;
-    }
-    if let Some(v) = patch.language {
-        state.settings.language = v;
-    }
-    if let Some(v) = patch.theme {
-        state.settings.theme = v;
-    }
+    let temperature = patch.temperature.unwrap_or(current.temperature);
+    let max_tokens = patch.max_tokens.map(|v| v as i32).unwrap_or(current.max_tokens);
+    let default_model = patch.default_model.unwrap_or(current.default_model);
+    let language = patch.language.unwrap_or(current.language);
+    let theme = patch.theme.unwrap_or(current.theme);
 
-    Json(state.settings.clone())
+    let row = sqlx::query_as::<_, SettingsRow>(
+        "UPDATE gh_settings SET temperature=$1, max_tokens=$2, default_model=$3, \
+         language=$4, theme=$5, updated_at=NOW() WHERE id=1 \
+         RETURNING temperature, max_tokens, default_model, language, theme",
+    )
+    .bind(temperature)
+    .bind(max_tokens)
+    .bind(&default_model)
+    .bind(&language)
+    .bind(&theme)
+    .fetch_one(&state.db)
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(row_to_settings(row)))
 }
 
-/// POST /api/settings/reset  — restore defaults
-async fn reset_settings(State(state): State<SharedState>) -> Json<AppSettings> {
-    let mut state = state.lock().await;
-    state.settings = AppSettings::default();
+/// POST /api/settings/reset — restore defaults
+async fn reset_settings(
+    State(state): State<AppState>,
+) -> Result<Json<AppSettings>, StatusCode> {
+    let row = sqlx::query_as::<_, SettingsRow>(
+        "UPDATE gh_settings SET temperature=1.0, max_tokens=8192, \
+         default_model='gemini-3-flash-preview', language='en', theme='dark', \
+         updated_at=NOW() WHERE id=1 \
+         RETURNING temperature, max_tokens, default_model, language, theme",
+    )
+    .fetch_one(&state.db)
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    Json(state.settings.clone())
+    Ok(Json(row_to_settings(row)))
 }
 
 // ============================================================================
@@ -256,74 +349,87 @@ async fn reset_settings(State(state): State<SharedState>) -> Json<AppSettings> {
 // ============================================================================
 
 /// GET /api/memory/memories?agent=Geralt&topK=10
-///
-/// Also exported as a standalone handler for `main.rs` route registration.
 pub async fn list_memories(
-    State(state): State<SharedState>,
+    State(state): State<AppState>,
     Query(params): Query<MemoryQueryParams>,
-) -> Json<Value> {
-    let state = state.lock().await;
-    let top_k = params.top_k.unwrap_or(10);
+) -> Result<Json<Value>, StatusCode> {
+    let top_k = params.top_k.unwrap_or(10) as i64;
 
-    let mut filtered: Vec<&MemoryEntry> = match &params.agent {
-        Some(agent) => state
-            .memories
-            .iter()
-            .filter(|m| m.agent.eq_ignore_ascii_case(agent))
-            .collect(),
-        None => state.memories.iter().collect(),
-    };
+    let rows = match &params.agent {
+        Some(agent) => {
+            sqlx::query_as::<_, MemoryRow>(
+                "SELECT id, agent, content, importance, created_at \
+                 FROM gh_memories WHERE LOWER(agent) = LOWER($1) \
+                 ORDER BY importance DESC LIMIT $2",
+            )
+            .bind(agent)
+            .bind(top_k)
+            .fetch_all(&state.db)
+            .await
+        }
+        None => {
+            sqlx::query_as::<_, MemoryRow>(
+                "SELECT id, agent, content, importance, created_at \
+                 FROM gh_memories ORDER BY importance DESC LIMIT $1",
+            )
+            .bind(top_k)
+            .fetch_all(&state.db)
+            .await
+        }
+    }
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    // Sort descending by importance, take top K
-    filtered.sort_by(|a, b| {
-        b.importance
-            .partial_cmp(&a.importance)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
-    filtered.truncate(top_k);
+    let memories: Vec<MemoryEntry> = rows.into_iter().map(row_to_memory).collect();
+    let count = memories.len();
 
-    Json(json!({
-        "memories": filtered,
-        "count": filtered.len(),
-    }))
+    Ok(Json(json!({
+        "memories": memories,
+        "count": count,
+    })))
 }
 
 /// POST /api/memory/memories
 pub async fn add_memory(
-    State(state): State<SharedState>,
+    State(state): State<AppState>,
     Json(body): Json<AddMemoryRequest>,
-) -> Json<Value> {
-    let mut state = state.lock().await;
-    let entry = MemoryEntry {
-        id: uuid::Uuid::new_v4().to_string(),
-        agent: body.agent,
-        content: body.content,
-        importance: body.importance.clamp(0.0, 1.0),
-        timestamp: now_iso(),
-    };
-    state.memories.push(entry.clone());
+) -> Result<Json<Value>, StatusCode> {
+    let importance = body.importance.clamp(0.0, 1.0);
 
-    Json(json!(entry))
+    let row = sqlx::query_as::<_, MemoryRow>(
+        "INSERT INTO gh_memories (agent, content, importance) VALUES ($1, $2, $3) \
+         RETURNING id, agent, content, importance, created_at",
+    )
+    .bind(&body.agent)
+    .bind(&body.content)
+    .bind(importance)
+    .fetch_one(&state.db)
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let entry = row_to_memory(row);
+    Ok(Json(json!(entry)))
 }
 
 /// DELETE /api/memory/memories?agent=Geralt
 async fn clear_memories(
-    State(state): State<SharedState>,
+    State(state): State<AppState>,
     Query(params): Query<ClearMemoryParams>,
-) -> Json<Value> {
-    let mut state = state.lock().await;
-
+) -> Result<Json<Value>, StatusCode> {
     match &params.agent {
         Some(agent) => {
-            let agent_lower = agent.to_lowercase();
-            state
-                .memories
-                .retain(|m| m.agent.to_lowercase() != agent_lower);
-            Json(json!({ "cleared": true, "agent": agent }))
+            sqlx::query("DELETE FROM gh_memories WHERE LOWER(agent) = LOWER($1)")
+                .bind(agent)
+                .execute(&state.db)
+                .await
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            Ok(Json(json!({ "cleared": true, "agent": agent })))
         }
         None => {
-            state.memories.clear();
-            Json(json!({ "cleared": true, "agent": null }))
+            sqlx::query("DELETE FROM gh_memories")
+                .execute(&state.db)
+                .await
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            Ok(Json(json!({ "cleared": true, "agent": null })))
         }
     }
 }
@@ -333,33 +439,66 @@ async fn clear_memories(
 // ============================================================================
 
 /// GET /api/memory/graph
-pub async fn get_knowledge_graph(State(state): State<SharedState>) -> Json<Value> {
-    let state = state.lock().await;
+pub async fn get_knowledge_graph(
+    State(state): State<AppState>,
+) -> Result<Json<Value>, StatusCode> {
+    let node_rows = sqlx::query_as::<_, KnowledgeNodeRow>(
+        "SELECT id, node_type, label FROM gh_knowledge_nodes",
+    )
+    .fetch_all(&state.db)
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    Json(json!({
-        "nodes": state.graph_nodes,
-        "edges": state.graph_edges,
-    }))
+    let edge_rows = sqlx::query_as::<_, KnowledgeEdgeRow>(
+        "SELECT source, target, label FROM gh_knowledge_edges",
+    )
+    .fetch_all(&state.db)
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let nodes: Vec<KnowledgeNode> = node_rows.into_iter().map(row_to_node).collect();
+    let edges: Vec<KnowledgeEdge> = edge_rows.into_iter().map(row_to_edge).collect();
+
+    Ok(Json(json!({
+        "nodes": nodes,
+        "edges": edges,
+    })))
 }
 
 /// POST /api/memory/graph/nodes
 pub async fn add_knowledge_node(
-    State(state): State<SharedState>,
+    State(state): State<AppState>,
     Json(node): Json<KnowledgeNode>,
-) -> Json<Value> {
-    let mut state = state.lock().await;
-    state.graph_nodes.push(node.clone());
+) -> Result<Json<Value>, StatusCode> {
+    sqlx::query(
+        "INSERT INTO gh_knowledge_nodes (id, node_type, label) VALUES ($1, $2, $3) \
+         ON CONFLICT (id) DO UPDATE SET node_type = EXCLUDED.node_type, label = EXCLUDED.label",
+    )
+    .bind(&node.id)
+    .bind(&node.node_type)
+    .bind(&node.label)
+    .execute(&state.db)
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    Json(json!(node))
+    Ok(Json(json!(node)))
 }
 
 /// POST /api/memory/graph/edges
 pub async fn add_graph_edge(
-    State(state): State<SharedState>,
+    State(state): State<AppState>,
     Json(edge): Json<KnowledgeEdge>,
-) -> Json<Value> {
-    let mut state = state.lock().await;
-    state.graph_edges.push(edge.clone());
+) -> Result<Json<Value>, StatusCode> {
+    sqlx::query(
+        "INSERT INTO gh_knowledge_edges (source, target, label) VALUES ($1, $2, $3) \
+         ON CONFLICT DO NOTHING",
+    )
+    .bind(&edge.source)
+    .bind(&edge.target)
+    .bind(&edge.label)
+    .execute(&state.db)
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    Json(json!(edge))
+    Ok(Json(json!(edge)))
 }

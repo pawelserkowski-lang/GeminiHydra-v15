@@ -1,27 +1,30 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Instant;
 
 use reqwest::Client;
+use sqlx::PgPool;
+use tokio::sync::RwLock;
 
-use crate::models::{AppSettings, ChatMessage, WitcherAgent};
-use crate::sessions::{KnowledgeEdge, KnowledgeNode, MemoryEntry};
+use crate::models::WitcherAgent;
 
-pub struct AppState {
-    pub settings: AppSettings,
-    pub agents: Vec<WitcherAgent>,
-    pub history: Vec<ChatMessage>,
+/// Mutable runtime state (not persisted — lost on restart).
+pub struct RuntimeState {
     pub api_keys: HashMap<String, String>,
+}
+
+/// Central application state. Clone-friendly — PgPool and Arc are both Clone.
+#[derive(Clone)]
+pub struct AppState {
+    pub db: PgPool,
+    pub agents: Vec<WitcherAgent>,
+    pub runtime: Arc<RwLock<RuntimeState>>,
     pub start_time: Instant,
     pub client: Client,
-
-    // --- memory / knowledge graph (sessions.rs) ---
-    pub memories: Vec<MemoryEntry>,
-    pub graph_nodes: Vec<KnowledgeNode>,
-    pub graph_edges: Vec<KnowledgeEdge>,
 }
 
 impl AppState {
-    pub fn new() -> Self {
+    pub fn new(db: PgPool) -> Self {
         // ── API keys from environment ──────────────────────────────────
         let mut api_keys = HashMap::new();
 
@@ -136,16 +139,18 @@ impl AppState {
             },
         ];
 
+        tracing::info!(
+            "AppState initialised — {} agents, keys: {:?}",
+            agents.len(),
+            api_keys.keys().collect::<Vec<_>>()
+        );
+
         Self {
-            settings: AppSettings::default(),
+            db,
             agents,
-            history: Vec::new(),
-            api_keys,
+            runtime: Arc::new(RwLock::new(RuntimeState { api_keys })),
             start_time: Instant::now(),
             client: Client::new(),
-            memories: Vec::new(),
-            graph_nodes: Vec::new(),
-            graph_edges: Vec::new(),
         }
     }
 }

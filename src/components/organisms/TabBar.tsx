@@ -88,7 +88,7 @@ const TabItem = memo<TabItemProps>(({ tab, isActive, onSwitch, onClose, onToggle
             : 'bg-white/15 text-white border-b-[3px] border-white shadow-lg shadow-white/5 backdrop-blur-sm'
           : theme.isLight
             ? 'bg-white/30 text-gray-700 hover:bg-white/55 hover:text-black border-b-[3px] border-transparent'
-            : 'bg-white/[0.06] text-white/60 hover:bg-white/15 hover:text-white border-b-[3px] border-transparent',
+            : 'bg-white/[0.06] text-white/50 hover:bg-white/15 hover:text-white border-b-[3px] border-transparent',
       )}
     >
       {/* Pin indicator */}

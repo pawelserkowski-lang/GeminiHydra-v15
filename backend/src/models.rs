@@ -1,6 +1,52 @@
 use serde::{Deserialize, Serialize};
 
 // ---------------------------------------------------------------------------
+// DB row types
+// ---------------------------------------------------------------------------
+
+#[derive(sqlx::FromRow)]
+pub struct SettingsRow {
+    pub temperature: f64,
+    pub max_tokens: i32,
+    pub default_model: String,
+    pub language: String,
+    pub theme: String,
+}
+
+#[derive(sqlx::FromRow)]
+pub struct ChatMessageRow {
+    pub id: uuid::Uuid,
+    pub role: String,
+    pub content: String,
+    pub model: Option<String>,
+    pub agent: Option<String>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(sqlx::FromRow)]
+pub struct MemoryRow {
+    pub id: uuid::Uuid,
+    pub agent: String,
+    pub content: String,
+    pub importance: f64,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(sqlx::FromRow)]
+pub struct KnowledgeNodeRow {
+    pub id: String,
+    pub node_type: String,
+    pub label: String,
+}
+
+#[derive(sqlx::FromRow)]
+pub struct KnowledgeEdgeRow {
+    pub source: String,
+    pub target: String,
+    pub label: String,
+}
+
+// ---------------------------------------------------------------------------
 // Witcher Agents
 // ---------------------------------------------------------------------------
 

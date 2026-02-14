@@ -181,9 +181,9 @@ export function ModelSelector<T extends ModelOption = ModelOption>({
         aria-expanded={isOpen}
         className={cn(
           'flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-all w-full',
-          'bg-white/5 border border-white/10',
-          'hover:border-white/30 hover:bg-white/10',
-          isOpen && 'border-white/40 ring-1 ring-white/20',
+          'bg-matrix-accent/5 border border-matrix-accent/10',
+          'hover:border-matrix-accent/30 hover:bg-matrix-accent/10',
+          isOpen && 'border-matrix-accent/40 ring-1 ring-matrix-accent/20',
           disabled && 'opacity-50 cursor-not-allowed',
         )}
       >
@@ -210,7 +210,7 @@ export function ModelSelector<T extends ModelOption = ModelOption>({
           >
             {/* Search */}
             {models.length > 5 && (
-              <div className="flex items-center gap-2 px-3 py-2 border-b border-white/10">
+              <div className="flex items-center gap-2 px-3 py-2 border-b border-matrix-accent/10">
                 <Search size={14} className="text-[var(--matrix-text-dim)] flex-shrink-0" />
                 <input
                   ref={searchRef}
@@ -254,7 +254,7 @@ export function ModelSelector<T extends ModelOption = ModelOption>({
                       'transition-colors text-left text-sm',
                       isDisabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer',
                       !isDisabled && (isFocused || isSelected) && 'bg-[var(--matrix-hover-bg)]',
-                      isSelected && 'border border-white/20',
+                      isSelected && 'border border-matrix-accent/20',
                       !isSelected && 'border border-transparent',
                     )}
                   >

@@ -1,11 +1,10 @@
-use std::sync::Arc;
+use std::collections::HashMap;
 use std::time::Instant;
 
 use axum::extract::State;
 use axum::Json;
 use serde_json::{json, Value};
 use sysinfo::System;
-use tokio::sync::Mutex;
 use uuid::Uuid;
 
 use crate::models::{
@@ -15,16 +14,13 @@ use crate::models::{
 };
 use crate::state::AppState;
 
-/// Shared application state type alias used by all handlers.
-pub type SharedState = Arc<Mutex<AppState>>;
-
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-fn build_providers(state: &AppState) -> Vec<ProviderInfo> {
-    let google_key = state.api_keys.get("google");
-    let anthropic_key = state.api_keys.get("anthropic");
+fn build_providers(api_keys: &HashMap<String, String>) -> Vec<ProviderInfo> {
+    let google_key = api_keys.get("google");
+    let anthropic_key = api_keys.get("anthropic");
     let google_available = google_key.is_some() && !google_key.unwrap().is_empty();
 
     let mut providers = Vec::new();
@@ -187,8 +183,8 @@ fn build_system_prompt(agent_id: &str, agents: &[WitcherAgent]) -> String {
 // GET /api/health
 // ---------------------------------------------------------------------------
 
-pub async fn health(State(state): State<SharedState>) -> Json<HealthResponse> {
-    let state = state.lock().await;
+pub async fn health(State(state): State<AppState>) -> Json<HealthResponse> {
+    let rt = state.runtime.read().await;
     let uptime = state.start_time.elapsed().as_secs();
 
     Json(HealthResponse {
@@ -196,7 +192,7 @@ pub async fn health(State(state): State<SharedState>) -> Json<HealthResponse> {
         version: "15.0.0".to_string(),
         app: "GeminiHydra".to_string(),
         uptime_seconds: uptime,
-        providers: build_providers(&state),
+        providers: build_providers(&rt.api_keys),
     })
 }
 
@@ -204,8 +200,8 @@ pub async fn health(State(state): State<SharedState>) -> Json<HealthResponse> {
 // GET /api/health/detailed
 // ---------------------------------------------------------------------------
 
-pub async fn health_detailed(State(state): State<SharedState>) -> Json<DetailedHealthResponse> {
-    let state = state.lock().await;
+pub async fn health_detailed(State(state): State<AppState>) -> Json<DetailedHealthResponse> {
+    let rt = state.runtime.read().await;
     let uptime = state.start_time.elapsed().as_secs();
 
     let mut sys = System::new();
@@ -221,7 +217,7 @@ pub async fn health_detailed(State(state): State<SharedState>) -> Json<DetailedH
         version: "15.0.0".to_string(),
         app: "GeminiHydra".to_string(),
         uptime_seconds: uptime,
-        providers: build_providers(&state),
+        providers: build_providers(&rt.api_keys),
         memory_usage_mb: memory_used_mb,
         cpu_usage_percent: cpu_usage,
         platform: std::env::consts::OS.to_string(),
@@ -232,8 +228,7 @@ pub async fn health_detailed(State(state): State<SharedState>) -> Json<DetailedH
 // GET /api/agents
 // ---------------------------------------------------------------------------
 
-pub async fn list_agents(State(state): State<SharedState>) -> Json<Value> {
-    let state = state.lock().await;
+pub async fn list_agents(State(state): State<AppState>) -> Json<Value> {
     Json(json!({ "agents": state.agents }))
 }
 
@@ -242,7 +237,6 @@ pub async fn list_agents(State(state): State<SharedState>) -> Json<Value> {
 // ---------------------------------------------------------------------------
 
 pub async fn classify_agent(
-    State(_state): State<SharedState>,
     Json(body): Json<ClassifyRequest>,
 ) -> Json<ClassifyResponse> {
     let (agent_id, confidence, reasoning) = classify_prompt(&body.prompt);
@@ -259,25 +253,33 @@ pub async fn classify_agent(
 // ---------------------------------------------------------------------------
 
 pub async fn execute(
-    State(shared): State<SharedState>,
+    State(state): State<AppState>,
     Json(body): Json<ExecuteRequest>,
 ) -> Json<Value> {
     let start = Instant::now();
 
-    // Read what we need from the locked state, then drop the lock before the
-    // async HTTP call so we don't hold the guard across a long await.
-    let (agent_id, confidence, reasoning, model, api_key, client, system_prompt) = {
-        let state = shared.lock().await;
-        let (agent_id, confidence, reasoning) = classify_prompt(&body.prompt);
-        let model = body
-            .model
-            .clone()
-            .unwrap_or_else(|| state.settings.default_model.clone());
-        let api_key = state.api_keys.get("google").cloned().unwrap_or_default();
-        let client = state.client.clone();
-        let system_prompt = build_system_prompt(&agent_id, &state.agents);
-        (agent_id, confidence, reasoning, model, api_key, client, system_prompt)
+    let (agent_id, confidence, reasoning) = classify_prompt(&body.prompt);
+
+    // Read default_model from DB settings (fallback if DB is unavailable).
+    let default_model = sqlx::query_scalar::<_, String>(
+        "SELECT default_model FROM gh_settings WHERE id = 1",
+    )
+    .fetch_one(&state.db)
+    .await
+    .unwrap_or_else(|_| "gemini-3-flash-preview".to_string());
+
+    let model = body
+        .model
+        .clone()
+        .unwrap_or(default_model);
+
+    // Read API key from runtime state.
+    let api_key = {
+        let rt = state.runtime.read().await;
+        rt.api_keys.get("google").cloned().unwrap_or_default()
     };
+
+    let system_prompt = build_system_prompt(&agent_id, &state.agents);
 
     // If no API key, return a graceful error-like response.
     if api_key.is_empty() {
@@ -310,7 +312,7 @@ pub async fn execute(
         }]
     });
 
-    let gemini_result = client.post(&url).json(&gemini_body).send().await;
+    let gemini_result = state.client.post(&url).json(&gemini_body).send().await;
 
     let result_text = match gemini_result {
         Ok(resp) => {
@@ -330,12 +332,13 @@ pub async fn execute(
     };
 
     let duration = start.elapsed().as_millis() as u64;
+    let response_id = Uuid::new_v4();
 
     let response = ExecuteResponse {
-        id: Uuid::new_v4().to_string(),
+        id: response_id.to_string(),
         result: result_text,
         plan: Some(ExecutePlan {
-            agent: Some(agent_id),
+            agent: Some(agent_id.clone()),
             steps: vec![
                 "classify prompt".into(),
                 format!("route to agent (confidence {:.0}%)", confidence * 100.0),
@@ -348,26 +351,33 @@ pub async fn execute(
         mode: body.mode.clone(),
     };
 
-    // Store in history.
+    // Store in DB (non-fatal on error).
+    if let Err(e) = sqlx::query(
+        "INSERT INTO gh_chat_messages (id, role, content, model, agent) VALUES ($1, $2, $3, $4, $5)",
+    )
+    .bind(response_id)
+    .bind("user")
+    .bind(&body.prompt)
+    .bind(Some(&model))
+    .bind(Some(&agent_id))
+    .execute(&state.db)
+    .await
     {
-        let now = chrono::Utc::now().to_rfc3339();
-        let mut state = shared.lock().await;
-        state.history.push(crate::models::ChatMessage {
-            id: response.id.clone(),
-            role: "user".into(),
-            content: body.prompt.clone(),
-            model: Some(model.clone()),
-            timestamp: now.clone(),
-            agent: Some(response.plan.as_ref().unwrap().agent.clone().unwrap_or_default()),
-        });
-        state.history.push(crate::models::ChatMessage {
-            id: Uuid::new_v4().to_string(),
-            role: "assistant".into(),
-            content: response.result.clone(),
-            model: Some(model),
-            timestamp: now,
-            agent: Some(reasoning),
-        });
+        tracing::warn!("Failed to store user message: {}", e);
+    }
+
+    if let Err(e) = sqlx::query(
+        "INSERT INTO gh_chat_messages (id, role, content, model, agent) VALUES ($1, $2, $3, $4, $5)",
+    )
+    .bind(Uuid::new_v4())
+    .bind("assistant")
+    .bind(&response.result)
+    .bind(Some(&model))
+    .bind(Some(&reasoning))
+    .execute(&state.db)
+    .await
+    {
+        tracing::warn!("Failed to store assistant message: {}", e);
     }
 
     Json(json!(response))
@@ -377,12 +387,10 @@ pub async fn execute(
 // GET /api/gemini/models
 // ---------------------------------------------------------------------------
 
-pub async fn gemini_models(State(shared): State<SharedState>) -> Json<Value> {
-    let (api_key, client) = {
-        let state = shared.lock().await;
-        let key = state.api_keys.get("google").cloned().unwrap_or_default();
-        let client = state.client.clone();
-        (key, client)
+pub async fn gemini_models(State(state): State<AppState>) -> Json<Value> {
+    let api_key = {
+        let rt = state.runtime.read().await;
+        rt.api_keys.get("google").cloned().unwrap_or_default()
     };
 
     if api_key.is_empty() {
@@ -394,7 +402,7 @@ pub async fn gemini_models(State(shared): State<SharedState>) -> Json<Value> {
         api_key
     );
 
-    let resp = client.get(&url).send().await;
+    let resp = state.client.get(&url).send().await;
 
     match resp {
         Ok(r) if r.status().is_success() => {

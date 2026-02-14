@@ -6,12 +6,12 @@ pub mod state;
 use axum::routing::{get, post};
 use axum::Router;
 
-use handlers::SharedState;
+use state::AppState;
 
-/// Build the application router with the given shared state.
+/// Build the application router with the given state.
 /// Extracted from `main()` so integration tests can construct the app
 /// without binding to a network port.
-pub fn create_router(shared_state: SharedState) -> Router {
+pub fn create_router(state: AppState) -> Router {
     Router::new()
         // Health
         .route("/api/health", get(handlers::health))
@@ -25,8 +25,8 @@ pub fn create_router(shared_state: SharedState) -> Router {
         .route("/api/gemini/models", get(handlers::gemini_models))
         // System
         .route("/api/system/stats", get(handlers::system_stats))
-        // Sessions / History / Settings / Memory / Knowledge (Agent 2)
+        // Sessions / History / Settings / Memory / Knowledge
         .merge(sessions::session_routes())
         // Shared state
-        .with_state(shared_state)
+        .with_state(state)
 }
