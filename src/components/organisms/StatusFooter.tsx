@@ -42,7 +42,7 @@ export interface StatusFooterProps {
 
 const StatusFooterComponent = ({
   connectionHealth = 'connected',
-  selectedModel = 'Gemini 2.0 Flash',
+  selectedModel = 'Gemini 3 Flash',
   cpuUsage = 12,
   ramUsage = 45,
   agentName = 'Wolf Swarm',

@@ -155,7 +155,7 @@ async fn get_settings_default_values() {
     let json = body_json(response).await;
     assert_eq!(json["language"], "en");
     assert_eq!(json["theme"], "dark");
-    assert_eq!(json["default_model"], "gemini-2.0-flash");
+    assert_eq!(json["default_model"], "gemini-3-flash-preview");
     assert!(json["temperature"].is_f64());
     assert!(json["max_tokens"].is_u64());
 }
@@ -192,7 +192,7 @@ async fn patch_settings_partial_update() {
     assert_eq!(json["language"], "pl");
     assert_eq!(json["theme"], "light");
     // Other fields should retain defaults
-    assert_eq!(json["default_model"], "gemini-2.0-flash");
+    assert_eq!(json["default_model"], "gemini-3-flash-preview");
 }
 
 #[tokio::test]

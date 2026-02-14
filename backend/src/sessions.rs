@@ -246,13 +246,7 @@ async fn update_settings(
 /// POST /api/settings/reset  — restore defaults
 async fn reset_settings(State(state): State<SharedState>) -> Json<AppSettings> {
     let mut state = state.lock().await;
-    state.settings = AppSettings {
-        temperature: 0.7,
-        max_tokens: 2048,
-        default_model: "gemini-2.0-flash".to_string(),
-        language: "en".to_string(),
-        theme: "dark".to_string(),
-    };
+    state.settings = AppSettings::default();
 
     Json(state.settings.clone())
 }

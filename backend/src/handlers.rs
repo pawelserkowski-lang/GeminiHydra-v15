@@ -25,19 +25,27 @@ pub type SharedState = Arc<Mutex<AppState>>;
 fn build_providers(state: &AppState) -> Vec<ProviderInfo> {
     let google_key = state.api_keys.get("google");
     let anthropic_key = state.api_keys.get("anthropic");
+    let google_available = google_key.is_some() && !google_key.unwrap().is_empty();
 
-    vec![
-        ProviderInfo {
-            name: "Google Gemini".to_string(),
-            available: google_key.is_some() && !google_key.unwrap().is_empty(),
-            model: Some(state.settings.default_model.clone()),
-        },
-        ProviderInfo {
-            name: "Anthropic Claude".to_string(),
-            available: anthropic_key.is_some() && !anthropic_key.unwrap().is_empty(),
-            model: Some("claude-sonnet-4-20250514".to_string()),
-        },
-    ]
+    let mut providers = Vec::new();
+
+    // Gemini 3 models
+    for (model_id, display_name) in crate::models::GEMINI_MODELS {
+        providers.push(ProviderInfo {
+            name: format!("Google {}", display_name),
+            available: google_available,
+            model: Some(model_id.to_string()),
+        });
+    }
+
+    // Anthropic Claude
+    providers.push(ProviderInfo {
+        name: "Anthropic Claude".to_string(),
+        available: anthropic_key.is_some() && !anthropic_key.unwrap().is_empty(),
+        model: Some("claude-sonnet-4-20250514".to_string()),
+    });
+
+    providers
 }
 
 /// Strip Polish diacritics so keywords work regardless of user input style.
