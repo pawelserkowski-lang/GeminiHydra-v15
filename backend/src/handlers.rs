@@ -142,7 +142,7 @@ fn classify_prompt(prompt: &str) -> (String, f64, String) {
 
 /// Build a system instruction for the Gemini API call.
 /// This is sent as `systemInstruction` and never displayed in the chat UI.
-fn build_system_prompt(agent_id: &str, agents: &[WitcherAgent]) -> String {
+fn build_system_prompt(agent_id: &str, agents: &[WitcherAgent], language: &str) -> String {
     let agent = agents.iter().find(|a| a.id == agent_id);
 
     let (name, role, description, tier) = match agent {
@@ -177,7 +177,7 @@ fn build_system_prompt(agent_id: &str, agents: &[WitcherAgent]) -> String {
 
 ## Guidelines
 - Stay in character as {name}. Reference your Witcher persona when natural, but prioritize being helpful.
-- Answer in the **same language** as the user's prompt (Polish or English).
+- The user's preferred language is **{language}**. Always respond in {language} unless the user explicitly writes in a different language.
 - You specialize in **{role}** — leverage this expertise, but help with any topic if asked.
 - Be concise and actionable. Use markdown formatting for code, lists, and structure.
 - If a question falls outside your expertise, acknowledge it and suggest which swarm agent would be better suited.
@@ -279,21 +279,26 @@ async fn prepare_execution(
 ) -> ExecuteContext {
     let (agent_id, confidence, reasoning) = classify_prompt(prompt);
 
-    let default_model = sqlx::query_scalar::<_, String>(
-        "SELECT default_model FROM gh_settings WHERE id = 1",
+    let settings_row = sqlx::query_as::<_, (String, String)>(
+        "SELECT default_model, language FROM gh_settings WHERE id = 1",
     )
     .fetch_one(&state.db)
     .await
-    .unwrap_or_else(|_| "gemini-3-flash-preview".to_string());
+    .unwrap_or_else(|_| ("gemini-3-flash-preview".to_string(), "en".to_string()));
 
-    let model = model_override.unwrap_or(default_model);
+    let model = model_override.unwrap_or(settings_row.0);
+    let language = match settings_row.1.as_str() {
+        "pl" => "Polish",
+        "en" => "English",
+        other => other,
+    };
 
     let api_key = {
         let rt = state.runtime.read().await;
         rt.api_keys.get("google").cloned().unwrap_or_default()
     };
 
-    let system_prompt = build_system_prompt(&agent_id, &state.agents);
+    let system_prompt = build_system_prompt(&agent_id, &state.agents, language);
 
     let detected_paths = files::extract_file_paths(prompt);
     let (file_context, _file_errors) = if !detected_paths.is_empty() {
