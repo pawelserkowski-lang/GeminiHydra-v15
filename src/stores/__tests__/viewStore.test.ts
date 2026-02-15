@@ -1,16 +1,12 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { useViewStore } from '@/stores/viewStore';
+import { beforeEach, describe, expect, it } from 'vitest';
 import type { Message } from '@/stores/viewStore';
+import { useViewStore } from '@/stores/viewStore';
 
 // Helper to get fresh state
 const getState = () => useViewStore.getState();
 
 // Helper to create a message
-function makeMsg(
-  role: Message['role'],
-  content: string,
-  model?: string,
-): Message {
+function makeMsg(role: Message['role'], content: string, model?: string): Message {
   return { role, content, timestamp: Date.now(), model };
 }
 
@@ -102,18 +98,18 @@ describe('viewStore - createSession', () => {
     getState().createSession();
     const state = getState();
     expect(state.sessions).toHaveLength(1);
-    expect(state.currentSessionId).toBe(state.sessions[0]!.id);
-    expect(state.sessions[0]!.title).toBe('New Chat');
+    expect(state.currentSessionId).toBe(state.sessions[0]?.id);
+    expect(state.sessions[0]?.title).toBe('New Chat');
   });
 
   it('should prepend new sessions (newest first)', () => {
     getState().createSession();
-    const first = getState().sessions[0]!.id;
+    const first = getState().sessions[0]?.id;
     getState().createSession();
     const state = getState();
     expect(state.sessions).toHaveLength(2);
-    expect(state.sessions[0]!.id).not.toBe(first);
-    expect(state.sessions[1]!.id).toBe(first);
+    expect(state.sessions[0]?.id).not.toBe(first);
+    expect(state.sessions[1]?.id).toBe(first);
   });
 
   it('should initialize empty chat history for new session', () => {
@@ -184,7 +180,7 @@ describe('viewStore - updateSessionTitle', () => {
     getState().createSession();
     const id = getState().currentSessionId!;
     getState().updateSessionTitle(id, 'My Custom Title');
-    expect(getState().sessions[0]!.title).toBe('My Custom Title');
+    expect(getState().sessions[0]?.title).toBe('My Custom Title');
   });
 
   it('should truncate titles exceeding MAX_TITLE_LENGTH (100)', () => {
@@ -192,14 +188,14 @@ describe('viewStore - updateSessionTitle', () => {
     const id = getState().currentSessionId!;
     const longTitle = 'A'.repeat(150);
     getState().updateSessionTitle(id, longTitle);
-    expect(getState().sessions[0]!.title).toHaveLength(100);
+    expect(getState().sessions[0]?.title).toHaveLength(100);
   });
 
   it('should default to "New Chat" for empty/whitespace-only titles', () => {
     getState().createSession();
     const id = getState().currentSessionId!;
     getState().updateSessionTitle(id, '   ');
-    expect(getState().sessions[0]!.title).toBe('New Chat');
+    expect(getState().sessions[0]?.title).toBe('New Chat');
   });
 
   it('should also update matching tab titles', () => {
@@ -207,7 +203,7 @@ describe('viewStore - updateSessionTitle', () => {
     const id = getState().currentSessionId!;
     getState().openTab(id);
     getState().updateSessionTitle(id, 'Updated Title');
-    expect(getState().tabs[0]!.title).toBe('Updated Title');
+    expect(getState().tabs[0]?.title).toBe('Updated Title');
   });
 });
 
@@ -228,7 +224,7 @@ describe('viewStore - MAX_SESSIONS limit (50)', () => {
     for (let i = 0; i < 50; i++) {
       getState().createSession();
     }
-    const oldestId = getState().sessions[49]!.id;
+    const oldestId = getState().sessions[49]?.id ?? '';
 
     // Create one more to push the oldest out
     getState().createSession();
@@ -248,8 +244,8 @@ describe('viewStore - openTab', () => {
 
     const state = getState();
     expect(state.tabs).toHaveLength(1);
-    expect(state.tabs[0]!.sessionId).toBe(sessionId);
-    expect(state.activeTabId).toBe(state.tabs[0]!.id);
+    expect(state.tabs[0]?.sessionId).toBe(sessionId);
+    expect(state.activeTabId).toBe(state.tabs[0]?.id);
   });
 
   it('should reuse existing tab for same session', () => {
@@ -310,7 +306,7 @@ describe('viewStore - closeTab', () => {
     const tabToClose = getState().activeTabId!;
 
     getState().closeTab(tabToClose);
-    expect(getState().activeTabId).toBe(getState().tabs[0]!.id);
+    expect(getState().activeTabId).toBe(getState().tabs[0]?.id);
   });
 
   it('should do nothing if tabId does not exist', () => {
@@ -332,7 +328,7 @@ describe('viewStore - switchTab', () => {
     const s2 = getState().currentSessionId!;
 
     getState().openTab(s1);
-    const tab1Id = getState().tabs.find((t) => t.sessionId === s1)!.id;
+    const tab1Id = getState().tabs.find((t) => t.sessionId === s1)?.id ?? '';
     getState().openTab(s2);
 
     getState().switchTab(tab1Id);
@@ -375,12 +371,12 @@ describe('viewStore - reorderTabs', () => {
     getState().openTab(s2);
     getState().openTab(s3);
 
-    const originalFirst = getState().tabs[0]!.id;
-    const originalLast = getState().tabs[2]!.id;
+    const originalFirst = getState().tabs[0]?.id;
+    const originalLast = getState().tabs[2]?.id;
 
     getState().reorderTabs(0, 2);
-    expect(getState().tabs[2]!.id).toBe(originalFirst);
-    expect(getState().tabs[1]!.id).toBe(originalLast);
+    expect(getState().tabs[2]?.id).toBe(originalFirst);
+    expect(getState().tabs[1]?.id).toBe(originalLast);
   });
 
   it('should ignore out-of-bounds indices', () => {
@@ -399,13 +395,13 @@ describe('viewStore - togglePinTab', () => {
     getState().createSession();
     const sessionId = getState().currentSessionId!;
     getState().openTab(sessionId);
-    const tabId = getState().tabs[0]!.id;
+    const tabId = getState().tabs[0]?.id ?? '';
 
-    expect(getState().tabs[0]!.isPinned).toBe(false);
+    expect(getState().tabs[0]?.isPinned).toBe(false);
     getState().togglePinTab(tabId);
-    expect(getState().tabs[0]!.isPinned).toBe(true);
+    expect(getState().tabs[0]?.isPinned).toBe(true);
     getState().togglePinTab(tabId);
-    expect(getState().tabs[0]!.isPinned).toBe(false);
+    expect(getState().tabs[0]?.isPinned).toBe(false);
   });
 });
 
@@ -421,8 +417,8 @@ describe('viewStore - addMessage', () => {
     const id = getState().currentSessionId!;
     const messages = getState().chatHistory[id]!;
     expect(messages).toHaveLength(1);
-    expect(messages[0]!.content).toBe('Hello');
-    expect(messages[0]!.role).toBe('user');
+    expect(messages[0]?.content).toBe('Hello');
+    expect(messages[0]?.role).toBe('user');
   });
 
   it('should do nothing if no current session', () => {
@@ -434,7 +430,7 @@ describe('viewStore - addMessage', () => {
     getState().createSession();
     getState().addMessage(makeMsg('assistant', 'Hi!', 'gemini-2.0'));
     const id = getState().currentSessionId!;
-    expect(getState().chatHistory[id]![0]!.model).toBe('gemini-2.0');
+    expect(getState().chatHistory[id]?.[0]?.model).toBe('gemini-2.0');
   });
 });
 
@@ -445,7 +441,7 @@ describe('viewStore - updateLastMessage', () => {
     getState().updateLastMessage(' World');
 
     const id = getState().currentSessionId!;
-    expect(getState().chatHistory[id]![0]!.content).toBe('Hello World');
+    expect(getState().chatHistory[id]?.[0]?.content).toBe('Hello World');
   });
 
   it('should do nothing if no messages exist', () => {
@@ -512,15 +508,15 @@ describe('viewStore - auto-titling', () => {
     const longMsg = 'A'.repeat(50);
     getState().addMessage(makeMsg('user', longMsg));
     const session = getState().sessions[0]!;
-    expect(session.title).toBe('A'.repeat(30) + '...');
+    expect(session.title).toBe(`${'A'.repeat(30)}...`);
   });
 
   it('should not change title on subsequent user messages', () => {
     getState().createSession();
     getState().addMessage(makeMsg('user', 'First message'));
-    const titleAfterFirst = getState().sessions[0]!.title;
+    const titleAfterFirst = getState().sessions[0]?.title;
     getState().addMessage(makeMsg('user', 'Second message'));
-    expect(getState().sessions[0]!.title).toBe(titleAfterFirst);
+    expect(getState().sessions[0]?.title).toBe(titleAfterFirst);
   });
 
   it('should not auto-title on assistant/system messages', () => {
@@ -530,7 +526,7 @@ describe('viewStore - auto-titling', () => {
     // But wait - the condition is msg.role === 'user' && currentMessages.length === 0
     // system message at index 0 won't trigger auto-title. After it, length is 1, so
     // next user message also won't trigger. Title stays 'New Chat'.
-    expect(getState().sessions[0]!.title).toBe('New Chat');
+    expect(getState().sessions[0]?.title).toBe('New Chat');
   });
 
   it('should also update matching tab title on auto-title', () => {
@@ -538,7 +534,7 @@ describe('viewStore - auto-titling', () => {
     const sessionId = getState().currentSessionId!;
     getState().openTab(sessionId);
     getState().addMessage(makeMsg('user', 'Hello world'));
-    expect(getState().tabs[0]!.title).toBe('Hello world');
+    expect(getState().tabs[0]?.title).toBe('Hello world');
   });
 });
 
@@ -558,7 +554,7 @@ describe('viewStore - MAX_MESSAGES_PER_SESSION (500)', () => {
     const messages = getState().chatHistory[id]!;
     expect(messages).toHaveLength(500);
     // Oldest should be trimmed, most recent kept
-    expect(messages[messages.length - 1]!.content).toBe('Message 509');
-    expect(messages[0]!.content).toBe('Message 10');
+    expect(messages[messages.length - 1]?.content).toBe('Message 509');
+    expect(messages[0]?.content).toBe('Message 10');
   });
 });

@@ -175,9 +175,7 @@ const StatusFooterComponent = ({
         <span className={dividerCls}>|</span>
 
         {/* Live time */}
-        <span
-          className={cn('font-mono font-semibold tabular-nums', isLight ? 'text-emerald-600' : 'text-white')}
-        >
+        <span className={cn('font-mono font-semibold tabular-nums', isLight ? 'text-emerald-600' : 'text-white')}>
           {currentTime}
         </span>
       </div>

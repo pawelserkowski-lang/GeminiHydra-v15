@@ -231,10 +231,7 @@ export function Sidebar() {
           <img
             src={isLight ? '/logolight.webp' : '/logodark.webp'}
             alt="GeminiHydra Logo"
-            className={cn(
-              'flex-shrink-0 object-contain transition-all',
-              isCollapsed ? 'w-16 h-16' : 'h-36',
-            )}
+            className={cn('flex-shrink-0 object-contain transition-all', isCollapsed ? 'w-16 h-16' : 'h-36')}
             style={{
               filter: isLight
                 ? 'drop-shadow(0 0 12px rgba(45,106,79,0.5))'

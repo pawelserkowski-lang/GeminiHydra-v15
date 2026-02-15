@@ -59,7 +59,6 @@ export const LayeredBackground = memo(({ resolvedTheme }: LayeredBackgroundProps
           style={{ opacity: isLight ? 1 : 0 }}
         />
       </div>
-
     </>
   );
 });

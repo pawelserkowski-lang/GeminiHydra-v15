@@ -19,8 +19,8 @@
   --color-matrix-glass: rgba(15, 20, 25, 0.8);
   --color-matrix-glass-light: rgba(255, 255, 255, 0.05);
 
-  --font-mono: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
-  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", "Fira Code", "Consolas", monospace;
+  --font-sans: "Inter", system-ui, -apple-system, sans-serif;
 
   --shadow-matrix-glow: 0 0 20px rgba(255, 255, 255, 0.15);
   --shadow-matrix-glow-sm: 0 0 10px rgba(255, 255, 255, 0.1);
@@ -356,8 +356,7 @@ body {
    BUTTON VARIANTS
    ============================================ */
 .btn-primary {
-  @apply px-4 py-2 rounded-lg bg-emerald-400 hover:bg-emerald-300
-         text-emerald-950 font-medium transition-colors cursor-pointer;
+  @apply px-4 py-2 rounded-lg bg-emerald-400 hover:bg-emerald-300 text-emerald-950 font-medium transition-colors cursor-pointer;
 }
 
 /* ============================================
@@ -408,7 +407,9 @@ body {
   -webkit-backdrop-filter: blur(16px) saturate(180%);
   color: #1a1a1a;
   border: 1px solid rgba(255, 255, 255, 0.4);
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  box-shadow:
+    0 4px 20px rgba(0, 0, 0, 0.25),
+    inset 0 1px 0 rgba(255, 255, 255, 0.5);
 }
 
 .message-bubble-assistant {
@@ -419,7 +420,9 @@ body {
   -webkit-backdrop-filter: blur(16px) saturate(180%);
   color: #e5e7eb;
   border: 1px solid rgba(255, 255, 255, 0.15);
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  box-shadow:
+    0 4px 20px rgba(0, 0, 0, 0.25),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
 .message-bubble-system {
@@ -430,7 +433,9 @@ body {
   -webkit-backdrop-filter: blur(14px) saturate(160%);
   color: #e5e7eb;
   border: 1px solid rgba(255, 255, 255, 0.1);
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  box-shadow:
+    0 4px 20px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
 [data-theme="light"] .message-bubble-user {
@@ -439,7 +444,9 @@ body {
   -webkit-backdrop-filter: blur(16px) saturate(180%);
   color: #1a1a1a;
   border: 1px solid rgba(0, 0, 0, 0.08);
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  box-shadow:
+    0 4px 20px rgba(0, 0, 0, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
 }
 
 [data-theme="light"] .message-bubble-assistant {
@@ -448,7 +455,9 @@ body {
   -webkit-backdrop-filter: blur(16px) saturate(180%);
   color: #1a1a1a;
   border: 1px solid rgba(0, 0, 0, 0.06);
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  box-shadow:
+    0 4px 20px rgba(0, 0, 0, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.7);
 }
 
 [data-theme="light"] .message-bubble-system {
@@ -457,28 +466,34 @@ body {
   -webkit-backdrop-filter: blur(14px) saturate(160%);
   color: #ffffff;
   border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  box-shadow:
+    0 4px 20px rgba(0, 0, 0, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
 }
 
 /* Force white text inside system output in light mode */
 [data-theme="light"] .message-bubble-system .markdown-body,
 [data-theme="light"] .message-bubble-system .markdown-body * {
-  color: #ffffff !important;
+  color: #ffffff;
 }
 [data-theme="light"] .message-bubble-system .markdown-body code {
-  background: rgba(255, 255, 255, 0.1) !important;
-  color: #ffffff !important;
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
 }
 [data-theme="light"] .message-bubble-system .markdown-body pre {
-  background: rgba(0, 0, 0, 0.2) !important;
-  color: #ffffff !important;
+  background: rgba(0, 0, 0, 0.2);
+  color: #ffffff;
 }
 
 /* ============================================
    MARKDOWN STYLES
    ============================================ */
-.markdown-body p { margin-bottom: 0.5em; }
-.markdown-body p:last-child { margin-bottom: 0; }
+.markdown-body p {
+  margin-bottom: 0.5em;
+}
+.markdown-body p:last-child {
+  margin-bottom: 0;
+}
 .markdown-body pre {
   background: var(--matrix-code-bg);
   padding: 0.75rem;
@@ -500,11 +515,28 @@ body {
   padding: 0;
   color: #e5e7eb;
 }
-.markdown-body ul, .markdown-body ol { margin-left: 1.5em; margin-bottom: 0.5em; }
-.markdown-body li { margin-bottom: 0.2em; }
-.markdown-body strong { color: inherit; font-weight: bold; }
-.markdown-body a { color: #3b82f6; text-decoration: underline; }
-.markdown-body h1, .markdown-body h2, .markdown-body h3, .markdown-body h4, .markdown-body h5, .markdown-body h6 {
+.markdown-body ul,
+.markdown-body ol {
+  margin-left: 1.5em;
+  margin-bottom: 0.5em;
+}
+.markdown-body li {
+  margin-bottom: 0.2em;
+}
+.markdown-body strong {
+  color: inherit;
+  font-weight: bold;
+}
+.markdown-body a {
+  color: #3b82f6;
+  text-decoration: underline;
+}
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3,
+.markdown-body h4,
+.markdown-body h5,
+.markdown-body h6 {
   color: inherit;
   margin-top: 0.5em;
   margin-bottom: 0.2em;
@@ -811,12 +843,19 @@ select:focus-visible,
 /* ============================================
    USER SELECTION CONTROL
    ============================================ */
-img, button, header, footer, .sidebar-item, .status-badge, .noselect {
+img,
+button,
+header,
+footer,
+.sidebar-item,
+.status-badge,
+.noselect {
   user-select: none;
   -webkit-user-select: none;
 }
 
-.markdown-body, .matrix-input {
+.markdown-body,
+.matrix-input {
   user-select: text;
   cursor: text;
 }
@@ -825,44 +864,85 @@ img, button, header, footer, .sidebar-item, .status-badge, .noselect {
    ANIMATIONS
    ============================================ */
 @keyframes glow {
-  0% { box-shadow: 0 0 5px var(--matrix-accent-glow); }
-  100% { box-shadow: 0 0 20px var(--matrix-accent-glow); }
+  0% {
+    box-shadow: 0 0 5px var(--matrix-accent-glow);
+  }
+  100% {
+    box-shadow: 0 0 20px var(--matrix-accent-glow);
+  }
 }
 
 @keyframes shimmer {
-  0% { transform: translateX(-100%); }
-  100% { transform: translateX(100%); }
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
 }
 
 @keyframes pulse-slow {
-  0%, 100% { opacity: 0.4; }
-  50% { opacity: 0.8; }
+  0%,
+  100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 0.8;
+  }
 }
 
 @keyframes fadeIn {
-  0% { opacity: 0; }
-  100% { opacity: 1; }
+  0% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
 }
 
 @keyframes slideUp {
-  0% { opacity: 0; transform: translateY(10px); }
-  100% { opacity: 1; transform: translateY(0); }
+  0% {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 @keyframes slideDown {
-  0% { opacity: 0; transform: translateY(-10px); }
-  100% { opacity: 1; transform: translateY(0); }
+  0% {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 @keyframes indeterminate {
-  0% { transform: translateX(-100%); }
-  50% { transform: translateX(150%); }
-  100% { transform: translateX(-100%); }
+  0% {
+    transform: translateX(-100%);
+  }
+  50% {
+    transform: translateX(150%);
+  }
+  100% {
+    transform: translateX(-100%);
+  }
 }
 
 @keyframes welcomeFadeIn {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .animate-pulse-slow {
@@ -880,9 +960,9 @@ img, button, header, footer, .sidebar-item, .status-badge, .noselect {
   *,
   *::before,
   *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms;
+    animation-iteration-count: 1;
+    transition-duration: 0.01ms;
   }
 }
 

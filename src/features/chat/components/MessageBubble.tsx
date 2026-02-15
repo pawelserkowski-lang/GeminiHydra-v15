@@ -181,9 +181,7 @@ export const MessageBubble = memo<MessageBubbleProps>(({ message, isLast, isStre
         {!isUser && !isSystem && message.model && (
           <div className="flex items-center gap-1.5 mb-1.5 pb-1 border-b border-matrix-accent/10">
             <Cpu size={11} className={cn(theme.accentText, 'opacity-70')} />
-            <span className={cn('text-xs font-mono tracking-wide opacity-70', theme.accentText)}>
-              {message.model}
-            </span>
+            <span className={cn('text-xs font-mono tracking-wide opacity-70', theme.accentText)}>{message.model}</span>
           </div>
         )}
 

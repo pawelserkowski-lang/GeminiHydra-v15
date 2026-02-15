@@ -171,14 +171,20 @@ export function ModelSelector<T extends ModelOption = ModelOption>({
   // ----- Render --------------------------------------------------------
 
   return (
-    <div ref={rootRef} className={cn('relative', className)} onKeyDown={handleKeyDown}>
+    <div
+      ref={rootRef}
+      className={cn('relative', className)}
+      onKeyDown={handleKeyDown}
+      role="combobox"
+      aria-expanded={isOpen}
+      tabIndex={-1}
+    >
       {/* Trigger */}
       <button
         type="button"
         onClick={() => !disabled && setIsOpen((o) => !o)}
         disabled={disabled}
         aria-haspopup="listbox"
-        aria-expanded={isOpen}
         className={cn(
           'flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-all w-full',
           'bg-matrix-accent/5 border border-matrix-accent/10',

@@ -296,7 +296,7 @@ export const ChatContainer = memo<ChatContainerProps>(({ isStreaming, onSubmit, 
   const currentSessionId = useViewStore((s) => s.currentSessionId);
   const chatHistory = useViewStore((s) => s.chatHistory);
   const messages = useMemo<Message[]>(
-    () => (currentSessionId ? chatHistory[currentSessionId] ?? [] : []),
+    () => (currentSessionId ? (chatHistory[currentSessionId] ?? []) : []),
     [currentSessionId, chatHistory],
   );
 

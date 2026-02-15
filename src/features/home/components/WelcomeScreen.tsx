@@ -6,18 +6,7 @@
  * Ported from legacy GeminiHydra WelcomeScreen with glassmorphism + motion.
  */
 
-import {
-  Clock,
-  Cpu,
-  Globe,
-  Layers,
-  MessageSquare,
-  Plus,
-  Settings,
-  Sparkles,
-  Users,
-  Workflow,
-} from 'lucide-react';
+import { Clock, Cpu, Globe, Layers, MessageSquare, Plus, Settings, Sparkles, Users, Workflow } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { memo, useCallback, useMemo } from 'react';
 
@@ -238,7 +227,14 @@ export const WelcomeScreen = memo(() => {
           initial="hidden"
           animate="visible"
         >
-          <Button variant="primary" size="md" leftIcon={<Plus size={16} />} onClick={handleNewChat} className="w-full" data-testid="btn-new-chat">
+          <Button
+            variant="primary"
+            size="md"
+            leftIcon={<Plus size={16} />}
+            onClick={handleNewChat}
+            className="w-full"
+            data-testid="btn-new-chat"
+          >
             New Chat
           </Button>
           <Button

@@ -78,6 +78,7 @@ export function StatusIndicator({
   const { dot: dotSize, text: textSize } = sizeMap[size];
 
   return (
+    // biome-ignore lint/a11y/useSemanticElements: StatusIndicator uses div with role="status" for compatibility with HTMLDivElement props
     <div
       className={cn('inline-flex items-center gap-2', className)}
       role="status"

@@ -27,6 +27,7 @@ async fn build_app() -> axum::Router {
         .allow_origin(AllowOrigin::list([
             "http://localhost:5176".parse().unwrap(),
             "http://localhost:5173".parse().unwrap(),
+            "http://localhost:4173".parse().unwrap(),
             "http://localhost:3000".parse().unwrap(),
             "https://geminihydra-v15.vercel.app".parse().unwrap(),
             "https://geminihydra-v15-pawelserkowskis-projects.vercel.app"

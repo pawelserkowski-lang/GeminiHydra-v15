@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { cn } from '@/shared/utils/cn';
 
 describe('cn utility', () => {
@@ -35,9 +35,7 @@ describe('cn utility', () => {
   });
 
   it('should handle mixed inputs', () => {
-    expect(cn('base', { active: true, disabled: false }, ['extra'])).toBe(
-      'base active extra',
-    );
+    expect(cn('base', { active: true, disabled: false }, ['extra'])).toBe('base active extra');
   });
 
   // ========================================
@@ -101,10 +99,7 @@ describe('cn utility', () => {
 
   it('should handle conditional disabled state', () => {
     const isDisabled = true;
-    const result = cn(
-      'px-4 py-2',
-      isDisabled && 'opacity-50 cursor-not-allowed',
-    );
+    const result = cn('px-4 py-2', isDisabled && 'opacity-50 cursor-not-allowed');
     expect(result).toContain('opacity-50');
     expect(result).toContain('cursor-not-allowed');
   });
