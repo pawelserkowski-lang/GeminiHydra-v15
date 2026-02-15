@@ -225,3 +225,82 @@ export const knowledgeEdgeSchema = z.object({
 });
 
 export type KnowledgeEdge = z.infer<typeof knowledgeEdgeSchema>;
+
+// ============================================================================
+// WEBSOCKET PROTOCOL
+// ============================================================================
+
+export const wsStartMessageSchema = z.object({
+  type: z.literal('start'),
+  id: z.string(),
+  agent: z.string(),
+  model: z.string(),
+  files_loaded: z.array(z.string()),
+});
+
+export type WsStartMessage = z.infer<typeof wsStartMessageSchema>;
+
+export const wsTokenMessageSchema = z.object({
+  type: z.literal('token'),
+  content: z.string(),
+});
+
+export type WsTokenMessage = z.infer<typeof wsTokenMessageSchema>;
+
+export const wsPlanMessageSchema = z.object({
+  type: z.literal('plan'),
+  agent: z.string(),
+  confidence: z.number(),
+  steps: z.array(z.string()),
+});
+
+export type WsPlanMessage = z.infer<typeof wsPlanMessageSchema>;
+
+export const wsCompleteMessageSchema = z.object({
+  type: z.literal('complete'),
+  duration_ms: z.number(),
+});
+
+export type WsCompleteMessage = z.infer<typeof wsCompleteMessageSchema>;
+
+export const wsErrorMessageSchema = z.object({
+  type: z.literal('error'),
+  message: z.string(),
+  code: z.string().optional(),
+});
+
+export type WsErrorMessage = z.infer<typeof wsErrorMessageSchema>;
+
+export const wsPongMessageSchema = z.object({
+  type: z.literal('pong'),
+});
+
+export type WsPongMessage = z.infer<typeof wsPongMessageSchema>;
+
+export const wsServerMessageSchema = z.discriminatedUnion('type', [
+  wsStartMessageSchema,
+  wsTokenMessageSchema,
+  wsPlanMessageSchema,
+  wsCompleteMessageSchema,
+  wsErrorMessageSchema,
+  wsPongMessageSchema,
+]);
+
+export type WsServerMessage = z.infer<typeof wsServerMessageSchema>;
+
+export interface WsExecuteMessage {
+  type: 'execute';
+  prompt: string;
+  mode: string;
+  model?: string;
+}
+
+export interface WsCancelMessage {
+  type: 'cancel';
+}
+
+export interface WsPingMessage {
+  type: 'ping';
+}
+
+export type WsClientMessage = WsExecuteMessage | WsCancelMessage | WsPingMessage;

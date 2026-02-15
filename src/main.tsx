@@ -7,7 +7,7 @@
  */
 
 import { QueryClientProvider } from '@tanstack/react-query';
-import { lazy, StrictMode, Suspense, useCallback, useState } from 'react';
+import { lazy, StrictMode, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Toaster } from 'sonner';
 import { ViewSkeleton } from '@/components/molecules/ViewSkeleton';
@@ -15,6 +15,8 @@ import { AppShell } from '@/components/organisms/AppShell';
 import { ErrorBoundary } from '@/components/organisms/ErrorBoundary';
 import { useChatExecuteMutation } from '@/features/chat/hooks/useChat';
 import { queryClient } from '@/shared/api/queryClient';
+import { useWebSocketChat } from '@/shared/hooks/useWebSocketChat';
+import type { WsCallbacks } from '@/shared/hooks/useWebSocketChat';
 import { useViewStore } from '@/stores/viewStore';
 import '@/i18n';
 import './styles/globals.css';
@@ -34,54 +36,110 @@ const LazyHistoryView = lazy(() => import('@/features/history/components/History
 
 /**
  * ChatContainer requires isStreaming/onSubmit/onStop props.
- * This wrapper wires the useChatExecuteMutation hook to those props.
- * Kept in main.tsx (small) — the actual ChatContainer is lazy-loaded.
+ * This wrapper wires the useWebSocketChat hook as primary path,
+ * with useChatExecuteMutation as HTTP fallback when WS is unavailable.
  */
 function ChatViewWrapper() {
   const executeMutation = useChatExecuteMutation();
   const addMessage = useViewStore((s) => s.addMessage);
-  const [isStreaming, setIsStreaming] = useState(false);
+  const updateLastMessage = useViewStore((s) => s.updateLastMessage);
+  const [usingFallback, setUsingFallback] = useState(false);
+  const fallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const wsCallbacks = useMemo<WsCallbacks>(
+    () => ({
+      onStart: (msg) => {
+        addMessage({
+          role: 'assistant',
+          content: '',
+          timestamp: Date.now(),
+          model: msg.agent,
+        });
+      },
+      onToken: (content) => {
+        updateLastMessage(content);
+      },
+      onError: (message) => {
+        addMessage({
+          role: 'assistant',
+          content: `Error: ${message}`,
+          timestamp: Date.now(),
+        });
+      },
+    }),
+    [addMessage, updateLastMessage],
+  );
+
+  const { status, isStreaming: wsStreaming, sendExecute, cancelStream } =
+    useWebSocketChat(wsCallbacks);
+
+  // Fallback: if WS stays disconnected/error for 5s, switch to HTTP
+  useEffect(() => {
+    if (status === 'disconnected' || status === 'error') {
+      fallbackTimerRef.current = setTimeout(() => setUsingFallback(true), 5000);
+    } else {
+      if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current);
+      fallbackTimerRef.current = null;
+      setUsingFallback(false);
+    }
+    return () => {
+      if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current);
+    };
+  }, [status]);
+
+  const [httpStreaming, setHttpStreaming] = useState(false);
+  const isStreaming = usingFallback ? httpStreaming : wsStreaming;
 
   const handleSubmit = useCallback(
     (prompt: string, _image: string | null) => {
-      // Auto-create session if none exists (prevents silent message loss)
+      // Auto-create session if none exists
       if (!useViewStore.getState().currentSessionId) {
         useViewStore.getState().createSession();
         const sid = useViewStore.getState().currentSessionId;
         if (sid) useViewStore.getState().openTab(sid);
       }
       addMessage({ role: 'user', content: prompt, timestamp: Date.now() });
-      setIsStreaming(true);
 
-      executeMutation.mutate(
-        { prompt, mode: 'chat' },
-        {
-          onSuccess: (data) => {
-            addMessage({
-              role: 'assistant',
-              content: data.result,
-              timestamp: Date.now(),
-              model: data.plan?.agent,
-            });
-            setIsStreaming(false);
+      if (!usingFallback) {
+        // Primary: WebSocket streaming
+        sendExecute(prompt, 'chat');
+      } else {
+        // Fallback: HTTP
+        setHttpStreaming(true);
+        executeMutation.mutate(
+          { prompt, mode: 'chat' },
+          {
+            onSuccess: (data) => {
+              addMessage({
+                role: 'assistant',
+                content: data.result,
+                timestamp: Date.now(),
+                model: data.plan?.agent,
+              });
+              setHttpStreaming(false);
+            },
+            onError: () => {
+              addMessage({
+                role: 'assistant',
+                content: 'An error occurred while generating a response.',
+                timestamp: Date.now(),
+              });
+              setHttpStreaming(false);
+            },
           },
-          onError: () => {
-            addMessage({
-              role: 'assistant',
-              content: 'An error occurred while generating a response.',
-              timestamp: Date.now(),
-            });
-            setIsStreaming(false);
-          },
-        },
-      );
+        );
+      }
     },
-    [executeMutation, addMessage],
+    [addMessage, usingFallback, sendExecute, executeMutation],
   );
 
   const handleStop = useCallback(() => {
-    setIsStreaming(false);
-  }, []);
+    if (!usingFallback) {
+      cancelStream();
+    } else {
+      setHttpStreaming(false);
+    }
+  }, [usingFallback, cancelStream]);
 
   return <LazyChatContainer isStreaming={isStreaming} onSubmit={handleSubmit} onStop={handleStop} />;
 }

@@ -267,3 +267,48 @@ pub struct ClassifyResponse {
     pub confidence: f64,
     pub reasoning: String,
 }
+
+// ---------------------------------------------------------------------------
+// WebSocket Protocol
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum WsClientMessage {
+    Execute {
+        prompt: String,
+        mode: String,
+        #[serde(default)]
+        model: Option<String>,
+    },
+    Cancel,
+    Ping,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum WsServerMessage {
+    Start {
+        id: String,
+        agent: String,
+        model: String,
+        files_loaded: Vec<String>,
+    },
+    Token {
+        content: String,
+    },
+    Plan {
+        agent: String,
+        confidence: f64,
+        steps: Vec<String>,
+    },
+    Complete {
+        duration_ms: u64,
+    },
+    Error {
+        message: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        code: Option<String>,
+    },
+    Pong,
+}

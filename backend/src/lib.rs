@@ -22,6 +22,8 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/agents/classify", post(handlers::classify_agent))
         // Execute
         .route("/api/execute", post(handlers::execute))
+        // WebSocket streaming
+        .route("/ws/execute", get(handlers::ws_execute))
         // Gemini proxy
         .route("/api/gemini/models", get(handlers::gemini_models))
         // Files

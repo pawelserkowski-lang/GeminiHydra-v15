@@ -1,10 +1,14 @@
 use std::collections::HashMap;
 use std::time::Instant;
 
+use axum::extract::ws::{Message as WsMessage, WebSocket, WebSocketUpgrade};
 use axum::extract::State;
+use axum::response::IntoResponse;
 use axum::Json;
+use futures_util::{SinkExt, StreamExt};
 use serde_json::{json, Value};
 use sysinfo::System;
+use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use crate::files;
@@ -12,7 +16,7 @@ use crate::models::{
     ClassifyRequest, ClassifyResponse, DetailedHealthResponse, ExecutePlan, ExecuteRequest,
     ExecuteResponse, FileEntryResponse, FileListRequest, FileListResponse, FileReadRequest,
     FileReadResponse, GeminiModelInfo, GeminiModelsResponse, HealthResponse, ProviderInfo,
-    SystemStats, WitcherAgent,
+    SystemStats, WitcherAgent, WsClientMessage, WsServerMessage,
 };
 use crate::state::AppState;
 
@@ -253,18 +257,28 @@ pub async fn classify_agent(
 }
 
 // ---------------------------------------------------------------------------
-// POST /api/execute
+// Shared execution context (used by both HTTP and WS handlers)
 // ---------------------------------------------------------------------------
 
-pub async fn execute(
-    State(state): State<AppState>,
-    Json(body): Json<ExecuteRequest>,
-) -> Json<Value> {
-    let start = Instant::now();
+struct ExecuteContext {
+    agent_id: String,
+    confidence: f64,
+    reasoning: String,
+    model: String,
+    api_key: String,
+    system_prompt: String,
+    final_user_prompt: String,
+    files_loaded: Vec<String>,
+    steps: Vec<String>,
+}
 
-    let (agent_id, confidence, reasoning) = classify_prompt(&body.prompt);
+async fn prepare_execution(
+    state: &AppState,
+    prompt: &str,
+    model_override: Option<String>,
+) -> ExecuteContext {
+    let (agent_id, confidence, reasoning) = classify_prompt(prompt);
 
-    // Read default_model from DB settings (fallback if DB is unavailable).
     let default_model = sqlx::query_scalar::<_, String>(
         "SELECT default_model FROM gh_settings WHERE id = 1",
     )
@@ -272,12 +286,8 @@ pub async fn execute(
     .await
     .unwrap_or_else(|_| "gemini-3-flash-preview".to_string());
 
-    let model = body
-        .model
-        .clone()
-        .unwrap_or(default_model);
+    let model = model_override.unwrap_or(default_model);
 
-    // Read API key from runtime state.
     let api_key = {
         let rt = state.runtime.read().await;
         rt.api_keys.get("google").cloned().unwrap_or_default()
@@ -285,8 +295,7 @@ pub async fn execute(
 
     let system_prompt = build_system_prompt(&agent_id, &state.agents);
 
-    // Detect file paths in prompt and load their contents as context.
-    let detected_paths = files::extract_file_paths(&body.prompt);
+    let detected_paths = files::extract_file_paths(prompt);
     let (file_context, _file_errors) = if !detected_paths.is_empty() {
         files::build_file_context(&detected_paths).await
     } else {
@@ -299,21 +308,53 @@ pub async fn execute(
         Vec::new()
     };
 
-    // Build final user prompt with file context prepended.
     let final_user_prompt = if file_context.is_empty() {
-        body.prompt.clone()
+        prompt.to_string()
     } else {
-        format!("{}{}", file_context, body.prompt)
+        format!("{}{}", file_context, prompt)
     };
 
-    // If no API key, return a graceful error-like response.
-    if api_key.is_empty() {
+    let mut steps = vec![
+        "classify prompt".into(),
+        format!("route to agent (confidence {:.0}%)", confidence * 100.0),
+    ];
+    if !files_loaded.is_empty() {
+        steps.push(format!("loaded {} file(s) as context", files_loaded.len()));
+    }
+    steps.push(format!("call Gemini model {}", model));
+    steps.push("return result".into());
+
+    ExecuteContext {
+        agent_id,
+        confidence,
+        reasoning,
+        model,
+        api_key,
+        system_prompt,
+        final_user_prompt,
+        files_loaded,
+        steps,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/execute (HTTP — kept as fallback)
+// ---------------------------------------------------------------------------
+
+pub async fn execute(
+    State(state): State<AppState>,
+    Json(body): Json<ExecuteRequest>,
+) -> Json<Value> {
+    let start = Instant::now();
+    let ctx = prepare_execution(&state, &body.prompt, body.model.clone()).await;
+
+    if ctx.api_key.is_empty() {
         let duration = start.elapsed().as_millis() as u64;
         return Json(json!(ExecuteResponse {
             id: Uuid::new_v4().to_string(),
             result: "Error: No Google/Gemini API key configured. Set GOOGLE_API_KEY or GEMINI_API_KEY in your environment.".to_string(),
             plan: Some(ExecutePlan {
-                agent: Some(agent_id),
+                agent: Some(ctx.agent_id),
                 steps: vec!["classify prompt".into(), "call Gemini API".into(), "return result".into()],
                 estimated_time: None,
             }),
@@ -323,18 +364,17 @@ pub async fn execute(
         }));
     }
 
-    // Build Gemini generateContent request.
     let url = format!(
         "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent?key={}",
-        model, api_key
+        ctx.model, ctx.api_key
     );
 
     let gemini_body = json!({
         "systemInstruction": {
-            "parts": [{ "text": system_prompt }]
+            "parts": [{ "text": ctx.system_prompt }]
         },
         "contents": [{
-            "parts": [{ "text": final_user_prompt }]
+            "parts": [{ "text": ctx.final_user_prompt }]
         }]
     });
 
@@ -360,39 +400,27 @@ pub async fn execute(
     let duration = start.elapsed().as_millis() as u64;
     let response_id = Uuid::new_v4();
 
-    // Build execution steps (include file loading info if applicable).
-    let mut steps = vec![
-        "classify prompt".into(),
-        format!("route to agent (confidence {:.0}%)", confidence * 100.0),
-    ];
-    if !files_loaded.is_empty() {
-        steps.push(format!("loaded {} file(s) as context", files_loaded.len()));
-    }
-    steps.push(format!("call Gemini model {}", model));
-    steps.push("return result".into());
-
     let response = ExecuteResponse {
         id: response_id.to_string(),
         result: result_text,
         plan: Some(ExecutePlan {
-            agent: Some(agent_id.clone()),
-            steps,
+            agent: Some(ctx.agent_id.clone()),
+            steps: ctx.steps,
             estimated_time: Some(format!("{}ms", duration)),
         }),
         duration_ms: duration,
         mode: body.mode.clone(),
-        files_loaded,
+        files_loaded: ctx.files_loaded,
     };
 
-    // Store in DB (non-fatal on error).
     if let Err(e) = sqlx::query(
         "INSERT INTO gh_chat_messages (id, role, content, model, agent) VALUES ($1, $2, $3, $4, $5)",
     )
     .bind(response_id)
     .bind("user")
     .bind(&body.prompt)
-    .bind(Some(&model))
-    .bind(Some(&agent_id))
+    .bind(Some(&ctx.model))
+    .bind(Some(&ctx.agent_id))
     .execute(&state.db)
     .await
     {
@@ -405,8 +433,8 @@ pub async fn execute(
     .bind(Uuid::new_v4())
     .bind("assistant")
     .bind(&response.result)
-    .bind(Some(&model))
-    .bind(Some(&reasoning))
+    .bind(Some(&ctx.model))
+    .bind(Some(&ctx.reasoning))
     .execute(&state.db)
     .await
     {
@@ -414,6 +442,330 @@ pub async fn execute(
     }
 
     Json(json!(response))
+}
+
+// ---------------------------------------------------------------------------
+// SSE line parser for Gemini streaming response
+// ---------------------------------------------------------------------------
+
+struct SseParser {
+    buffer: String,
+}
+
+impl SseParser {
+    fn new() -> Self {
+        Self {
+            buffer: String::new(),
+        }
+    }
+
+    /// Feed raw bytes from the HTTP stream. Returns extracted text tokens.
+    fn feed(&mut self, chunk: &str) -> Vec<String> {
+        self.buffer.push_str(chunk);
+        let mut tokens = Vec::new();
+
+        // SSE format: lines prefixed with "data: " separated by blank lines
+        while let Some(pos) = self.buffer.find("\n\n") {
+            let block = self.buffer[..pos].to_string();
+            self.buffer = self.buffer[pos + 2..].to_string();
+
+            for line in block.lines() {
+                let data = line.strip_prefix("data: ").unwrap_or(line);
+                if data.is_empty() || data == "[DONE]" {
+                    continue;
+                }
+                if let Ok(json_val) = serde_json::from_str::<Value>(data) {
+                    if let Some(text) = json_val["candidates"][0]["content"]["parts"][0]["text"]
+                        .as_str()
+                    {
+                        if !text.is_empty() {
+                            tokens.push(text.to_string());
+                        }
+                    }
+                }
+            }
+        }
+
+        tokens
+    }
+
+    /// Flush remaining buffer (for incomplete final chunk).
+    fn flush(&mut self) -> Vec<String> {
+        if self.buffer.trim().is_empty() {
+            return Vec::new();
+        }
+        let remaining = std::mem::take(&mut self.buffer);
+        let mut tokens = Vec::new();
+        for line in remaining.lines() {
+            let data = line.strip_prefix("data: ").unwrap_or(line);
+            if data.is_empty() || data == "[DONE]" {
+                continue;
+            }
+            if let Ok(json_val) = serde_json::from_str::<Value>(data) {
+                if let Some(text) =
+                    json_val["candidates"][0]["content"]["parts"][0]["text"].as_str()
+                {
+                    if !text.is_empty() {
+                        tokens.push(text.to_string());
+                    }
+                }
+            }
+        }
+        tokens
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Helper: send a WsServerMessage over the socket
+// ---------------------------------------------------------------------------
+
+async fn ws_send(
+    sender: &mut futures_util::stream::SplitSink<WebSocket, WsMessage>,
+    msg: &WsServerMessage,
+) -> bool {
+    match serde_json::to_string(msg) {
+        Ok(json) => sender.send(WsMessage::Text(json.into())).await.is_ok(),
+        Err(_) => false,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// GET /ws/execute — WebSocket streaming handler
+// ---------------------------------------------------------------------------
+
+pub async fn ws_execute(
+    ws: WebSocketUpgrade,
+    State(state): State<AppState>,
+) -> impl IntoResponse {
+    ws.on_upgrade(move |socket| handle_ws(socket, state))
+}
+
+async fn handle_ws(socket: WebSocket, state: AppState) {
+    let (mut sender, mut receiver) = socket.split();
+    let cancel = CancellationToken::new();
+
+    while let Some(msg_result) = receiver.next().await {
+        let msg = match msg_result {
+            Ok(m) => m,
+            Err(_) => break,
+        };
+        let text = match msg {
+            WsMessage::Text(ref t) => t.to_string(),
+            WsMessage::Close(_) => break,
+            _ => continue,
+        };
+
+        let client_msg: WsClientMessage = match serde_json::from_str(&text) {
+            Ok(m) => m,
+            Err(e) => {
+                let _ = ws_send(
+                    &mut sender,
+                    &WsServerMessage::Error {
+                        message: format!("Invalid message: {}", e),
+                        code: Some("PARSE_ERROR".into()),
+                    },
+                )
+                .await;
+                continue;
+            }
+        };
+
+        match client_msg {
+            WsClientMessage::Ping => {
+                let _ = ws_send(&mut sender, &WsServerMessage::Pong).await;
+            }
+            WsClientMessage::Cancel => {
+                cancel.cancel();
+            }
+            WsClientMessage::Execute {
+                prompt,
+                mode: _,
+                model,
+            } => {
+                let child_cancel = cancel.child_token();
+                execute_streaming(&mut sender, &state, &prompt, model, child_cancel).await;
+            }
+        }
+    }
+}
+
+async fn execute_streaming(
+    sender: &mut futures_util::stream::SplitSink<WebSocket, WsMessage>,
+    state: &AppState,
+    prompt: &str,
+    model_override: Option<String>,
+    cancel: CancellationToken,
+) {
+    let start = Instant::now();
+    let ctx = prepare_execution(state, prompt, model_override).await;
+    let response_id = Uuid::new_v4();
+
+    // Send Start message
+    if !ws_send(
+        sender,
+        &WsServerMessage::Start {
+            id: response_id.to_string(),
+            agent: ctx.agent_id.clone(),
+            model: ctx.model.clone(),
+            files_loaded: ctx.files_loaded.clone(),
+        },
+    )
+    .await
+    {
+        return;
+    }
+
+    // Send Plan message
+    let _ = ws_send(
+        sender,
+        &WsServerMessage::Plan {
+            agent: ctx.agent_id.clone(),
+            confidence: ctx.confidence,
+            steps: ctx.steps.clone(),
+        },
+    )
+    .await;
+
+    // Check API key
+    if ctx.api_key.is_empty() {
+        let _ = ws_send(
+            sender,
+            &WsServerMessage::Error {
+                message: "No Google/Gemini API key configured. Set GOOGLE_API_KEY or GEMINI_API_KEY in your environment.".into(),
+                code: Some("NO_API_KEY".into()),
+            },
+        )
+        .await;
+        return;
+    }
+
+    // Use streaming endpoint
+    let url = format!(
+        "https://generativelanguage.googleapis.com/v1beta/models/{}:streamGenerateContent?alt=sse&key={}",
+        ctx.model, ctx.api_key
+    );
+
+    let gemini_body = json!({
+        "systemInstruction": {
+            "parts": [{ "text": ctx.system_prompt }]
+        },
+        "contents": [{
+            "parts": [{ "text": ctx.final_user_prompt }]
+        }]
+    });
+
+    let resp = match state.client.post(&url).json(&gemini_body).send().await {
+        Ok(r) => r,
+        Err(e) => {
+            let _ = ws_send(
+                sender,
+                &WsServerMessage::Error {
+                    message: format!("Request failed: {}", e),
+                    code: Some("REQUEST_FAILED".into()),
+                },
+            )
+            .await;
+            return;
+        }
+    };
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let error_body = resp.text().await.unwrap_or_default();
+        let _ = ws_send(
+            sender,
+            &WsServerMessage::Error {
+                message: format!("Gemini API error ({}): {}", status, error_body),
+                code: Some("GEMINI_ERROR".into()),
+            },
+        )
+        .await;
+        return;
+    }
+
+    // Stream SSE chunks from Gemini
+    let mut full_text = String::new();
+    let mut parser = SseParser::new();
+    let mut byte_stream = Box::pin(resp.bytes_stream());
+
+    loop {
+        tokio::select! {
+            _ = cancel.cancelled() => {
+                break;
+            }
+            chunk = byte_stream.next() => {
+                match chunk {
+                    Some(Ok(bytes)) => {
+                        let text = String::from_utf8_lossy(&bytes);
+                        for token in parser.feed(&text) {
+                            full_text.push_str(&token);
+                            if !ws_send(sender, &WsServerMessage::Token { content: token }).await {
+                                return;
+                            }
+                        }
+                    }
+                    Some(Err(e)) => {
+                        let _ = ws_send(
+                            sender,
+                            &WsServerMessage::Error {
+                                message: format!("Stream error: {}", e),
+                                code: Some("STREAM_ERROR".into()),
+                            },
+                        )
+                        .await;
+                        break;
+                    }
+                    None => {
+                        // Stream ended — flush parser buffer
+                        for token in parser.flush() {
+                            full_text.push_str(&token);
+                            let _ = ws_send(sender, &WsServerMessage::Token { content: token }).await;
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    let duration = start.elapsed().as_millis() as u64;
+
+    // Store messages in DB (non-fatal)
+    if let Err(e) = sqlx::query(
+        "INSERT INTO gh_chat_messages (id, role, content, model, agent) VALUES ($1, $2, $3, $4, $5)",
+    )
+    .bind(response_id)
+    .bind("user")
+    .bind(prompt)
+    .bind(Some(&ctx.model))
+    .bind(Some(&ctx.agent_id))
+    .execute(&state.db)
+    .await
+    {
+        tracing::warn!("Failed to store user message: {}", e);
+    }
+
+    if !full_text.is_empty() {
+        if let Err(e) = sqlx::query(
+            "INSERT INTO gh_chat_messages (id, role, content, model, agent) VALUES ($1, $2, $3, $4, $5)",
+        )
+        .bind(Uuid::new_v4())
+        .bind("assistant")
+        .bind(&full_text)
+        .bind(Some(&ctx.model))
+        .bind(Some(&ctx.reasoning))
+        .execute(&state.db)
+        .await
+        {
+            tracing::warn!("Failed to store assistant message: {}", e);
+        }
+    }
+
+    let _ = ws_send(
+        sender,
+        &WsServerMessage::Complete { duration_ms: duration },
+    )
+    .await;
 }
 
 // ---------------------------------------------------------------------------

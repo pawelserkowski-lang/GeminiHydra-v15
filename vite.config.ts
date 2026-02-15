@@ -20,6 +20,11 @@ export default defineConfig({
         changeOrigin: true,
         secure: backendUrl.startsWith('https'),
       },
+      '/ws': {
+        target: backendUrl,
+        changeOrigin: true,
+        ws: true,
+      },
     },
   },
   build: {
