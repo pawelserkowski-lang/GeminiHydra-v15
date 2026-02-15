@@ -73,19 +73,20 @@ function ChatViewWrapper() {
   const { status, isStreaming: wsStreaming, sendExecute, cancelStream } =
     useWebSocketChat(wsCallbacks);
 
-  // Fallback: if WS stays disconnected/error for 5s, switch to HTTP
+  // Fallback: if WS never reaches 'connected' within 5s, switch to HTTP.
+  // Only clear fallback when WS actually connects (not on reconnect attempts).
   useEffect(() => {
-    if (status === 'disconnected' || status === 'error') {
-      fallbackTimerRef.current = setTimeout(() => setUsingFallback(true), 5000);
-    } else {
+    if (status === 'connected') {
       if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current);
       fallbackTimerRef.current = null;
       setUsingFallback(false);
+    } else if (!fallbackTimerRef.current && !usingFallback) {
+      fallbackTimerRef.current = setTimeout(() => setUsingFallback(true), 5000);
     }
     return () => {
       if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current);
     };
-  }, [status]);
+  }, [status, usingFallback]);
 
   const [httpStreaming, setHttpStreaming] = useState(false);
   const isStreaming = usingFallback ? httpStreaming : wsStreaming;
@@ -100,8 +101,8 @@ function ChatViewWrapper() {
       }
       addMessage({ role: 'user', content: prompt, timestamp: Date.now() });
 
-      if (!usingFallback) {
-        // Primary: WebSocket streaming
+      if (!usingFallback && status === 'connected') {
+        // Primary: WebSocket streaming (only when WS is actually connected)
         sendExecute(prompt, 'chat');
       } else {
         // Fallback: HTTP
@@ -130,7 +131,7 @@ function ChatViewWrapper() {
         );
       }
     },
-    [addMessage, usingFallback, sendExecute, executeMutation],
+    [addMessage, usingFallback, status, sendExecute, executeMutation],
   );
 
   const handleStop = useCallback(() => {
