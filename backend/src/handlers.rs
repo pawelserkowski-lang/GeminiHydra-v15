@@ -183,7 +183,17 @@ fn build_system_prompt(agent_id: &str, agents: &[WitcherAgent], language: &str) 
 - If a question falls outside your expertise, acknowledge it and suggest which swarm agent would be better suited.
 - You can reference other agents by name when collaborating would help the user.
 - When file contents are provided as context (prefixed with `--- FILE CONTEXT ---`), analyze them thoroughly. Reference specific lines and code. You have real access to the user's local files.
-- You can suggest the user reference additional files by mentioning their full paths."#
+- You can suggest the user reference additional files by mentioning their full paths.
+
+## Available Tools
+You have access to local tools that you MUST use when the user asks to perform actions:
+- **execute_command**: Run shell commands (build, test, git, file operations)
+- **read_file**: Read file contents from the local filesystem
+- **write_file**: Create or overwrite files
+- **list_directory**: List directory contents
+
+When the user asks you to do something (run a command, read/write files, list directories), USE the tools instead of just suggesting commands. You can chain multiple tool calls.
+Do NOT just suggest commands — execute them with the tools. If the user says "run cargo build", use execute_command with "cargo build"."#
     )
 }
 
@@ -453,6 +463,14 @@ pub async fn execute(
 // SSE line parser for Gemini streaming response
 // ---------------------------------------------------------------------------
 
+/// Events extracted from Gemini SSE stream.
+#[derive(Debug, Clone)]
+enum SseParsedEvent {
+    TextToken(String),
+    /// `raw_part` preserves the original JSON part (including `thought_signature`).
+    FunctionCall { name: String, args: Value, raw_part: Value },
+}
+
 struct SseParser {
     buffer: String,
 }
@@ -464,10 +482,36 @@ impl SseParser {
         }
     }
 
-    /// Feed raw bytes from the HTTP stream. Returns extracted text tokens.
-    fn feed(&mut self, chunk: &str) -> Vec<String> {
+    /// Parse all `parts` in a Gemini SSE JSON blob, returning text tokens
+    /// and/or function calls.
+    fn parse_parts(json_val: &Value) -> Vec<SseParsedEvent> {
+        let mut events = Vec::new();
+        if let Some(parts) = json_val["candidates"][0]["content"]["parts"].as_array() {
+            for part in parts {
+                if let Some(text) = part["text"].as_str() {
+                    if !text.is_empty() {
+                        events.push(SseParsedEvent::TextToken(text.to_string()));
+                    }
+                }
+                if let Some(fc) = part.get("functionCall") {
+                    if let Some(name) = fc["name"].as_str() {
+                        let args = fc["args"].clone();
+                        events.push(SseParsedEvent::FunctionCall {
+                            name: name.to_string(),
+                            args,
+                            raw_part: part.clone(),
+                        });
+                    }
+                }
+            }
+        }
+        events
+    }
+
+    /// Feed raw bytes from the HTTP stream. Returns extracted events.
+    fn feed(&mut self, chunk: &str) -> Vec<SseParsedEvent> {
         self.buffer.push_str(chunk);
-        let mut tokens = Vec::new();
+        let mut events = Vec::new();
 
         // SSE format: lines prefixed with "data: " separated by blank lines
         while let Some(pos) = self.buffer.find("\n\n") {
@@ -480,43 +524,31 @@ impl SseParser {
                     continue;
                 }
                 if let Ok(json_val) = serde_json::from_str::<Value>(data) {
-                    if let Some(text) = json_val["candidates"][0]["content"]["parts"][0]["text"]
-                        .as_str()
-                    {
-                        if !text.is_empty() {
-                            tokens.push(text.to_string());
-                        }
-                    }
+                    events.extend(Self::parse_parts(&json_val));
                 }
             }
         }
 
-        tokens
+        events
     }
 
     /// Flush remaining buffer (for incomplete final chunk).
-    fn flush(&mut self) -> Vec<String> {
+    fn flush(&mut self) -> Vec<SseParsedEvent> {
         if self.buffer.trim().is_empty() {
             return Vec::new();
         }
         let remaining = std::mem::take(&mut self.buffer);
-        let mut tokens = Vec::new();
+        let mut events = Vec::new();
         for line in remaining.lines() {
             let data = line.strip_prefix("data: ").unwrap_or(line);
             if data.is_empty() || data == "[DONE]" {
                 continue;
             }
             if let Ok(json_val) = serde_json::from_str::<Value>(data) {
-                if let Some(text) =
-                    json_val["candidates"][0]["content"]["parts"][0]["text"].as_str()
-                {
-                    if !text.is_empty() {
-                        tokens.push(text.to_string());
-                    }
-                }
+                events.extend(Self::parse_parts(&json_val));
             }
         }
-        tokens
+        events
     }
 }
 
@@ -594,6 +626,78 @@ async fn handle_ws(socket: WebSocket, state: AppState) {
     }
 }
 
+/// Build Gemini function declarations for the 4 local tools.
+fn build_tools() -> Value {
+    json!([{
+        "functionDeclarations": [
+            {
+                "name": "execute_command",
+                "description": "Execute a shell command on the local system. Use this for running builds, tests, git commands, and other CLI operations.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "command": {
+                            "type": "string",
+                            "description": "The shell command to execute (e.g. 'cargo build', 'git status', 'ls -la')"
+                        }
+                    },
+                    "required": ["command"]
+                }
+            },
+            {
+                "name": "read_file",
+                "description": "Read the contents of a file from the local filesystem.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "path": {
+                            "type": "string",
+                            "description": "Absolute path to the file to read"
+                        }
+                    },
+                    "required": ["path"]
+                }
+            },
+            {
+                "name": "write_file",
+                "description": "Create or overwrite a file on the local filesystem.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "path": {
+                            "type": "string",
+                            "description": "Absolute path to the file to write"
+                        },
+                        "content": {
+                            "type": "string",
+                            "description": "The content to write to the file"
+                        }
+                    },
+                    "required": ["path", "content"]
+                }
+            },
+            {
+                "name": "list_directory",
+                "description": "List contents of a directory on the local filesystem.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "path": {
+                            "type": "string",
+                            "description": "Absolute path to the directory to list"
+                        },
+                        "show_hidden": {
+                            "type": "boolean",
+                            "description": "Whether to include hidden files (starting with dot). Defaults to false."
+                        }
+                    },
+                    "required": ["path"]
+                }
+            }
+        ]
+    }])
+}
+
 async fn execute_streaming(
     sender: &mut futures_util::stream::SplitSink<WebSocket, WsMessage>,
     state: &AppState,
@@ -650,87 +754,218 @@ async fn execute_streaming(
         ctx.model, ctx.api_key
     );
 
-    let gemini_body = json!({
-        "systemInstruction": {
-            "parts": [{ "text": ctx.system_prompt }]
-        },
-        "contents": [{
-            "parts": [{ "text": ctx.final_user_prompt }]
-        }]
-    });
+    let tools = build_tools();
 
-    let resp = match state.client.post(&url).json(&gemini_body).send().await {
-        Ok(r) => r,
-        Err(e) => {
+    // Conversation history grows with each tool-call iteration
+    let mut contents = vec![json!({
+        "role": "user",
+        "parts": [{ "text": ctx.final_user_prompt }]
+    })];
+
+    let mut full_text = String::new();
+    let max_iterations: u32 = 10;
+
+    for iteration in 0..max_iterations {
+        let gemini_body = json!({
+            "systemInstruction": {
+                "parts": [{ "text": ctx.system_prompt }]
+            },
+            "contents": contents,
+            "tools": tools
+        });
+
+        let resp = match state.client.post(&url).json(&gemini_body).send().await {
+            Ok(r) => r,
+            Err(e) => {
+                let _ = ws_send(
+                    sender,
+                    &WsServerMessage::Error {
+                        message: format!("Request failed: {}", e),
+                        code: Some("REQUEST_FAILED".into()),
+                    },
+                )
+                .await;
+                return;
+            }
+        };
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let error_body = resp.text().await.unwrap_or_default();
             let _ = ws_send(
                 sender,
                 &WsServerMessage::Error {
-                    message: format!("Request failed: {}", e),
-                    code: Some("REQUEST_FAILED".into()),
+                    message: format!("Gemini API error ({}): {}", status, error_body),
+                    code: Some("GEMINI_ERROR".into()),
                 },
             )
             .await;
             return;
         }
-    };
 
-    if !resp.status().is_success() {
-        let status = resp.status();
-        let error_body = resp.text().await.unwrap_or_default();
-        let _ = ws_send(
-            sender,
-            &WsServerMessage::Error {
-                message: format!("Gemini API error ({}): {}", status, error_body),
-                code: Some("GEMINI_ERROR".into()),
-            },
-        )
-        .await;
-        return;
-    }
+        // Stream SSE chunks from Gemini
+        let mut parser = SseParser::new();
+        let mut byte_stream = Box::pin(resp.bytes_stream());
+        let mut function_calls: Vec<(String, Value, Value)> = Vec::new();
+        let mut text_parts: Vec<Value> = Vec::new();
+        let mut cancelled = false;
 
-    // Stream SSE chunks from Gemini
-    let mut full_text = String::new();
-    let mut parser = SseParser::new();
-    let mut byte_stream = Box::pin(resp.bytes_stream());
-
-    loop {
-        tokio::select! {
-            _ = cancel.cancelled() => {
-                break;
-            }
-            chunk = byte_stream.next() => {
-                match chunk {
-                    Some(Ok(bytes)) => {
-                        let text = String::from_utf8_lossy(&bytes);
-                        for token in parser.feed(&text) {
-                            full_text.push_str(&token);
-                            if !ws_send(sender, &WsServerMessage::Token { content: token }).await {
-                                return;
+        loop {
+            tokio::select! {
+                _ = cancel.cancelled() => {
+                    cancelled = true;
+                    break;
+                }
+                chunk = byte_stream.next() => {
+                    match chunk {
+                        Some(Ok(bytes)) => {
+                            let text = String::from_utf8_lossy(&bytes);
+                            for event in parser.feed(&text) {
+                                match event {
+                                    SseParsedEvent::TextToken(token) => {
+                                        full_text.push_str(&token);
+                                        text_parts.push(json!({ "text": token }));
+                                        if !ws_send(sender, &WsServerMessage::Token { content: token }).await {
+                                            return;
+                                        }
+                                    }
+                                    SseParsedEvent::FunctionCall { name, args, raw_part } => {
+                                        function_calls.push((name, args, raw_part));
+                                    }
+                                }
                             }
                         }
-                    }
-                    Some(Err(e)) => {
-                        let _ = ws_send(
-                            sender,
-                            &WsServerMessage::Error {
-                                message: format!("Stream error: {}", e),
-                                code: Some("STREAM_ERROR".into()),
-                            },
-                        )
-                        .await;
-                        break;
-                    }
-                    None => {
-                        // Stream ended — flush parser buffer
-                        for token in parser.flush() {
-                            full_text.push_str(&token);
-                            let _ = ws_send(sender, &WsServerMessage::Token { content: token }).await;
+                        Some(Err(e)) => {
+                            let _ = ws_send(
+                                sender,
+                                &WsServerMessage::Error {
+                                    message: format!("Stream error: {}", e),
+                                    code: Some("STREAM_ERROR".into()),
+                                },
+                            )
+                            .await;
+                            cancelled = true;
+                            break;
                         }
-                        break;
+                        None => {
+                            // Stream ended — flush parser buffer
+                            for event in parser.flush() {
+                                match event {
+                                    SseParsedEvent::TextToken(token) => {
+                                        full_text.push_str(&token);
+                                        text_parts.push(json!({ "text": token }));
+                                        let _ = ws_send(sender, &WsServerMessage::Token { content: token }).await;
+                                    }
+                                    SseParsedEvent::FunctionCall { name, args, raw_part } => {
+                                        function_calls.push((name, args, raw_part));
+                                    }
+                                }
+                            }
+                            break;
+                        }
                     }
                 }
             }
         }
+
+        if cancelled {
+            break;
+        }
+
+        // No function calls → we're done
+        if function_calls.is_empty() {
+            break;
+        }
+
+        // Build model turn parts (text + original functionCall parts with thought_signature)
+        let mut model_parts: Vec<Value> = text_parts;
+        for (_fc_name, _fc_args, raw_part) in &function_calls {
+            model_parts.push(raw_part.clone());
+        }
+        // If model produced no text parts, ensure we still have the functionCall parts
+        if model_parts.is_empty() {
+            for (_fc_name, _fc_args, raw_part) in &function_calls {
+                model_parts.push(raw_part.clone());
+            }
+        }
+
+        contents.push(json!({
+            "role": "model",
+            "parts": model_parts
+        }));
+
+        // Execute each function call and build responses
+        let mut response_parts: Vec<Value> = Vec::new();
+
+        for (fc_name, fc_args, _raw_part) in &function_calls {
+            // Notify frontend about tool call
+            let _ = ws_send(
+                sender,
+                &WsServerMessage::ToolCall {
+                    name: fc_name.clone(),
+                    args: fc_args.clone(),
+                    iteration: iteration + 1,
+                },
+            )
+            .await;
+
+            // Stream markdown header as Token
+            let args_display = if fc_args.is_null() {
+                String::new()
+            } else {
+                serde_json::to_string(fc_args).unwrap_or_default()
+            };
+            let header = format!("\n\n---\n**🔧 Tool:** `{}` | `{}`\n", fc_name, args_display);
+            full_text.push_str(&header);
+            let _ = ws_send(sender, &WsServerMessage::Token { content: header }).await;
+
+            // Execute the tool
+            let result = crate::tools::execute_tool(fc_name, fc_args).await;
+            let (success, output) = match &result {
+                Ok(out) => (true, out.clone()),
+                Err(err) => (false, err.clone()),
+            };
+
+            // Notify frontend about tool result
+            let summary = if output.len() > 200 {
+                format!("{}...", &output[..200])
+            } else {
+                output.clone()
+            };
+            let _ = ws_send(
+                sender,
+                &WsServerMessage::ToolResult {
+                    name: fc_name.clone(),
+                    success,
+                    summary,
+                    iteration: iteration + 1,
+                },
+            )
+            .await;
+
+            // Stream result as markdown code block
+            let result_md = format!("```\n{}\n```\n---\n\n", output);
+            full_text.push_str(&result_md);
+            let _ = ws_send(sender, &WsServerMessage::Token { content: result_md }).await;
+
+            // Build functionResponse for Gemini
+            response_parts.push(json!({
+                "functionResponse": {
+                    "name": fc_name,
+                    "response": {
+                        "result": output
+                    }
+                }
+            }));
+        }
+
+        // Append user turn with function responses
+        contents.push(json!({
+            "role": "user",
+            "parts": response_parts
+        }));
+
+        // Continue loop — Gemini will process function responses
     }
 
     let duration = start.elapsed().as_millis() as u64;

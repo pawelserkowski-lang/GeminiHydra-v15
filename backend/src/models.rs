@@ -11,6 +11,7 @@ pub struct SettingsRow {
     pub default_model: String,
     pub language: String,
     pub theme: String,
+    pub welcome_message: String,
 }
 
 #[derive(sqlx::FromRow)]
@@ -162,6 +163,7 @@ pub struct AppSettings {
     pub default_model: String,
     pub language: String,
     pub theme: String,
+    pub welcome_message: String,
 }
 
 /// Available Gemini 3 model IDs.
@@ -179,6 +181,7 @@ impl Default for AppSettings {
             default_model: "gemini-3-flash-preview".to_string(),
             language: "en".to_string(),
             theme: "dark".to_string(),
+            welcome_message: String::new(),
         }
     }
 }
@@ -304,6 +307,17 @@ pub enum WsServerMessage {
     },
     Complete {
         duration_ms: u64,
+    },
+    ToolCall {
+        name: String,
+        args: serde_json::Value,
+        iteration: u32,
+    },
+    ToolResult {
+        name: String,
+        success: bool,
+        summary: String,
+        iteration: u32,
     },
     Error {
         message: String,

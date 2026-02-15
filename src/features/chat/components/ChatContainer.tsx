@@ -27,6 +27,7 @@ import {
 } from 'react';
 import { toast } from 'sonner';
 
+import { useSettingsQuery } from '@/features/settings/hooks/useSettings';
 import { useViewTheme } from '@/shared/hooks/useViewTheme';
 import { cn } from '@/shared/utils/cn';
 import { type Message, useViewStore } from '@/stores/viewStore';
@@ -292,6 +293,7 @@ export const ChatContainer = memo<ChatContainerProps>(({ isStreaming, onSubmit, 
   const theme = useViewTheme();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const { data: settings } = useSettingsQuery();
 
   // Store
   const currentSessionId = useViewStore((s) => s.currentSessionId);
@@ -458,7 +460,20 @@ export const ChatContainer = memo<ChatContainerProps>(({ isStreaming, onSubmit, 
         <div className={cn('flex-1 min-h-0 flex flex-col overflow-hidden rounded-xl', theme.glassPanel)}>
           <div ref={scrollContainerRef} className={cn('flex-1 min-h-0 overflow-y-auto', theme.scrollbar)}>
             {messages.length === 0 ? (
-              <EmptyState />
+              settings?.welcome_message ? (
+                <MessageBubble
+                  message={{
+                    role: 'assistant',
+                    content: settings.welcome_message,
+                    timestamp: Date.now(),
+                  }}
+                  isLast={true}
+                  isStreaming={false}
+                  onContextMenu={() => {}}
+                />
+              ) : (
+                <EmptyState />
+              )
             ) : (
               <>
                 {messages.map((message, index) => (

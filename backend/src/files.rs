@@ -463,6 +463,74 @@ pub async fn list_directory(path: &str, show_hidden: bool) -> Result<Vec<FileEnt
 }
 
 // ---------------------------------------------------------------------------
+// File writing (for tool calling)
+// ---------------------------------------------------------------------------
+
+/// Max content size for write_file (1 MB).
+const MAX_WRITE_SIZE: usize = 1024 * 1024;
+
+/// Path prefixes that are blocked for writing.
+const BLOCKED_WRITE_PREFIXES: &[&str] = &[
+    "/etc",
+    "/sys",
+    "/proc",
+    "/boot",
+    "C:\\Windows",
+    "C:\\Program Files",
+    "C:\\Program Files (x86)",
+];
+
+/// Write content to a file with safety checks.
+pub async fn write_file(path: &str, content: &str) -> Result<String, FileError> {
+    if content.len() > MAX_WRITE_SIZE {
+        return Err(FileError {
+            path: path.to_string(),
+            reason: format!(
+                "Content too large: {} bytes (max {} bytes)",
+                content.len(),
+                MAX_WRITE_SIZE
+            ),
+        });
+    }
+
+    // Normalize path for prefix checking
+    let check_path = path.replace('/', "\\");
+    let lower_path = check_path.to_lowercase();
+    let lower_unix = path.to_lowercase();
+
+    for prefix in BLOCKED_WRITE_PREFIXES {
+        let lower_prefix = prefix.to_lowercase();
+        if lower_path.starts_with(&lower_prefix) || lower_unix.starts_with(&lower_prefix) {
+            return Err(FileError {
+                path: path.to_string(),
+                reason: format!("Writing to '{}' prefix is blocked for safety", prefix),
+            });
+        }
+    }
+
+    // Ensure parent directory exists
+    if let Some(parent) = Path::new(path).parent() {
+        if !parent.as_os_str().is_empty() && !parent.exists() {
+            tokio::fs::create_dir_all(parent).await.map_err(|e| FileError {
+                path: path.to_string(),
+                reason: format!("Cannot create parent directory: {}", e),
+            })?;
+        }
+    }
+
+    tokio::fs::write(path, content).await.map_err(|e| FileError {
+        path: path.to_string(),
+        reason: format!("Cannot write file: {}", e),
+    })?;
+
+    Ok(format!(
+        "Successfully wrote {} bytes to {}",
+        content.len(),
+        path
+    ))
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 

@@ -93,6 +93,8 @@ pub struct PartialSettings {
     pub language: Option<String>,
     #[serde(default)]
     pub theme: Option<String>,
+    #[serde(default)]
+    pub welcome_message: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -124,6 +126,7 @@ fn row_to_settings(row: SettingsRow) -> AppSettings {
         default_model: row.default_model,
         language: row.language,
         theme: row.theme,
+        welcome_message: row.welcome_message,
     }
 }
 
@@ -281,7 +284,7 @@ async fn get_settings(
     State(state): State<AppState>,
 ) -> Result<Json<AppSettings>, StatusCode> {
     let row = sqlx::query_as::<_, SettingsRow>(
-        "SELECT temperature, max_tokens, default_model, language, theme \
+        "SELECT temperature, max_tokens, default_model, language, theme, welcome_message \
          FROM gh_settings WHERE id = 1",
     )
     .fetch_one(&state.db)
@@ -297,7 +300,7 @@ async fn update_settings(
     Json(patch): Json<PartialSettings>,
 ) -> Result<Json<AppSettings>, StatusCode> {
     let current = sqlx::query_as::<_, SettingsRow>(
-        "SELECT temperature, max_tokens, default_model, language, theme \
+        "SELECT temperature, max_tokens, default_model, language, theme, welcome_message \
          FROM gh_settings WHERE id = 1",
     )
     .fetch_one(&state.db)
@@ -309,17 +312,19 @@ async fn update_settings(
     let default_model = patch.default_model.unwrap_or(current.default_model);
     let language = patch.language.unwrap_or(current.language);
     let theme = patch.theme.unwrap_or(current.theme);
+    let welcome_message = patch.welcome_message.unwrap_or(current.welcome_message);
 
     let row = sqlx::query_as::<_, SettingsRow>(
         "UPDATE gh_settings SET temperature=$1, max_tokens=$2, default_model=$3, \
-         language=$4, theme=$5, updated_at=NOW() WHERE id=1 \
-         RETURNING temperature, max_tokens, default_model, language, theme",
+         language=$4, theme=$5, welcome_message=$6, updated_at=NOW() WHERE id=1 \
+         RETURNING temperature, max_tokens, default_model, language, theme, welcome_message",
     )
     .bind(temperature)
     .bind(max_tokens)
     .bind(&default_model)
     .bind(&language)
     .bind(&theme)
+    .bind(&welcome_message)
     .fetch_one(&state.db)
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
@@ -334,8 +339,8 @@ async fn reset_settings(
     let row = sqlx::query_as::<_, SettingsRow>(
         "UPDATE gh_settings SET temperature=1.0, max_tokens=8192, \
          default_model='gemini-3-flash-preview', language='en', theme='dark', \
-         updated_at=NOW() WHERE id=1 \
-         RETURNING temperature, max_tokens, default_model, language, theme",
+         welcome_message='', updated_at=NOW() WHERE id=1 \
+         RETURNING temperature, max_tokens, default_model, language, theme, welcome_message",
     )
     .fetch_one(&state.db)
     .await

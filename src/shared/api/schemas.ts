@@ -188,6 +188,7 @@ export const settingsSchema = z
     default_model: z.string(),
     language: z.string(),
     theme: z.string(),
+    welcome_message: z.string().optional().default(''),
   })
   .passthrough();
 
