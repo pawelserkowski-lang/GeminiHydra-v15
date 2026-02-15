@@ -7,9 +7,11 @@ use serde_json::{json, Value};
 use sysinfo::System;
 use uuid::Uuid;
 
+use crate::files;
 use crate::models::{
     ClassifyRequest, ClassifyResponse, DetailedHealthResponse, ExecutePlan, ExecuteRequest,
-    ExecuteResponse, GeminiModelInfo, GeminiModelsResponse, HealthResponse, ProviderInfo,
+    ExecuteResponse, FileEntryResponse, FileListRequest, FileListResponse, FileReadRequest,
+    FileReadResponse, GeminiModelInfo, GeminiModelsResponse, HealthResponse, ProviderInfo,
     SystemStats, WitcherAgent,
 };
 use crate::state::AppState;
@@ -81,7 +83,7 @@ fn classify_prompt(prompt: &str) -> (String, f64, String) {
     // Order matters — first match wins. More specific patterns first.
     // Keywords include both EN and PL variants (diacritics already stripped).
     let rules: &[(&[&str], &str, &str)] = &[
-        (&["architecture", "design", "pattern", "struct", "architektur", "wzorzec", "refaktor"],
+        (&["architecture", "design", "pattern", "structur", "architektur", "wzorzec", "refaktor"],
          "yennefer", "Prompt relates to architecture and design"),
         (&["test", "quality", "assert", "coverage", "testy", "jakosc", "pokrycie"],
          "vesemir", "Prompt relates to testing and quality assurance"),
@@ -175,7 +177,9 @@ fn build_system_prompt(agent_id: &str, agents: &[WitcherAgent]) -> String {
 - You specialize in **{role}** — leverage this expertise, but help with any topic if asked.
 - Be concise and actionable. Use markdown formatting for code, lists, and structure.
 - If a question falls outside your expertise, acknowledge it and suggest which swarm agent would be better suited.
-- You can reference other agents by name when collaborating would help the user."#
+- You can reference other agents by name when collaborating would help the user.
+- When file contents are provided as context (prefixed with `--- FILE CONTEXT ---`), analyze them thoroughly. Reference specific lines and code. You have real access to the user's local files.
+- You can suggest the user reference additional files by mentioning their full paths."#
     )
 }
 
@@ -281,6 +285,27 @@ pub async fn execute(
 
     let system_prompt = build_system_prompt(&agent_id, &state.agents);
 
+    // Detect file paths in prompt and load their contents as context.
+    let detected_paths = files::extract_file_paths(&body.prompt);
+    let (file_context, _file_errors) = if !detected_paths.is_empty() {
+        files::build_file_context(&detected_paths).await
+    } else {
+        (String::new(), Vec::new())
+    };
+
+    let files_loaded: Vec<String> = if !file_context.is_empty() {
+        detected_paths.clone()
+    } else {
+        Vec::new()
+    };
+
+    // Build final user prompt with file context prepended.
+    let final_user_prompt = if file_context.is_empty() {
+        body.prompt.clone()
+    } else {
+        format!("{}{}", file_context, body.prompt)
+    };
+
     // If no API key, return a graceful error-like response.
     if api_key.is_empty() {
         let duration = start.elapsed().as_millis() as u64;
@@ -294,6 +319,7 @@ pub async fn execute(
             }),
             duration_ms: duration,
             mode: body.mode.clone(),
+            files_loaded: Vec::new(),
         }));
     }
 
@@ -308,7 +334,7 @@ pub async fn execute(
             "parts": [{ "text": system_prompt }]
         },
         "contents": [{
-            "parts": [{ "text": body.prompt }]
+            "parts": [{ "text": final_user_prompt }]
         }]
     });
 
@@ -334,21 +360,28 @@ pub async fn execute(
     let duration = start.elapsed().as_millis() as u64;
     let response_id = Uuid::new_v4();
 
+    // Build execution steps (include file loading info if applicable).
+    let mut steps = vec![
+        "classify prompt".into(),
+        format!("route to agent (confidence {:.0}%)", confidence * 100.0),
+    ];
+    if !files_loaded.is_empty() {
+        steps.push(format!("loaded {} file(s) as context", files_loaded.len()));
+    }
+    steps.push(format!("call Gemini model {}", model));
+    steps.push("return result".into());
+
     let response = ExecuteResponse {
         id: response_id.to_string(),
         result: result_text,
         plan: Some(ExecutePlan {
             agent: Some(agent_id.clone()),
-            steps: vec![
-                "classify prompt".into(),
-                format!("route to agent (confidence {:.0}%)", confidence * 100.0),
-                format!("call Gemini model {}", model),
-                "return result".into(),
-            ],
+            steps,
             estimated_time: Some(format!("{}ms", duration)),
         }),
         duration_ms: duration,
         mode: body.mode.clone(),
+        files_loaded,
     };
 
     // Store in DB (non-fatal on error).
@@ -453,4 +486,55 @@ pub async fn system_stats() -> Json<SystemStats> {
         memory_total_mb,
         platform: std::env::consts::OS.to_string(),
     })
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/files/read
+// ---------------------------------------------------------------------------
+
+pub async fn read_file(Json(body): Json<FileReadRequest>) -> Json<Value> {
+    match files::read_file_raw(&body.path).await {
+        Ok(fc) => Json(json!(FileReadResponse {
+            path: fc.path,
+            content: fc.content,
+            size_bytes: fc.size_bytes,
+            truncated: fc.truncated,
+            extension: fc.extension,
+        })),
+        Err(e) => Json(json!({
+            "error": e.reason,
+            "path": e.path,
+        })),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/files/list
+// ---------------------------------------------------------------------------
+
+pub async fn list_files(Json(body): Json<FileListRequest>) -> Json<Value> {
+    match files::list_directory(&body.path, body.show_hidden).await {
+        Ok(entries) => {
+            let count = entries.len();
+            let response_entries: Vec<FileEntryResponse> = entries
+                .into_iter()
+                .map(|e| FileEntryResponse {
+                    name: e.name,
+                    path: e.path,
+                    is_dir: e.is_dir,
+                    size_bytes: e.size_bytes,
+                    extension: e.extension,
+                })
+                .collect();
+            Json(json!(FileListResponse {
+                path: body.path,
+                entries: response_entries,
+                count,
+            }))
+        }
+        Err(e) => Json(json!({
+            "error": e.reason,
+            "path": e.path,
+        })),
+    }
 }

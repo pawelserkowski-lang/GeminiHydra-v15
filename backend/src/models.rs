@@ -118,6 +118,8 @@ pub struct ExecuteResponse {
     pub plan: Option<ExecutePlan>,
     pub duration_ms: u64,
     pub mode: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub files_loaded: Vec<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -207,6 +209,47 @@ pub struct ChatMessage {
     pub timestamp: String,
     #[serde(default)]
     pub agent: Option<String>,
+}
+
+// ---------------------------------------------------------------------------
+// File Access
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FileReadRequest {
+    pub path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FileReadResponse {
+    pub path: String,
+    pub content: String,
+    pub size_bytes: u64,
+    pub truncated: bool,
+    pub extension: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FileListRequest {
+    pub path: String,
+    #[serde(default)]
+    pub show_hidden: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FileListResponse {
+    pub path: String,
+    pub entries: Vec<FileEntryResponse>,
+    pub count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FileEntryResponse {
+    pub name: String,
+    pub path: String,
+    pub is_dir: bool,
+    pub size_bytes: u64,
+    pub extension: Option<String>,
 }
 
 // ---------------------------------------------------------------------------

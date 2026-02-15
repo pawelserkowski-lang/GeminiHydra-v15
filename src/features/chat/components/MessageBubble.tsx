@@ -13,7 +13,7 @@
 
 import { Bot, Check, Copy, Cpu, Terminal, User } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
-import { memo, type MouseEvent as ReactMouseEvent, useCallback, useState } from 'react';
+import { isValidElement, memo, type MouseEvent as ReactMouseEvent, type ReactNode, useCallback, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import rehypeHighlight from 'rehype-highlight';
 import remarkGfm from 'remark-gfm';
@@ -22,6 +22,21 @@ import { CodeBlock } from '@/components/molecules';
 import { useViewTheme } from '@/shared/hooks/useViewTheme';
 import { cn } from '@/shared/utils/cn';
 import type { Message } from '@/stores/viewStore';
+
+// ---------------------------------------------------------------------------
+// Helper: extract plain text from React children (handles rehype-highlight spans)
+// ---------------------------------------------------------------------------
+
+function extractText(node: ReactNode): string {
+  if (typeof node === 'string') return node;
+  if (typeof node === 'number') return String(node);
+  if (!node || typeof node === 'boolean') return '';
+  if (Array.isArray(node)) return node.map(extractText).join('');
+  if (isValidElement(node)) {
+    return extractText((node.props as { children?: ReactNode }).children);
+  }
+  return '';
+}
 
 // ============================================================================
 // TYPES
@@ -191,20 +206,30 @@ export const MessageBubble = memo<MessageBubbleProps>(({ message, isLast, isStre
             remarkPlugins={[remarkGfm]}
             rehypePlugins={[rehypeHighlight]}
             components={{
-              code(props) {
-                const { children, className, ...rest } = props;
+              code({
+                className,
+                children,
+                node,
+              }: {
+                className?: string;
+                children?: ReactNode;
+                node?: { position?: { start: { line: number }; end: { line: number } } };
+              }) {
                 const match = /language-(\w+)/.exec(className ?? '');
-                if (match) {
-                  return <CodeBlock language={match[1]} code={String(children).replace(/\n$/, '')} />;
+                const isInline = !node?.position || (node.position.start.line === node.position.end.line && !match);
+                const codeContent = extractText(children).replace(/\n$/, '');
+
+                if (isInline) {
+                  return (
+                    <code className={cn(className, 'bg-black/20 px-1.5 py-0.5 rounded text-sm')}>
+                      {children}
+                    </code>
+                  );
                 }
-                return (
-                  <code {...rest} className={cn(className, 'bg-black/20 px-1.5 py-0.5 rounded text-sm')}>
-                    {children}
-                  </code>
-                );
+
+                return <CodeBlock language={match?.[1]} code={codeContent} />;
               },
-              pre({ children }) {
-                // Let CodeBlock handle its own wrapping
+              pre({ children }: { children?: ReactNode }) {
                 return <>{children}</>;
               },
             }}

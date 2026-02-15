@@ -10,7 +10,7 @@
  */
 
 import { Pin, Plus, X } from 'lucide-react';
-import { motion } from 'motion/react';
+import { AnimatePresence, motion } from 'motion/react';
 import { memo, useCallback, useRef, useState } from 'react';
 import { useViewTheme } from '@/shared/hooks/useViewTheme';
 import { cn } from '@/shared/utils/cn';
@@ -170,8 +170,6 @@ export const TabBar = memo(() => {
     }
   }, []);
 
-  if (tabs.length === 0) return null;
-
   return (
     <div
       className={cn(
@@ -188,17 +186,19 @@ export const TabBar = memo(() => {
         onWheel={handleWheel}
         className="flex items-end gap-1 overflow-x-auto scrollbar-hide flex-1 min-w-0"
       >
-        {tabs.map((tab) => (
-          <TabItem
-            key={tab.id}
-            tab={tab}
-            isActive={tab.id === activeTabId}
-            onSwitch={switchTab}
-            onClose={closeTab}
-            onTogglePin={togglePinTab}
-            messageCount={(chatHistory[tab.sessionId] || []).length}
-          />
-        ))}
+        <AnimatePresence mode="popLayout">
+          {tabs.map((tab) => (
+            <TabItem
+              key={tab.id}
+              tab={tab}
+              isActive={tab.id === activeTabId}
+              onSwitch={switchTab}
+              onClose={closeTab}
+              onTogglePin={togglePinTab}
+              messageCount={(chatHistory[tab.sessionId] || []).length}
+            />
+          ))}
+        </AnimatePresence>
       </div>
 
       {/* New tab button */}

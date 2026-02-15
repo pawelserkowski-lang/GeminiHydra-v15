@@ -31,6 +31,7 @@ import { useViewTheme } from '@/shared/hooks/useViewTheme';
 import { cn } from '@/shared/utils/cn';
 import { type Message, useViewStore } from '@/stores/viewStore';
 
+import { useFileReadMutation } from '../hooks/useFiles';
 import { ChatInput } from './ChatInput';
 import { MessageBubble } from './MessageBubble';
 
@@ -300,6 +301,9 @@ export const ChatContainer = memo<ChatContainerProps>(({ isStreaming, onSubmit, 
     [currentSessionId, chatHistory],
   );
 
+  // File read mutation
+  const fileReadMutation = useFileReadMutation();
+
   // Local state
   const [pendingImage, setPendingImage] = useState<string | null>(null);
   const [textContext, setTextContext] = useState('');
@@ -334,6 +338,33 @@ export const ChatContainer = memo<ChatContainerProps>(({ isStreaming, onSubmit, 
   }, []);
 
   const handlePasteImage = useCallback((base64: string) => handleImageDrop(base64), [handleImageDrop]);
+
+  // ----- Attach file by path ------------------------------------------
+
+  const handleAttachPath = useCallback(
+    (path: string) => {
+      fileReadMutation.mutate(
+        { path },
+        {
+          onSuccess: (data) => {
+            if ('error' in data) {
+              toast.error(`Cannot read file: ${(data as { error: string }).error}`);
+              return;
+            }
+            const filename = path.split(/[\\/]/).pop() ?? path;
+            setTextContext(
+              `[File: ${filename}]\n\`\`\`\n${data.content}\n\`\`\`\n\nAnalyze the contents of this file.`,
+            );
+            toast.success(`File "${filename}" loaded as context${data.truncated ? ' (truncated)' : ''}`);
+          },
+          onError: (err) => {
+            toast.error(`Failed to read file: ${err.message}`);
+          },
+        },
+      );
+    },
+    [fileReadMutation],
+  );
 
   // ----- Global paste handler -----------------------------------------
 
@@ -502,6 +533,7 @@ export const ChatContainer = memo<ChatContainerProps>(({ isStreaming, onSubmit, 
             onClearImage={() => setPendingImage(null)}
             onPasteImage={handlePasteImage}
             onPasteFile={handleTextDrop}
+            onAttachPath={handleAttachPath}
           />
         </div>
       </div>

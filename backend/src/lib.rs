@@ -1,3 +1,4 @@
+pub mod files;
 pub mod handlers;
 pub mod models;
 pub mod sessions;
@@ -23,6 +24,9 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/execute", post(handlers::execute))
         // Gemini proxy
         .route("/api/gemini/models", get(handlers::gemini_models))
+        // Files
+        .route("/api/files/read", post(handlers::read_file))
+        .route("/api/files/list", post(handlers::list_files))
         // System
         .route("/api/system/stats", get(handlers::system_stats))
         // Sessions / History / Settings / Memory / Knowledge

@@ -11,7 +11,7 @@
  * - Atom/Molecule reuse (Button, ModelSelector)
  */
 
-import { AlertCircle, Paperclip, Send, StopCircle, X } from 'lucide-react';
+import { AlertCircle, FolderOpen, Paperclip, Send, StopCircle, X } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
   type ChangeEvent,
@@ -47,6 +47,8 @@ export interface ChatInputProps {
   onPasteImage?: (base64: string) => void;
   /** Handle pasted text file from clipboard. */
   onPasteFile?: (content: string, filename: string) => void;
+  /** Attach a local file by path. */
+  onAttachPath?: (path: string) => void;
 }
 
 // ============================================================================
@@ -108,6 +110,7 @@ export const ChatInput = memo<ChatInputProps>(
   ({ isStreaming, onSubmit, onStop, pendingImage, onClearImage, onPasteImage, onPasteFile }) => {
     const theme = useViewTheme();
     const textareaRef = useRef<HTMLTextAreaElement>(null);
+    const fileInputRef = useRef<HTMLInputElement>(null);
     const [value, setValue] = useState('');
     const [error, setError] = useState<string | null>(null);
 
@@ -161,16 +164,26 @@ export const ChatInput = memo<ChatInputProps>(
       });
     }, [canSubmit, onSubmit, value, pendingImage]);
 
-    // ----- Key handling (Enter to send, Shift+Enter for newline) --------
+    // ----- Key handling (Enter to send, Shift/Ctrl+Enter for newline) ----
 
     const handleKeyDown = useCallback(
       (e: KeyboardEvent<HTMLTextAreaElement>) => {
-        if (e.key === 'Enter' && !e.shiftKey) {
+        if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
           e.preventDefault();
           handleSubmit();
+        } else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+          e.preventDefault();
+          const el = e.currentTarget;
+          const { selectionStart, selectionEnd } = el;
+          const newValue = value.substring(0, selectionStart) + '\n' + value.substring(selectionEnd);
+          setValue(newValue);
+          requestAnimationFrame(() => {
+            el.selectionStart = el.selectionEnd = selectionStart + 1;
+            adjustHeight();
+          });
         }
       },
-      [handleSubmit],
+      [handleSubmit, value, adjustHeight],
     );
 
     // ----- Paste handling -----------------------------------------------
@@ -208,6 +221,39 @@ export const ChatInput = memo<ChatInputProps>(
             }
           }
         }
+      },
+      [onPasteImage, onPasteFile],
+    );
+
+    // ----- File picker handler -------------------------------------------
+
+    const handleFileSelect = useCallback(
+      (e: ChangeEvent<HTMLInputElement>) => {
+        const files = e.target.files;
+        if (!files || files.length === 0) return;
+
+        for (const file of Array.from(files)) {
+          if (file.type.startsWith('image/')) {
+            const reader = new FileReader();
+            reader.onload = (event) => {
+              if (event.target?.result && typeof event.target.result === 'string') {
+                onPasteImage?.(event.target.result);
+              }
+            };
+            reader.readAsDataURL(file);
+          } else if (file.size < 5 * 1024 * 1024) {
+            const reader = new FileReader();
+            reader.onload = (event) => {
+              if (event.target?.result && typeof event.target.result === 'string') {
+                onPasteFile?.(event.target.result.substring(0, 20_000), file.name);
+              }
+            };
+            reader.readAsText(file);
+          }
+        }
+
+        // Reset so the same files can be selected again
+        e.target.value = '';
       },
       [onPasteImage, onPasteFile],
     );
@@ -295,6 +341,31 @@ export const ChatInput = memo<ChatInputProps>(
             </div>
           </div>
 
+          {/* Attach file via native picker */}
+          {(onPasteImage || onPasteFile) && (
+            <>
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                className="hidden"
+                onChange={handleFileSelect}
+                accept="image/*,.txt,.md,.ts,.tsx,.js,.jsx,.json,.css,.html,.py,.rs,.toml,.yaml,.yml,.xml,.csv,.log,.sh,.bat,.sql,.env"
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="md"
+                onClick={() => fileInputRef.current?.click()}
+                className="mb-[1px]"
+                title="Attach local file"
+                data-testid="btn-attach-file"
+              >
+                <FolderOpen size={20} />
+              </Button>
+            </>
+          )}
+
           {/* Send / Stop button */}
           {isStreaming ? (
             <Button
@@ -329,7 +400,7 @@ export const ChatInput = memo<ChatInputProps>(
             <Paperclip size={10} />
             Ctrl+V: paste image or file
           </span>
-          <span className={cn('text-xs font-mono opacity-50', theme.textMuted)}>Shift+Enter: new line</span>
+          <span className={cn('text-xs font-mono opacity-50', theme.textMuted)}>Shift/Ctrl+Enter: new line</span>
         </div>
       </form>
     );

@@ -80,9 +80,42 @@ export const executeResponseSchema = z.object({
       estimated_time: z.string().optional(),
     })
     .optional(),
+  files_loaded: z.array(z.string()).optional(),
 });
 
 export type ExecuteResponse = z.infer<typeof executeResponseSchema>;
+
+// ============================================================================
+// FILES
+// ============================================================================
+
+export const fileReadResponseSchema = z.object({
+  path: z.string(),
+  content: z.string(),
+  size_bytes: z.number(),
+  truncated: z.boolean(),
+  extension: z.string(),
+});
+
+export type FileReadResponse = z.infer<typeof fileReadResponseSchema>;
+
+export const fileEntrySchema = z.object({
+  name: z.string(),
+  path: z.string(),
+  is_dir: z.boolean(),
+  size_bytes: z.number(),
+  extension: z.string().nullable().optional(),
+});
+
+export type FileEntry = z.infer<typeof fileEntrySchema>;
+
+export const fileListResponseSchema = z.object({
+  path: z.string(),
+  entries: z.array(fileEntrySchema),
+  count: z.number(),
+});
+
+export type FileListResponse = z.infer<typeof fileListResponseSchema>;
 
 // ============================================================================
 // GEMINI MODELS

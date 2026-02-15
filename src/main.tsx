@@ -44,6 +44,12 @@ function ChatViewWrapper() {
 
   const handleSubmit = useCallback(
     (prompt: string, _image: string | null) => {
+      // Auto-create session if none exists (prevents silent message loss)
+      if (!useViewStore.getState().currentSessionId) {
+        useViewStore.getState().createSession();
+        const sid = useViewStore.getState().currentSessionId;
+        if (sid) useViewStore.getState().openTab(sid);
+      }
       addMessage({ role: 'user', content: prompt, timestamp: Date.now() });
       setIsStreaming(true);
 

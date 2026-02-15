@@ -13,15 +13,12 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
-  Clock,
   Globe,
   Home,
   type LucideIcon,
   MessageSquare,
   Moon,
   Plus,
-  Settings,
-  Shield,
   Sparkles,
   Sun,
   Swords,
@@ -140,25 +137,15 @@ export function Sidebar() {
         { id: 'agents', icon: Users, label: t('nav.agents', 'Agents') },
       ],
     },
-    {
-      id: 'system',
-      label: t('sidebar.groups.system', 'SYSTEM'),
-      icon: Shield,
-      items: [
-        { id: 'history', icon: Clock, label: t('nav.history', 'History') },
-        { id: 'settings', icon: Settings, label: t('nav.settings', 'Settings') },
-        { id: 'status', icon: Swords, label: t('nav.status', 'Status') },
-      ],
-    },
   ];
 
   // Track expanded groups
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(() => {
     try {
       const saved = localStorage.getItem('geminihydra_expanded_groups');
-      return saved ? JSON.parse(saved) : { main: true, system: true };
+      return saved ? JSON.parse(saved) : { main: true };
     } catch {
-      return { main: true, system: true };
+      return { main: true };
     }
   });
 
@@ -185,8 +172,8 @@ export function Sidebar() {
   const iconHover = isLight ? 'group-hover:text-emerald-700' : 'group-hover:text-white';
   const hoverBg = isLight ? 'hover:bg-black/5' : 'hover:bg-white/5';
   const collapseBtn = isLight
-    ? 'bg-white/70 border-emerald-600/30 hover:bg-emerald-50 hover:border-emerald-600/50'
-    : 'bg-black/40 border-white/30 hover:bg-white/20 hover:border-white/50';
+    ? 'bg-white/90 border-emerald-600/40 hover:bg-emerald-50 hover:border-emerald-500 hover:shadow-[0_0_12px_rgba(5,150,105,0.3)]'
+    : 'bg-black/60 border-white/20 hover:bg-white/20 hover:border-white/50 hover:shadow-[0_0_12px_rgba(255,255,255,0.15)]';
   const collapseIcon = isLight ? 'text-emerald-700' : 'text-white';
 
   // ========================================
@@ -205,15 +192,15 @@ export function Sidebar() {
         data-testid="btn-sidebar-collapse"
         onClick={toggleSidebar}
         className={cn(
-          'absolute -right-3 top-1/2 -translate-y-1/2 z-30 hidden md:flex items-center justify-center w-7 h-7 border rounded-full shadow-md transition-all',
+          'absolute -right-4 top-1/2 -translate-y-1/2 z-30 hidden md:flex items-center justify-center w-9 h-9 border rounded-full shadow-lg backdrop-blur-sm transition-all duration-200 hover:scale-110 active:scale-95',
           collapseBtn,
         )}
         title={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
       >
         {isCollapsed ? (
-          <ChevronRight size={14} className={collapseIcon} />
+          <ChevronRight size={18} strokeWidth={2.5} className={collapseIcon} />
         ) : (
-          <ChevronLeft size={14} className={collapseIcon} />
+          <ChevronLeft size={18} strokeWidth={2.5} className={collapseIcon} />
         )}
       </button>
 
@@ -238,19 +225,6 @@ export function Sidebar() {
                 : 'drop-shadow(0 0 12px rgba(255,255,255,0.4))',
             }}
           />
-          {!isCollapsed && (
-            <motion.span
-              initial={{ opacity: 0, width: 0 }}
-              animate={{ opacity: 1, width: 'auto' }}
-              exit={{ opacity: 0, width: 0 }}
-              className={cn(
-                'text-lg font-bold tracking-tight whitespace-nowrap',
-                isLight ? 'text-emerald-800' : 'text-white',
-              )}
-            >
-              GeminiHydra
-            </motion.span>
-          )}
         </motion.div>
       </button>
 

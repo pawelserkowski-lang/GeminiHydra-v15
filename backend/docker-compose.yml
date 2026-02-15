@@ -1,0 +1,33 @@
+name: geminihydra
+
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: geminihydra
+      POSTGRES_USER: gemini
+      POSTGRES_PASSWORD: gemini_local
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gemini -d geminihydra"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  backend:
+    build: .
+    ports:
+      - "8081:8081"
+    environment:
+      DATABASE_URL: postgres://gemini:gemini_local@db:5432/geminihydra
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY}
+      PORT: "8081"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:
