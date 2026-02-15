@@ -60,12 +60,12 @@ pub struct FileError {
 // Path extraction
 // ---------------------------------------------------------------------------
 
-/// Extract file paths from user prompt text.
+/// Extract file/directory paths from user prompt text.
 ///
 /// Matches:
-/// - Windows paths: `C:\Users\...\file.ext`
-/// - Unix paths: `/home/user/.../file.ext`
-/// - Paths in quotes: `"C:\path\file.ext"` or `'/path/file.ext'`
+/// - Windows paths: `C:\Users\...\file.ext` and `C:\Users\...\directory`
+/// - Unix paths: `/home/user/.../file.ext` and `/home/user/.../directory`
+/// - Paths in quotes: `"C:\path\file.ext"` or `'/path/dir'`
 /// - Paths in backticks: `` `C:\path\file.ext` ``
 pub fn extract_file_paths(prompt: &str) -> Vec<String> {
     let mut paths = Vec::new();
@@ -84,12 +84,12 @@ pub fn extract_file_paths(prompt: &str) -> Vec<String> {
         }
     }
 
-    // Pattern 2: Windows paths (unquoted) — C:\...\file.ext
-    let win_re = Regex::new(
+    // Pattern 2: Windows file paths (unquoted) — C:\...\file.ext
+    let win_file_re = Regex::new(
         r"(?:^|\s)([A-Za-z]:\\(?:[^\s\\]+\\)*[^\s\\]+\.[A-Za-z0-9]+)"
     ).unwrap();
 
-    for cap in win_re.captures_iter(prompt) {
+    for cap in win_file_re.captures_iter(prompt) {
         if let Some(m) = cap.get(1) {
             let p = m.as_str().to_string();
             if !paths.contains(&p) {
@@ -98,13 +98,40 @@ pub fn extract_file_paths(prompt: &str) -> Vec<String> {
         }
     }
 
-    // Pattern 3: Unix paths (unquoted) — /path/to/file.ext
-    // Require at least one directory separator and an extension to reduce false positives.
-    let unix_re = Regex::new(
+    // Pattern 3: Windows directory paths (unquoted) — C:\dir1\dir2 (at least 2 segments, no extension)
+    let win_dir_re = Regex::new(
+        r"(?:^|\s)([A-Za-z]:\\[^\s\\]+(?:\\[^\s\\]+)+)"
+    ).unwrap();
+
+    for cap in win_dir_re.captures_iter(prompt) {
+        if let Some(m) = cap.get(1) {
+            let p = m.as_str().to_string();
+            if !paths.contains(&p) {
+                paths.push(p);
+            }
+        }
+    }
+
+    // Pattern 4: Unix file paths (unquoted) — /path/to/file.ext
+    let unix_file_re = Regex::new(
         r"(?:^|\s)(/(?:[^\s/]+/)+[^\s/]+\.[A-Za-z0-9]+)"
     ).unwrap();
 
-    for cap in unix_re.captures_iter(prompt) {
+    for cap in unix_file_re.captures_iter(prompt) {
+        if let Some(m) = cap.get(1) {
+            let p = m.as_str().to_string();
+            if !paths.contains(&p) {
+                paths.push(p);
+            }
+        }
+    }
+
+    // Pattern 5: Unix directory paths (unquoted) — /dir1/dir2 (at least 2 segments)
+    let unix_dir_re = Regex::new(
+        r"(?:^|\s)(/[^\s/]+(?:/[^\s/]+)+)"
+    ).unwrap();
+
+    for cap in unix_dir_re.captures_iter(prompt) {
         if let Some(m) = cap.get(1) {
             let p = m.as_str().to_string();
             if !paths.contains(&p) {
@@ -201,55 +228,133 @@ pub async fn read_file_raw(path: &str) -> Result<FileContext, FileError> {
 // Context builder
 // ---------------------------------------------------------------------------
 
-/// Build a combined context block from detected file paths.
+/// Key project files to auto-read when a directory path is detected.
+const KEY_PROJECT_FILES: &[&str] = &[
+    "package.json",
+    "Cargo.toml",
+    "README.md",
+    "CLAUDE.md",
+    "pyproject.toml",
+    "go.mod",
+    "tsconfig.json",
+    "vite.config.ts",
+    "docker-compose.yml",
+    "Makefile",
+];
+
+/// Build a directory context: listing + auto-read key project files.
+async fn build_directory_context(
+    dir_path: &str,
+    total_size: &mut usize,
+) -> Result<(String, Vec<FileContext>), FileError> {
+    let entries = list_directory(dir_path, false).await?;
+
+    // Build directory listing
+    let mut listing = format!("### Directory: {}\n", dir_path);
+    listing.push_str(&format!("_{} entries:_\n```\n", entries.len()));
+    for entry in &entries {
+        let suffix = if entry.is_dir { "/" } else { "" };
+        listing.push_str(&format!("  {}{}\n", entry.name, suffix));
+    }
+    listing.push_str("```\n\n");
+
+    *total_size += listing.len();
+
+    // Auto-read key project files found in this directory
+    let mut key_files: Vec<FileContext> = Vec::new();
+    for key_name in KEY_PROJECT_FILES {
+        let full_path = format!("{}\\{}", dir_path.trim_end_matches('\\'), key_name);
+        let p = Path::new(&full_path);
+        if p.exists() && p.is_file() {
+            if let Ok(fc) = read_file_for_context(&full_path).await {
+                if *total_size + fc.content.len() <= MAX_TOTAL_SIZE {
+                    *total_size += fc.content.len();
+                    key_files.push(fc);
+                }
+            }
+        }
+    }
+
+    Ok((listing, key_files))
+}
+
+/// Build a combined context block from detected file/directory paths.
 ///
 /// Returns `(context_string, errors)` where `context_string` is the formatted
-/// block ready to prepend to the user prompt, and `errors` lists any files
+/// block ready to prepend to the user prompt, and `errors` lists any paths
 /// that could not be read.
 pub async fn build_file_context(paths: &[String]) -> (String, Vec<FileError>) {
     let mut files: Vec<FileContext> = Vec::new();
+    let mut dir_listings: Vec<String> = Vec::new();
     let mut errors: Vec<FileError> = Vec::new();
     let mut total_size: usize = 0;
+    let mut item_count: usize = 0;
 
-    for (i, path) in paths.iter().enumerate() {
-        if i >= MAX_FILES {
+    for path in paths.iter() {
+        if item_count >= MAX_FILES {
             errors.push(FileError {
                 path: path.clone(),
-                reason: format!("Skipped — max {} files per request", MAX_FILES),
+                reason: format!("Skipped — max {} items per request", MAX_FILES),
             });
             continue;
         }
 
-        match read_file_for_context(path).await {
-            Ok(fc) => {
-                let content_len = fc.content.len();
-                if total_size + content_len > MAX_TOTAL_SIZE {
-                    errors.push(FileError {
-                        path: path.clone(),
-                        reason: format!(
-                            "Skipped — would exceed total context limit of {}KB",
-                            MAX_TOTAL_SIZE / 1024
-                        ),
-                    });
-                    continue;
+        let p = Path::new(path);
+
+        if p.is_dir() {
+            // Handle directory: listing + key files
+            match build_directory_context(path, &mut total_size).await {
+                Ok((listing, key_files)) => {
+                    dir_listings.push(listing);
+                    item_count += 1;
+                    for fc in key_files {
+                        files.push(fc);
+                        item_count += 1;
+                    }
                 }
-                total_size += content_len;
-                files.push(fc);
+                Err(e) => errors.push(e),
             }
-            Err(e) => errors.push(e),
+        } else {
+            // Handle file
+            match read_file_for_context(path).await {
+                Ok(fc) => {
+                    let content_len = fc.content.len();
+                    if total_size + content_len > MAX_TOTAL_SIZE {
+                        errors.push(FileError {
+                            path: path.clone(),
+                            reason: format!(
+                                "Skipped — would exceed total context limit of {}KB",
+                                MAX_TOTAL_SIZE / 1024
+                            ),
+                        });
+                        continue;
+                    }
+                    total_size += content_len;
+                    files.push(fc);
+                    item_count += 1;
+                }
+                Err(e) => errors.push(e),
+            }
         }
     }
 
-    if files.is_empty() {
+    if files.is_empty() && dir_listings.is_empty() {
         return (String::new(), errors);
     }
 
+    let total_items = dir_listings.len() + files.len();
     let mut ctx = String::from("--- FILE CONTEXT ---\n");
     ctx.push_str(&format!(
-        "The following {} file(s) were automatically loaded from the user's local filesystem:\n\n",
-        files.len()
+        "The following {} item(s) were automatically loaded from the user's local filesystem:\n\n",
+        total_items
     ));
 
+    // Append directory listings first
+    for listing in &dir_listings {
+        ctx.push_str(listing);
+    }
+
+    // Append file contents
     for fc in &files {
         let lang_hint = match fc.extension.as_str() {
             "rs" => "rust",
@@ -369,7 +474,14 @@ mod tests {
     fn test_extract_windows_path() {
         let prompt = r"Odczytaj plik C:\Users\BIURODOM\Desktop\GeminiHydra-v15\package.json";
         let paths = extract_file_paths(prompt);
-        assert_eq!(paths, vec![r"C:\Users\BIURODOM\Desktop\GeminiHydra-v15\package.json"]);
+        assert!(paths.contains(&r"C:\Users\BIURODOM\Desktop\GeminiHydra-v15\package.json".to_string()));
+    }
+
+    #[test]
+    fn test_extract_windows_directory() {
+        let prompt = r"C:\Users\BIURODOM\Desktop\GeminiHydra-v15";
+        let paths = extract_file_paths(prompt);
+        assert!(paths.contains(&r"C:\Users\BIURODOM\Desktop\GeminiHydra-v15".to_string()));
     }
 
     #[test]
@@ -384,6 +496,13 @@ mod tests {
         let prompt = "Read /home/user/project/src/main.rs please";
         let paths = extract_file_paths(prompt);
         assert!(paths.contains(&"/home/user/project/src/main.rs".to_string()));
+    }
+
+    #[test]
+    fn test_extract_unix_directory() {
+        let prompt = "Show me /home/user/project contents";
+        let paths = extract_file_paths(prompt);
+        assert!(paths.contains(&"/home/user/project".to_string()));
     }
 
     #[test]
