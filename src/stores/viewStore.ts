@@ -62,9 +62,11 @@ interface ViewStoreState {
 
   // Actions - Sessions
   createSession: () => void;
+  createSessionWithId: (id: string, title: string) => void;
   deleteSession: (id: string) => void;
   selectSession: (id: string) => void;
   updateSessionTitle: (id: string, title: string) => void;
+  hydrateSessions: (sessions: Session[]) => void;
 
   // Actions - Tabs
   openTab: (sessionId: string) => void;
@@ -182,6 +184,45 @@ export const useViewStore = create<ViewStoreState>()(
         });
       },
 
+      createSessionWithId: (id: string, title: string) => {
+        const newSession: Session = {
+          id,
+          title,
+          createdAt: Date.now(),
+        };
+
+        set((state) => {
+          // Skip if session already exists
+          if (state.sessions.some((s) => s.id === id)) {
+            return { currentSessionId: id };
+          }
+
+          let sessions = [newSession, ...state.sessions];
+
+          if (sessions.length > MAX_SESSIONS) {
+            const removedIds = sessions.slice(MAX_SESSIONS).map((s) => s.id);
+            sessions = sessions.slice(0, MAX_SESSIONS);
+
+            const newHistory = { ...state.chatHistory };
+            for (const removedId of removedIds) {
+              delete newHistory[removedId];
+            }
+
+            return {
+              sessions,
+              currentSessionId: id,
+              chatHistory: { ...newHistory, [id]: [] },
+            };
+          }
+
+          return {
+            sessions,
+            currentSessionId: id,
+            chatHistory: { ...state.chatHistory, [id]: [] },
+          };
+        });
+      },
+
       deleteSession: (id: string) =>
         set((state) => {
           const newSessions = state.sessions.filter((s) => s.id !== id);
@@ -222,6 +263,31 @@ export const useViewStore = create<ViewStoreState>()(
           return {
             sessions: state.sessions.map((s) => (s.id === id ? { ...s, title: sanitized } : s)),
             tabs: state.tabs.map((t) => (t.sessionId === id ? { ...t, title: sanitized } : t)),
+          };
+        }),
+
+      hydrateSessions: (dbSessions: Session[]) =>
+        set((state) => {
+          // Merge DB sessions into local state, preferring DB data for titles
+          // but preserving any local-only sessions that haven't been synced yet
+          const dbIds = new Set(dbSessions.map((s) => s.id));
+          const merged = [
+            ...dbSessions,
+            ...state.sessions.filter((s) => !dbIds.has(s.id)),
+          ];
+
+          // Select the first session if current doesn't exist in merged set
+          const mergedIds = new Set(merged.map((s) => s.id));
+          const currentSessionId =
+            state.currentSessionId && mergedIds.has(state.currentSessionId)
+              ? state.currentSessionId
+              : merged.length > 0
+                ? (merged[0]?.id ?? null)
+                : null;
+
+          return {
+            sessions: merged,
+            currentSessionId,
           };
         }),
 

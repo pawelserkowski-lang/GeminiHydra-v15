@@ -294,6 +294,7 @@ export interface WsExecuteMessage {
   prompt: string;
   mode: string;
   model?: string;
+  session_id?: string;
 }
 
 export interface WsCancelMessage {
@@ -305,3 +306,35 @@ export interface WsPingMessage {
 }
 
 export type WsClientMessage = WsExecuteMessage | WsCancelMessage | WsPingMessage;
+
+// ============================================================================
+// SESSIONS
+// ============================================================================
+
+export const sessionSummarySchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  created_at: z.string(),
+  message_count: z.number(),
+});
+
+export type SessionSummary = z.infer<typeof sessionSummarySchema>;
+
+export const sessionsListSchema = z.array(sessionSummarySchema);
+export type SessionsList = z.infer<typeof sessionsListSchema>;
+
+export const sessionSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  created_at: z.string(),
+  messages: z.array(z.object({
+    id: z.string(),
+    role: z.string(),
+    content: z.string(),
+    model: z.string().optional().nullable(),
+    timestamp: z.string(),
+    agent: z.string().optional().nullable(),
+  })),
+});
+
+export type Session = z.infer<typeof sessionSchema>;

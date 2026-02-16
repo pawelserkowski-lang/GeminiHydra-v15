@@ -30,6 +30,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/contexts/ThemeContext';
 import { cn } from '@/shared/utils/cn';
+import { useSessionSync } from '@/features/chat/hooks/useSessionSync';
 import { useViewStore, type View } from '@/stores/viewStore';
 
 // ============================================
@@ -60,14 +61,18 @@ export function Sidebar() {
   // View store
   const currentView = useViewStore((s) => s.currentView);
   const setCurrentView = useViewStore((s) => s.setCurrentView);
-  const sessions = useViewStore((s) => s.sessions);
-  const currentSessionId = useViewStore((s) => s.currentSessionId);
   const chatHistory = useViewStore((s) => s.chatHistory);
-  const selectSession = useViewStore((s) => s.selectSession);
-  const createSession = useViewStore((s) => s.createSession);
-  const deleteSession = useViewStore((s) => s.deleteSession);
   const sidebarCollapsed = useViewStore((s) => s.sidebarCollapsed);
   const toggleSidebar = useViewStore((s) => s.toggleSidebar);
+
+  // Session sync (DB + localStorage)
+  const {
+    sessions,
+    currentSessionId,
+    selectSession,
+    createSessionWithSync,
+    deleteSessionWithSync,
+  } = useSessionSync();
 
   // Sessions sorted by creation date (newest first)
   const sortedSessions = useMemo(() => [...sessions].sort((a, b) => b.createdAt - a.createdAt), [sessions]);
@@ -78,10 +83,10 @@ export function Sidebar() {
   const [mobileOpen, setMobileOpen] = useState(false);
 
   const handleNewChat = useCallback(() => {
-    createSession();
+    void createSessionWithSync();
     setCurrentView('chat');
     setMobileOpen(false);
-  }, [createSession, setCurrentView]);
+  }, [createSessionWithSync, setCurrentView]);
 
   const handleSelectSession = useCallback(
     (id: string) => {
@@ -96,10 +101,10 @@ export function Sidebar() {
     (e: React.MouseEvent, id: string) => {
       e.stopPropagation();
       if (sessions.length > 1) {
-        deleteSession(id);
+        void deleteSessionWithSync(id);
       }
     },
-    [deleteSession, sessions.length],
+    [deleteSessionWithSync, sessions.length],
   );
 
   const handleNavClick = useCallback(

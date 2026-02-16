@@ -12,7 +12,7 @@
  * - motion animations
  */
 
-import { Copy, FileText, Paperclip, Sparkles, Trash2, X } from 'lucide-react';
+import { Check, ClipboardList, Copy, FileText, Paperclip, Sparkles, Trash2, X } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
   type DragEvent,
@@ -432,6 +432,13 @@ export const ChatContainer = memo<ChatContainerProps>(({ isStreaming, onSubmit, 
     [onSubmit, textContext],
   );
 
+  // ----- Prompt history for arrow-key navigation ----------------------
+
+  const promptHistory = useMemo(
+    () => messages.filter((m) => m.role === 'user').map((m) => m.content),
+    [messages],
+  );
+
   // ----- Context menu handlers ----------------------------------------
 
   const handleContextMenu = useCallback((e: ReactMouseEvent, message: Message) => {
@@ -451,13 +458,68 @@ export const ChatContainer = memo<ChatContainerProps>(({ isStreaming, onSubmit, 
     }
   }, [contextMenu, handleCloseContextMenu]);
 
+  // ----- Copy entire session -----------------------------------------------
+
+  const [sessionCopied, setSessionCopied] = useState(false);
+
+  const handleCopySession = useCallback(async () => {
+    if (messages.length === 0) return;
+
+    const session = useViewStore.getState().sessions.find((s) => s.id === currentSessionId);
+    const title = session?.title ?? 'Untitled';
+    const date = session ? new Date(session.createdAt).toLocaleString() : '';
+
+    const lines = [`=== ${title} ===`, date ? `Date: ${date}` : '', `Messages: ${messages.length}`, ''];
+    for (const msg of messages) {
+      const role = msg.role === 'user' ? 'User' : msg.role === 'assistant' ? 'Assistant' : 'System';
+      const time = new Date(msg.timestamp).toLocaleTimeString();
+      const model = msg.model ? ` (${msg.model})` : '';
+      lines.push(`[${role}] ${time}${model}:`);
+      lines.push(msg.content);
+      lines.push('');
+    }
+
+    const text = lines.join('\n');
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+    }
+    toast.success('Session copied to clipboard');
+    setSessionCopied(true);
+    setTimeout(() => setSessionCopied(false), 2000);
+  }, [messages, currentSessionId]);
+
   // ----- Render -------------------------------------------------------
 
   return (
     <DragDropZone onImageDrop={handleImageDrop} onTextDrop={handleTextDrop}>
       <div className="flex-1 w-full h-full flex flex-col min-h-0 relative gap-2">
         {/* Messages panel */}
-        <div className={cn('flex-1 min-h-0 flex flex-col overflow-hidden rounded-xl', theme.glassPanel)}>
+        <div className={cn('flex-1 min-h-0 flex flex-col overflow-hidden rounded-xl relative', theme.glassPanel)}>
+          {/* Copy session button */}
+          {messages.length > 0 && (
+            <button
+              type="button"
+              onClick={handleCopySession}
+              title="Copy entire session"
+              className={cn(
+                'absolute top-2 right-3 z-10 p-1.5 rounded-lg transition-all',
+                'opacity-40 hover:opacity-100',
+                'hover:bg-[var(--matrix-accent)]/10',
+                theme.textMuted,
+              )}
+            >
+              {sessionCopied ? <Check size={16} className="text-emerald-400" /> : <ClipboardList size={16} />}
+            </button>
+          )}
           <div ref={scrollContainerRef} className={cn('flex-1 min-h-0 overflow-y-auto', theme.scrollbar)}>
             {messages.length === 0 ? (
               settings?.welcome_message ? (
@@ -549,6 +611,7 @@ export const ChatContainer = memo<ChatContainerProps>(({ isStreaming, onSubmit, 
             onPasteImage={handlePasteImage}
             onPasteFile={handleTextDrop}
             onAttachPath={handleAttachPath}
+            promptHistory={promptHistory}
           />
         </div>
       </div>

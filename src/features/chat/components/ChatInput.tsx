@@ -49,6 +49,8 @@ export interface ChatInputProps {
   onPasteFile?: (content: string, filename: string) => void;
   /** Attach a local file by path. */
   onAttachPath?: (path: string) => void;
+  /** Previous user prompts for arrow-key navigation (newest last). */
+  promptHistory?: string[];
 }
 
 // ============================================================================
@@ -107,12 +109,16 @@ ImagePreview.displayName = 'ImagePreview';
 // ============================================================================
 
 export const ChatInput = memo<ChatInputProps>(
-  ({ isStreaming, onSubmit, onStop, pendingImage, onClearImage, onPasteImage, onPasteFile }) => {
+  ({ isStreaming, onSubmit, onStop, pendingImage, onClearImage, onPasteImage, onPasteFile, promptHistory = [] }) => {
     const theme = useViewTheme();
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [value, setValue] = useState('');
     const [error, setError] = useState<string | null>(null);
+
+    // Prompt history navigation
+    const [historyIndex, setHistoryIndex] = useState(-1);
+    const savedDraftRef = useRef('');
 
     const charCount = value.length;
     const isOverLimit = charCount > MAX_CHARS;
@@ -171,6 +177,8 @@ export const ChatInput = memo<ChatInputProps>(
         if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
           e.preventDefault();
           handleSubmit();
+          setHistoryIndex(-1);
+          savedDraftRef.current = '';
         } else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
           e.preventDefault();
           const el = e.currentTarget;
@@ -181,9 +189,47 @@ export const ChatInput = memo<ChatInputProps>(
             el.selectionStart = el.selectionEnd = selectionStart + 1;
             adjustHeight();
           });
+        } else if (e.key === 'ArrowUp' && promptHistory.length > 0) {
+          const el = e.currentTarget;
+          const isAtStart = el.selectionStart === 0 && el.selectionEnd === 0;
+          const isSingleLine = !value.includes('\n');
+          if (isAtStart || (isSingleLine && historyIndex === -1)) {
+            e.preventDefault();
+            if (historyIndex === -1) {
+              savedDraftRef.current = value;
+            }
+            const nextIndex = historyIndex === -1 ? promptHistory.length - 1 : Math.max(0, historyIndex - 1);
+            setHistoryIndex(nextIndex);
+            const historyValue = promptHistory[nextIndex] ?? '';
+            setValue(historyValue);
+            requestAnimationFrame(() => {
+              if (textareaRef.current) {
+                textareaRef.current.selectionStart = textareaRef.current.selectionEnd = historyValue.length;
+              }
+              adjustHeight();
+            });
+          }
+        } else if (e.key === 'ArrowDown' && historyIndex >= 0) {
+          const el = e.currentTarget;
+          const isAtEnd = el.selectionStart === value.length;
+          const isSingleLine = !value.includes('\n');
+          if (isAtEnd || isSingleLine) {
+            e.preventDefault();
+            if (historyIndex >= promptHistory.length - 1) {
+              setHistoryIndex(-1);
+              setValue(savedDraftRef.current);
+              requestAnimationFrame(adjustHeight);
+            } else {
+              const nextIndex = historyIndex + 1;
+              setHistoryIndex(nextIndex);
+              const historyValue = promptHistory[nextIndex] ?? '';
+              setValue(historyValue);
+              requestAnimationFrame(adjustHeight);
+            }
+          }
         }
       },
-      [handleSubmit, value, adjustHeight],
+      [handleSubmit, value, adjustHeight, promptHistory, historyIndex],
     );
 
     // ----- Paste handling -----------------------------------------------

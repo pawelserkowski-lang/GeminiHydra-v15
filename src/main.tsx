@@ -103,7 +103,8 @@ function ChatViewWrapper() {
 
       if (!usingFallback && status === 'connected') {
         // Primary: WebSocket streaming (only when WS is actually connected)
-        sendExecute(prompt, 'chat');
+        const currentSessionId = useViewStore.getState().currentSessionId;
+        sendExecute(prompt, 'chat', undefined, currentSessionId ?? undefined);
       } else {
         // Fallback: HTTP
         setHttpStreaming(true);

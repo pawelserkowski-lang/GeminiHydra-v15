@@ -272,6 +272,52 @@ pub struct ClassifyResponse {
 }
 
 // ---------------------------------------------------------------------------
+// Sessions
+// ---------------------------------------------------------------------------
+
+#[derive(sqlx::FromRow)]
+pub struct SessionRow {
+    pub id: uuid::Uuid,
+    pub title: String,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(sqlx::FromRow)]
+pub struct SessionSummaryRow {
+    pub id: uuid::Uuid,
+    pub title: String,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub message_count: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Session {
+    pub id: String,
+    pub title: String,
+    pub created_at: String,
+    pub messages: Vec<ChatMessage>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionSummary {
+    pub id: String,
+    pub title: String,
+    pub created_at: String,
+    pub message_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateSessionRequest {
+    pub title: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateSessionRequest {
+    pub title: String,
+}
+
+// ---------------------------------------------------------------------------
 // WebSocket Protocol
 // ---------------------------------------------------------------------------
 
@@ -283,6 +329,8 @@ pub enum WsClientMessage {
         mode: String,
         #[serde(default)]
         model: Option<String>,
+        #[serde(default)]
+        session_id: Option<String>,
     },
     Cancel,
     Ping,

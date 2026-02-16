@@ -3,7 +3,7 @@
 //! This module is kept separate from `handlers.rs` to avoid merge conflicts.
 //! It owns the memory / knowledge-graph response models and all related API handlers.
 
-use axum::extract::{Query, State};
+use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -11,8 +11,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::models::{
-    AppSettings, ChatMessage, ChatMessageRow, KnowledgeEdgeRow, KnowledgeNodeRow, MemoryRow,
-    SettingsRow,
+    AppSettings, ChatMessage, ChatMessageRow, CreateSessionRequest, KnowledgeEdgeRow,
+    KnowledgeNodeRow, MemoryRow, Session, SessionRow, SessionSummary, SessionSummaryRow,
+    SettingsRow, UpdateSessionRequest,
 };
 use crate::state::AppState;
 
@@ -176,6 +177,13 @@ pub fn session_routes() -> Router<AppState> {
         .route("/api/memory/graph", get(get_knowledge_graph))
         .route("/api/memory/graph/nodes", post(add_knowledge_node))
         .route("/api/memory/graph/edges", post(add_graph_edge))
+        // Session CRUD
+        .route("/api/sessions", get(list_sessions).post(create_session))
+        .route(
+            "/api/sessions/{id}",
+            get(get_session).patch(update_session).delete(delete_session),
+        )
+        .route("/api/sessions/{id}/messages", post(add_session_message))
 }
 
 // ============================================================================
@@ -273,6 +281,187 @@ async fn clear_history(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(json!({ "cleared": true })))
+}
+
+// ============================================================================
+// Session CRUD handlers
+// ============================================================================
+
+/// GET /api/sessions
+async fn list_sessions(
+    State(state): State<AppState>,
+) -> Result<Json<Value>, StatusCode> {
+    let rows = sqlx::query_as::<_, SessionSummaryRow>(
+        "SELECT s.id, s.title, s.created_at, \
+         (SELECT COUNT(*) FROM gh_chat_messages WHERE session_id = s.id) as message_count \
+         FROM gh_sessions s ORDER BY s.updated_at DESC",
+    )
+    .fetch_all(&state.db)
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let summaries: Vec<SessionSummary> = rows
+        .into_iter()
+        .map(|r| SessionSummary {
+            id: r.id.to_string(),
+            title: r.title,
+            created_at: r.created_at.to_rfc3339(),
+            message_count: r.message_count as usize,
+        })
+        .collect();
+
+    Ok(Json(serde_json::to_value(summaries).unwrap()))
+}
+
+/// POST /api/sessions
+async fn create_session(
+    State(state): State<AppState>,
+    Json(req): Json<CreateSessionRequest>,
+) -> Result<(StatusCode, Json<Value>), StatusCode> {
+    let row = sqlx::query_as::<_, SessionRow>(
+        "INSERT INTO gh_sessions (title) VALUES ($1) \
+         RETURNING id, title, created_at, updated_at",
+    )
+    .bind(&req.title)
+    .fetch_one(&state.db)
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let session = Session {
+        id: row.id.to_string(),
+        title: row.title,
+        created_at: row.created_at.to_rfc3339(),
+        messages: Vec::new(),
+    };
+
+    Ok((StatusCode::CREATED, Json(serde_json::to_value(session).unwrap())))
+}
+
+/// GET /api/sessions/:id
+async fn get_session(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<Value>, StatusCode> {
+    let session_id: uuid::Uuid = id.parse().map_err(|_| StatusCode::BAD_REQUEST)?;
+
+    let session_row = sqlx::query_as::<_, SessionRow>(
+        "SELECT id, title, created_at, updated_at FROM gh_sessions WHERE id = $1",
+    )
+    .bind(session_id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    .ok_or(StatusCode::NOT_FOUND)?;
+
+    let message_rows = sqlx::query_as::<_, ChatMessageRow>(
+        "SELECT id, role, content, model, agent, created_at \
+         FROM gh_chat_messages WHERE session_id = $1 ORDER BY created_at ASC",
+    )
+    .bind(session_id)
+    .fetch_all(&state.db)
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let messages: Vec<ChatMessage> = message_rows.into_iter().map(row_to_message).collect();
+
+    let session = Session {
+        id: session_row.id.to_string(),
+        title: session_row.title,
+        created_at: session_row.created_at.to_rfc3339(),
+        messages,
+    };
+
+    Ok(Json(serde_json::to_value(session).unwrap()))
+}
+
+/// PATCH /api/sessions/:id
+async fn update_session(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(req): Json<UpdateSessionRequest>,
+) -> Result<Json<Value>, StatusCode> {
+    let session_id: uuid::Uuid = id.parse().map_err(|_| StatusCode::BAD_REQUEST)?;
+
+    let row = sqlx::query_as::<_, SessionRow>(
+        "UPDATE gh_sessions SET title = $1, updated_at = NOW() WHERE id = $2 \
+         RETURNING id, title, created_at, updated_at",
+    )
+    .bind(&req.title)
+    .bind(session_id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    .ok_or(StatusCode::NOT_FOUND)?;
+
+    let summary = SessionSummary {
+        id: row.id.to_string(),
+        title: row.title,
+        created_at: row.created_at.to_rfc3339(),
+        message_count: 0,
+    };
+
+    Ok(Json(serde_json::to_value(summary).unwrap()))
+}
+
+/// DELETE /api/sessions/:id
+async fn delete_session(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<Value>, StatusCode> {
+    let session_id: uuid::Uuid = id.parse().map_err(|_| StatusCode::BAD_REQUEST)?;
+
+    let result = sqlx::query("DELETE FROM gh_sessions WHERE id = $1")
+        .bind(session_id)
+        .execute(&state.db)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    if result.rows_affected() == 0 {
+        return Err(StatusCode::NOT_FOUND);
+    }
+
+    Ok(Json(json!({ "status": "deleted", "id": id })))
+}
+
+/// POST /api/sessions/:id/messages
+async fn add_session_message(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(body): Json<AddMessageRequest>,
+) -> Result<(StatusCode, Json<Value>), StatusCode> {
+    let session_id: uuid::Uuid = id.parse().map_err(|_| StatusCode::BAD_REQUEST)?;
+
+    // Verify session exists
+    sqlx::query("SELECT 1 FROM gh_sessions WHERE id = $1")
+        .bind(session_id)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    let row = sqlx::query_as::<_, ChatMessageRow>(
+        "INSERT INTO gh_chat_messages (session_id, role, content, model, agent) \
+         VALUES ($1, $2, $3, $4, $5) \
+         RETURNING id, role, content, model, agent, created_at",
+    )
+    .bind(session_id)
+    .bind(&body.role)
+    .bind(&body.content)
+    .bind(&body.model)
+    .bind(&body.agent)
+    .fetch_one(&state.db)
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    // Update session timestamp
+    sqlx::query("UPDATE gh_sessions SET updated_at = NOW() WHERE id = $1")
+        .bind(session_id)
+        .execute(&state.db)
+        .await
+        .ok();
+
+    let msg = row_to_message(row);
+    Ok((StatusCode::CREATED, Json(json!(msg))))
 }
 
 // ============================================================================

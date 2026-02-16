@@ -180,11 +180,11 @@ export function useWebSocketChat(callbacks: WsCallbacks) {
   }, [connect, disconnect]);
 
   const sendExecute = useCallback(
-    (prompt: string, mode: string, model?: string) => {
+    (prompt: string, mode: string, model?: string, session_id?: string) => {
       const ws = wsRef.current;
       if (!ws || ws.readyState !== WebSocket.OPEN) return;
 
-      const msg: WsClientMessage = { type: 'execute', prompt, mode, model };
+      const msg: WsClientMessage = { type: 'execute', prompt, mode, model, session_id };
       ws.send(JSON.stringify(msg));
     },
     [],
