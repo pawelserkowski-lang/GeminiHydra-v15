@@ -10,7 +10,7 @@
  */
 
 import { AnimatePresence, motion } from 'motion/react';
-import { type ReactNode, Suspense } from 'react';
+import { type ReactNode, Suspense, useCallback, useEffect } from 'react';
 import { LayeredBackground, WitcherRunes } from '@/components/atoms';
 import { Sidebar } from '@/components/organisms/Sidebar';
 import type { StatusFooterProps } from '@/components/organisms/StatusFooter';
@@ -42,6 +42,24 @@ function AppShellInner({ children, statusFooterProps }: AppShellProps) {
 
   const currentView = useViewStore((s) => s.currentView);
 
+  // Global Ctrl+T shortcut — creates a new chat tab when in chat view
+  const handleKeyDown = useCallback(
+    (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.key === 't' && currentView === 'chat') {
+        e.preventDefault();
+        useViewStore.getState().createSession();
+        const sid = useViewStore.getState().currentSessionId;
+        if (sid) useViewStore.getState().openTab(sid);
+      }
+    },
+    [currentView],
+  );
+
+  useEffect(() => {
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleKeyDown]);
+
   return (
     <div
       className={`relative flex h-screen w-full ${isLight ? 'text-black selection:bg-emerald-500 selection:text-white' : 'text-white selection:bg-white/30 selection:text-white'} overflow-hidden font-mono transition-colors duration-500`}
@@ -50,9 +68,11 @@ function AppShellInner({ children, statusFooterProps }: AppShellProps) {
       <LayeredBackground resolvedTheme={resolvedTheme} />
 
       {/* WitcherRunes overlay */}
-      <Suspense fallback={null}>
-        <WitcherRunes isDark={isDark} />
-      </Suspense>
+      {import.meta.env.VITE_WITCHER_MODE !== 'disabled' && (
+        <Suspense fallback={null}>
+          <WitcherRunes isDark={isDark} />
+        </Suspense>
+      )}
 
       {/* Main Content */}
       <div className="relative z-10 flex h-full w-full backdrop-blur-[1px] gap-4 p-4 overflow-hidden">

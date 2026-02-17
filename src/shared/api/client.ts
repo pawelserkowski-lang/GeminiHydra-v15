@@ -6,13 +6,13 @@
  * Provides typed GET/POST/PATCH/DELETE with ApiError handling.
  */
 
-const BASE_URL = import.meta.env.PROD ? 'https://geminihydra-v15-backend.fly.dev' : '';
+const BASE_URL = import.meta.env.VITE_BACKEND_URL || (import.meta.env.PROD ? 'https://geminihydra-v15-backend.fly.dev' : '');
 
 // ============================================================================
 // ERROR CLASS
 // ============================================================================
 
-export class ApiError extends Error {
+class ApiError extends Error {
   readonly status: number;
   readonly statusText: string;
   readonly body: unknown;

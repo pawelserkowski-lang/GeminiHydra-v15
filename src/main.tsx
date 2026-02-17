@@ -29,6 +29,9 @@ const LazyWelcomeScreen = lazy(() => import('@/features/home/components/WelcomeS
 const LazyChatContainer = lazy(() => import('@/features/chat/components/ChatContainer'));
 const LazyAgentsView = lazy(() => import('@/features/agents/components/AgentsView'));
 const LazyHistoryView = lazy(() => import('@/features/history/components/HistoryView'));
+const LazySettingsView = lazy(() => import('@/features/settings/components/SettingsView'));
+const LazyStatusView = lazy(() => import('@/features/status/components/StatusView'));
+const LazyKnowledgeGraphView = lazy(() => import('@/features/memory/components/KnowledgeGraphView'));
 
 // ============================================================================
 // CHAT VIEW WRAPPER
@@ -163,9 +166,11 @@ function ViewRouter() {
     case 'history':
       return <LazyHistoryView />;
     case 'settings':
-      return <div className="p-6 text-[var(--matrix-text-primary)]">Settings — Coming Soon</div>;
+      return <LazySettingsView />;
     case 'status':
-      return <div className="p-6 text-[var(--matrix-text-primary)]">System Status — Coming Soon</div>;
+      return <LazyStatusView />;
+    case 'brain':
+      return <LazyKnowledgeGraphView />;
   }
 }
 

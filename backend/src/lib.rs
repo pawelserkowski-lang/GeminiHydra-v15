@@ -1,3 +1,4 @@
+pub mod analysis;
 pub mod files;
 pub mod handlers;
 pub mod models;
@@ -19,8 +20,9 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/health", get(handlers::health))
         .route("/api/health/detailed", get(handlers::health_detailed))
         // Agents
-        .route("/api/agents", get(handlers::list_agents))
+        .route("/api/agents", get(handlers::list_agents).post(handlers::create_agent))
         .route("/api/agents/classify", post(handlers::classify_agent))
+        .route("/api/agents/:id", post(handlers::update_agent).delete(handlers::delete_agent))
         // Execute
         .route("/api/execute", post(handlers::execute))
         // WebSocket streaming

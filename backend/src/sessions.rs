@@ -96,6 +96,10 @@ pub struct PartialSettings {
     pub theme: Option<String>,
     #[serde(default)]
     pub welcome_message: Option<String>,
+    #[serde(default)]
+    pub ollama_url: Option<String>,
+    #[serde(default)]
+    pub use_docker_sandbox: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -128,6 +132,8 @@ fn row_to_settings(row: SettingsRow) -> AppSettings {
         language: row.language,
         theme: row.theme,
         welcome_message: row.welcome_message,
+        ollama_url: row.ollama_url.unwrap_or_else(|| "http://localhost:11434".to_string()),
+        use_docker_sandbox: row.use_docker_sandbox,
     }
 }
 
@@ -473,7 +479,7 @@ async fn get_settings(
     State(state): State<AppState>,
 ) -> Result<Json<AppSettings>, StatusCode> {
     let row = sqlx::query_as::<_, SettingsRow>(
-        "SELECT temperature, max_tokens, default_model, language, theme, welcome_message \
+        "SELECT temperature, max_tokens, default_model, language, theme, welcome_message, ollama_url, use_docker_sandbox \
          FROM gh_settings WHERE id = 1",
     )
     .fetch_one(&state.db)
@@ -489,7 +495,7 @@ async fn update_settings(
     Json(patch): Json<PartialSettings>,
 ) -> Result<Json<AppSettings>, StatusCode> {
     let current = sqlx::query_as::<_, SettingsRow>(
-        "SELECT temperature, max_tokens, default_model, language, theme, welcome_message \
+        "SELECT temperature, max_tokens, default_model, language, theme, welcome_message, ollama_url, use_docker_sandbox \
          FROM gh_settings WHERE id = 1",
     )
     .fetch_one(&state.db)
@@ -502,11 +508,13 @@ async fn update_settings(
     let language = patch.language.unwrap_or(current.language);
     let theme = patch.theme.unwrap_or(current.theme);
     let welcome_message = patch.welcome_message.unwrap_or(current.welcome_message);
+    let ollama_url = patch.ollama_url.or(current.ollama_url).unwrap_or_else(|| "http://localhost:11434".to_string());
+    let use_docker_sandbox = patch.use_docker_sandbox.unwrap_or(current.use_docker_sandbox);
 
     let row = sqlx::query_as::<_, SettingsRow>(
         "UPDATE gh_settings SET temperature=$1, max_tokens=$2, default_model=$3, \
-         language=$4, theme=$5, welcome_message=$6, updated_at=NOW() WHERE id=1 \
-         RETURNING temperature, max_tokens, default_model, language, theme, welcome_message",
+         language=$4, theme=$5, welcome_message=$6, ollama_url=$7, use_docker_sandbox=$8, updated_at=NOW() WHERE id=1 \
+         RETURNING temperature, max_tokens, default_model, language, theme, welcome_message, ollama_url, use_docker_sandbox",
     )
     .bind(temperature)
     .bind(max_tokens)
@@ -514,6 +522,8 @@ async fn update_settings(
     .bind(&language)
     .bind(&theme)
     .bind(&welcome_message)
+    .bind(&ollama_url)
+    .bind(use_docker_sandbox)
     .fetch_one(&state.db)
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
@@ -528,8 +538,8 @@ async fn reset_settings(
     let row = sqlx::query_as::<_, SettingsRow>(
         "UPDATE gh_settings SET temperature=1.0, max_tokens=8192, \
          default_model='gemini-3-flash-preview', language='en', theme='dark', \
-         welcome_message='', updated_at=NOW() WHERE id=1 \
-         RETURNING temperature, max_tokens, default_model, language, theme, welcome_message",
+         welcome_message='', ollama_url='http://localhost:11434', use_docker_sandbox=FALSE, updated_at=NOW() WHERE id=1 \
+         RETURNING temperature, max_tokens, default_model, language, theme, welcome_message, ollama_url, use_docker_sandbox",
     )
     .fetch_one(&state.db)
     .await

@@ -67,52 +67,23 @@ fn keyword_match(text: &str, keyword: &str) -> bool {
     }
 }
 
-/// Expert agent classification based on prompt analysis.
-fn classify_prompt(prompt: &str) -> (String, f64, String) {
+/// Expert agent classification based on prompt analysis and agent keywords.
+fn classify_prompt(prompt: &str, agents: &[WitcherAgent]) -> (String, f64, String) {
     let lower = strip_diacritics(&prompt.to_lowercase());
 
-    let rules: &[(&[&str], &str, &str)] = &[
-        (&["architecture", "design", "pattern", "structur", "architektur", "wzorzec", "refaktor"],
-         "yennefer", "Prompt relates to architecture and design"),
-        (&["test", "quality", "assert", "coverage", "testy", "jakosc", "pokrycie"],
-         "vesemir", "Prompt relates to testing and quality assurance"),
-        (&["security", "protect", "auth", "encrypt", "threat", "vulnerability",
-           "bezpieczenst", "zabezpiecz", "szyfrowa", "zagrozeni", "injection", "cors", "xss"],
-         "geralt", "Prompt relates to security and protection"),
-        (&["monitor", "audit", "incident", "alert", "logging",
-           "monitorowa", "audyt", "incydent"],
-         "philippa", "Prompt relates to security monitoring"),
-        (&["data", "analytic", "database", "sql", "query",
-           "dane", "baza danych", "zapytani"],
-         "triss", "Prompt relates to data and analytics"),
-        (&["document", "readme", "comment", "communication",
-           "dokumentacj", "komentarz", "komunikacj"],
-         "jaskier", "Prompt relates to documentation"),
-        (&["perf", "optim", "speed", "latency", "benchmark",
-           "wydajnosc", "szybkosc", "opoznieni"],
-         "ciri", "Prompt relates to performance and optimization"),
-        (&["plan", "strateg", "roadmap", "priorit",
-           "planowa", "priorytet"],
-         "dijkstra", "Prompt relates to strategy and planning"),
-        (&["devops", "deploy", "docker", "infra", "pipeline", "cicd", "kubernetes",
-           "wdrozeni", "kontener"],
-         "lambert", "Prompt relates to DevOps and infrastructure"),
-        (&["backend", "endpoint", "rest", "serwer", "api"],
-         "eskel", "Prompt relates to backend and APIs"),
-        (&["research", "knowledge", "learn", "study", "paper",
-           "badani", "wiedza", "nauka"],
-         "regis", "Prompt relates to research and knowledge"),
-        (&["frontend", "ui", "ux", "component", "react", "hook",
-           "komponent", "interfejs", "css"],
-         "zoltan", "Prompt relates to frontend and UI"),
-    ];
-
-    for (keywords, agent_id, reasoning) in rules {
-        if keywords.iter().any(|kw| keyword_match(&lower, kw)) {
-            return (agent_id.to_string(), 0.85, reasoning.to_string());
+    for agent in agents {
+        for keyword in &agent.keywords {
+            if keyword_match(&lower, keyword) {
+                return (
+                    agent.id.clone(),
+                    0.85,
+                    format!("Prompt matches keyword '{}' for agent {}", keyword, agent.name),
+                );
+            }
         }
     }
 
+    // Default fallback
     ("dijkstra".to_string(), 0.4, "Defaulting to Strategy & Planning".to_string())
 }
 
@@ -129,7 +100,8 @@ fn build_system_prompt(agent_id: &str, agents: &[WitcherAgent], language: &str) 
         .collect::<Vec<_>>()
         .join("\n");
 
-    format!(
+    let custom = agent.system_prompt.as_deref().unwrap_or("");
+    let base_prompt = format!(
         r#"## CRITICAL: Action-First Protocol
 1. **NEVER suggest commands** — EXECUTE them with `execute_command`.
 2. **NEVER ask the user to paste code** — use `read_file`.
@@ -158,7 +130,13 @@ fn build_system_prompt(agent_id: &str, agents: &[WitcherAgent], language: &str) 
         description = agent.description,
         language = language,
         roster = roster
-    )
+    );
+
+    if !custom.is_empty() {
+        format!("{}\n\n## Agent-Specific Instructions\n{}", base_prompt, custom)
+    } else {
+        base_prompt
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -196,12 +174,75 @@ pub async fn health_detailed(State(state): State<AppState>) -> Json<DetailedHeal
 }
 
 pub async fn list_agents(State(state): State<AppState>) -> Json<Value> {
-    Json(json!({ "agents": state.agents }))
+    let agents = state.agents.read().await;
+    Json(json!({ "agents": *agents }))
 }
 
-pub async fn classify_agent(Json(body): Json<ClassifyRequest>) -> Json<ClassifyResponse> {
-    let (agent_id, confidence, reasoning) = classify_prompt(&body.prompt);
+pub async fn classify_agent(
+    State(state): State<AppState>,
+    Json(body): Json<ClassifyRequest>,
+) -> Json<ClassifyResponse> {
+    let agents = state.agents.read().await;
+    let (agent_id, confidence, reasoning) = classify_prompt(&body.prompt, &agents);
     Json(ClassifyResponse { agent: agent_id, confidence, reasoning })
+}
+
+// ── Agent CRUD ─────────────────────────────────────────────────────────────
+
+pub async fn create_agent(
+    State(state): State<AppState>,
+    Json(agent): Json<WitcherAgent>,
+) -> Json<Value> {
+    let _ = sqlx::query(
+        "INSERT INTO gh_agents (id, name, role, tier, status, description, system_prompt, keywords) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"
+    )
+    .bind(&agent.id)
+    .bind(&agent.name)
+    .bind(&agent.role)
+    .bind(&agent.tier)
+    .bind(&agent.status)
+    .bind(&agent.description)
+    .bind(&agent.system_prompt)
+    .bind(&agent.keywords)
+    .execute(&state.db)
+    .await;
+
+    state.refresh_agents().await;
+    Json(json!({ "success": true }))
+}
+
+pub async fn update_agent(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    Json(agent): Json<WitcherAgent>,
+) -> Json<Value> {
+    let _ = sqlx::query(
+        "UPDATE gh_agents SET name=$1, role=$2, tier=$3, status=$4, description=$5, system_prompt=$6, keywords=$7, updated_at=NOW() \
+         WHERE id=$8"
+    )
+    .bind(&agent.name)
+    .bind(&agent.role)
+    .bind(&agent.tier)
+    .bind(&agent.status)
+    .bind(&agent.description)
+    .bind(&agent.system_prompt)
+    .bind(&agent.keywords)
+    .bind(id)
+    .execute(&state.db)
+    .await;
+
+    state.refresh_agents().await;
+    Json(json!({ "success": true }))
+}
+
+pub async fn delete_agent(
+    State(state): State<AppState>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+) -> Json<Value> {
+    let _ = sqlx::query("DELETE FROM gh_agents WHERE id=$1").bind(id).execute(&state.db).await;
+    state.refresh_agents().await;
+    Json(json!({ "success": true }))
 }
 
 // ---------------------------------------------------------------------------
@@ -226,7 +267,9 @@ async fn prepare_execution(
     model_override: Option<String>,
     agent_override: Option<(String, f64, String)>,
 ) -> ExecuteContext {
-    let (agent_id, confidence, reasoning) = agent_override.unwrap_or_else(|| classify_prompt(prompt));
+    let agents_lock = state.agents.read().await;
+    
+    let (agent_id, confidence, reasoning) = agent_override.unwrap_or_else(|| classify_prompt(prompt, &agents_lock));
 
     let (def_model, lang) = sqlx::query_as::<_, (String, String)>(
         "SELECT default_model, language FROM gh_settings WHERE id = 1",
@@ -239,7 +282,7 @@ async fn prepare_execution(
     let language = match lang.as_str() { "pl" => "Polish", "en" => "English", other => other };
 
     let api_key = state.runtime.read().await.api_keys.get("google").cloned().unwrap_or_default();
-    let system_prompt = build_system_prompt(&agent_id, &state.agents, language);
+    let system_prompt = build_system_prompt(&agent_id, &agents_lock, language);
 
     let detected_paths = files::extract_file_paths(prompt);
     let (file_context, _) = if !detected_paths.is_empty() {
@@ -300,17 +343,15 @@ impl SseParser {
         let mut events = Vec::new();
         if let Some(parts) = json_val["candidates"][0]["content"]["parts"].as_array() {
             for part in parts {
-                if let Some(text) = part["text"].as_str() {
-                    if !text.is_empty() { events.push(SseParsedEvent::TextToken(text.to_string())); }
+                if let Some(text) = part["text"].as_str().filter(|t| !t.is_empty()) {
+                    events.push(SseParsedEvent::TextToken(text.to_string()));
                 }
-                if let Some(fc) = part.get("functionCall") {
-                    if let Some(name) = fc["name"].as_str() {
-                        events.push(SseParsedEvent::FunctionCall {
-                            name: name.to_string(),
-                            args: fc["args"].clone(),
-                            raw_part: part.clone(),
-                        });
-                    }
+                if let Some(name) = part.get("functionCall").and_then(|fc| fc["name"].as_str()) {
+                    events.push(SseParsedEvent::FunctionCall {
+                        name: name.to_string(),
+                        args: part["functionCall"]["args"].clone(),
+                        raw_part: part.clone(),
+                    });
                 }
             }
         }
@@ -324,12 +365,11 @@ impl SseParser {
             let block = self.buffer[..pos].to_string();
             self.buffer = self.buffer[pos + 2..].to_string();
             for line in block.lines() {
-                if let Some(data) = line.strip_prefix("data: ") {
-                    if data != "[DONE]" && !data.is_empty() {
-                        if let Ok(jv) = serde_json::from_str::<Value>(data) {
-                            events.extend(Self::parse_parts(&jv));
-                        }
-                    }
+                if let Some(jv) = line.strip_prefix("data: ")
+                    .filter(|d| *d != "[DONE]" && !d.is_empty())
+                    .and_then(|data| serde_json::from_str::<Value>(data).ok())
+                {
+                    events.extend(Self::parse_parts(&jv));
                 }
             }
         }
@@ -339,12 +379,11 @@ impl SseParser {
     fn flush(&mut self) -> Vec<SseParsedEvent> {
         let mut events = Vec::new();
         for line in self.buffer.lines() {
-            if let Some(data) = line.strip_prefix("data: ") {
-                if data != "[DONE]" && !data.is_empty() {
-                    if let Ok(jv) = serde_json::from_str::<Value>(data) {
-                        events.extend(Self::parse_parts(&jv));
-                    }
-                }
+            if let Some(jv) = line.strip_prefix("data: ")
+                .filter(|d| *d != "[DONE]" && !d.is_empty())
+                .and_then(|data| serde_json::from_str::<Value>(data).ok())
+            {
+                events.extend(Self::parse_parts(&jv));
             }
         }
         self.buffer.clear();
@@ -405,16 +444,43 @@ async fn execute_streaming(
 ) {
     let start = Instant::now();
     let sid = session_id.as_deref().and_then(|s| Uuid::parse_str(s).ok());
-    let agent_info = if let Some(s) = &sid { Some(resolve_session_agent(&state.db, s, prompt).await) } else { None };
+    
+    // Resolve agent (check session lock or classify)
+    let agent_info = if let Some(s) = &sid { 
+        Some(resolve_session_agent(state, s, prompt).await) 
+    } else { 
+        None 
+    };
+    
     let ctx = prepare_execution(state, prompt, model_override, agent_info).await;
     let resp_id = Uuid::new_v4();
 
     if !ws_send(sender, &WsServerMessage::Start { id: resp_id.to_string(), agent: ctx.agent_id.clone(), model: ctx.model.clone(), files_loaded: ctx.files_loaded.clone() }).await { return; }
     let _ = ws_send(sender, &WsServerMessage::Plan { agent: ctx.agent_id.clone(), confidence: ctx.confidence, steps: ctx.steps.clone() }).await;
 
+    // Dispatch based on model provider
+    let full_text = if ctx.model.starts_with("ollama:") {
+        execute_streaming_ollama(sender, state, &ctx, sid, cancel).await
+    } else {
+        execute_streaming_gemini(sender, state, &ctx, sid, cancel).await
+    };
+
+    store_messages(&state.db, sid, resp_id, prompt, &full_text, &ctx).await;
+    let _ = ws_send(sender, &WsServerMessage::Complete { duration_ms: start.elapsed().as_millis() as u64 }).await;
+}
+
+// ── Gemini Implementation ──────────────────────────────────────────────────
+
+async fn execute_streaming_gemini(
+    sender: &mut futures_util::stream::SplitSink<WebSocket, WsMessage>,
+    state: &AppState,
+    ctx: &ExecuteContext,
+    sid: Option<Uuid>,
+    cancel: CancellationToken,
+) -> String {
     if ctx.api_key.is_empty() {
         let _ = ws_send(sender, &WsServerMessage::Error { message: "Missing Google API Key".into(), code: Some("NO_API_KEY".into()) }).await;
-        return;
+        return String::new();
     }
 
     let url = format!("https://generativelanguage.googleapis.com/v1beta/models/{}:streamGenerateContent?alt=sse&key={}", ctx.model, ctx.api_key);
@@ -429,11 +495,11 @@ async fn execute_streaming(
             Ok(r) if r.status().is_success() => r,
             Ok(r) => {
                 let _ = ws_send(sender, &WsServerMessage::Error { message: format!("API Error: {}", r.status()), code: Some("GEMINI_ERROR".into()) }).await;
-                return;
+                return full_text;
             }
             Err(e) => {
                 let _ = ws_send(sender, &WsServerMessage::Error { message: e.to_string(), code: Some("REQUEST_FAILED".into()) }).await;
-                return;
+                return full_text;
             }
         };
 
@@ -452,7 +518,7 @@ async fn execute_streaming(
             full_text.push_str(&header);
             let _ = ws_send(sender, &WsServerMessage::Token { content: header }).await;
 
-            let output = crate::tools::execute_tool(&name, &args).await.unwrap_or_else(|e| e);
+            let output = crate::tools::execute_tool(&name, &args, state).await.unwrap_or_else(|e| e);
             let _ = ws_send(sender, &WsServerMessage::ToolResult { name: name.clone(), success: true, summary: output.chars().take(200).collect(), iteration: iter + 1 }).await;
             
             let res_md = format!("```\n{}\n```\n---\n\n", output);
@@ -462,9 +528,103 @@ async fn execute_streaming(
         }
         contents.push(json!({ "role": "user", "parts": res_parts }));
     }
+    full_text
+}
 
-    store_messages(&state.db, sid, resp_id, prompt, &full_text, &ctx).await;
-    let _ = ws_send(sender, &WsServerMessage::Complete { duration_ms: start.elapsed().as_millis() as u64 }).await;
+// ── Ollama Implementation ──────────────────────────────────────────────────
+
+async fn execute_streaming_ollama(
+    sender: &mut futures_util::stream::SplitSink<WebSocket, WsMessage>,
+    state: &AppState,
+    ctx: &ExecuteContext,
+    sid: Option<Uuid>,
+    cancel: CancellationToken,
+) -> String {
+    let settings = sqlx::query_as::<_, (String,)>("SELECT ollama_url FROM gh_settings WHERE id = 1")
+        .fetch_one(&state.db)
+        .await
+        .unwrap_or(("http://localhost:11434".to_string(),));
+    
+    let ollama_base = settings.0.trim_end_matches('/');
+    let model_name = ctx.model.strip_prefix("ollama:").unwrap_or(&ctx.model);
+    let url = format!("{}/api/chat", ollama_base);
+
+    // Load history (map to Ollama format)
+    let mut messages = Vec::new();
+    if let Some(s) = &sid {
+        let history = load_session_history(&state.db, s).await;
+        for msg in history {
+            if let Some(parts) = msg["parts"].as_array() {
+                if let Some(text) = parts[0]["text"].as_str() {
+                    let role = msg["role"].as_str().unwrap_or("user");
+                    messages.push(json!({ "role": if role == "model" { "assistant" } else { "user" }, "content": text }));
+                }
+            }
+        }
+    }
+    
+    // Add system prompt (Ollama supports system message)
+    messages.insert(0, json!({ "role": "system", "content": ctx.system_prompt }));
+    
+    // Add current user prompt
+    messages.push(json!({ "role": "user", "content": ctx.final_user_prompt }));
+
+    // Ollama doesn't support tools natively in the same way yet (or experimental), 
+    // so we just do a simple chat for now (no tool loops).
+    // TODO: Add Ollama tool support if available (function calling).
+
+    let body = json!({
+        "model": model_name,
+        "messages": messages,
+        "stream": true,
+    });
+
+    let resp = match state.client.post(&url).json(&body).send().await {
+        Ok(r) if r.status().is_success() => r,
+        Ok(r) => {
+            let _ = ws_send(sender, &WsServerMessage::Error { message: format!("Ollama Error: {}", r.status()), code: Some("OLLAMA_ERROR".into()) }).await;
+            return String::new();
+        }
+        Err(e) => {
+            let _ = ws_send(sender, &WsServerMessage::Error { message: format!("Ollama Connection Failed: {}", e), code: Some("CONNECTION_ERROR".into()) }).await;
+            return String::new();
+        }
+    };
+
+    let mut stream = resp.bytes_stream();
+    let mut full_text = String::new();
+
+    loop {
+        tokio::select! {
+            _ = cancel.cancelled() => break,
+            chunk = stream.next() => {
+                match chunk {
+                    Some(Ok(b)) => {
+                        // Ollama sends multiple JSON objects in one chunk sometimes, or one per line
+                        let s = String::from_utf8_lossy(&b);
+                        for line in s.lines() {
+                            if let Ok(val) = serde_json::from_str::<Value>(line) {
+                                if let Some(content) = val["message"]["content"].as_str() {
+                                    full_text.push_str(content);
+                                    let _ = ws_send(sender, &WsServerMessage::Token { content: content.to_string() }).await;
+                                }
+                                if val["done"].as_bool().unwrap_or(false) {
+                                    return full_text;
+                                }
+                            }
+                        }
+                    }
+                    Some(Err(e)) => {
+                        let _ = ws_send(sender, &WsServerMessage::Error { message: e.to_string(), code: Some("STREAM_ERROR".into()) }).await;
+                        break;
+                    }
+                    None => break,
+                }
+            }
+        }
+    }
+
+    full_text
 }
 
 async fn consume_gemini_stream(
@@ -516,12 +676,23 @@ async fn consume_gemini_stream(
 // DB Helpers
 // ---------------------------------------------------------------------------
 
-async fn resolve_session_agent(db: &sqlx::PgPool, sid: &Uuid, prompt: &str) -> (String, f64, String) {
-    if let Ok(Some((Some(aid),))) = sqlx::query_as::<_, (Option<String>,)>("SELECT agent_id FROM gh_sessions WHERE id = $1").bind(sid).fetch_optional(db).await {
-        if !aid.is_empty() { return (aid, 0.95, "Locked".into()); }
+async fn resolve_session_agent(state: &AppState, sid: &Uuid, prompt: &str) -> (String, f64, String) {
+    if let Some(aid) = sqlx::query_as::<_, (Option<String>,)>("SELECT agent_id FROM gh_sessions WHERE id = $1")
+        .bind(sid)
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten()
+        .and_then(|(a,)| a)
+        .filter(|s| !s.is_empty()) 
+    {
+        return (aid, 0.95, "Locked".into());
     }
-    let (aid, conf, reas) = classify_prompt(prompt);
-    let _ = sqlx::query("UPDATE gh_sessions SET agent_id = $1 WHERE id = $2").bind(&aid).bind(sid).execute(db).await;
+    
+    let agents = state.agents.read().await;
+    let (aid, conf, reas) = classify_prompt(prompt, &agents);
+    
+    let _ = sqlx::query("UPDATE gh_sessions SET agent_id = $1 WHERE id = $2").bind(&aid).bind(sid).execute(&state.db).await;
     (aid, conf, reas)
 }
 
@@ -546,17 +717,59 @@ async fn store_messages(db: &sqlx::PgPool, sid: Option<Uuid>, rid: Uuid, prompt:
 // ---------------------------------------------------------------------------
 
 pub async fn gemini_models(State(state): State<AppState>) -> Json<Value> {
+    let mut models = Vec::new();
+
+    // 1. Fetch Gemini models
     let key = state.runtime.read().await.api_keys.get("google").cloned().unwrap_or_default();
-    if key.is_empty() { return Json(json!({ "models": [], "error": "No API key" })); }
-    let url = format!("https://generativelanguage.googleapis.com/v1beta/models?key={}", key);
-    match state.client.get(&url).send().await {
-        Ok(r) if r.status().is_success() => {
-            let body: Value = r.json().await.unwrap_or_default();
-            let models: Vec<GeminiModelInfo> = body["models"].as_array().map(|a| a.iter().filter_map(|m| serde_json::from_value(m.clone()).ok()).filter(|m: &GeminiModelInfo| m.supported_generation_methods.contains(&"generateContent".to_string())).collect()).unwrap_or_default();
-            Json(json!(GeminiModelsResponse { models }))
+    if !key.is_empty() {
+        let url = format!("https://generativelanguage.googleapis.com/v1beta/models?key={}", key);
+        if let Ok(res) = state.client.get(&url).send().await {
+            if res.status().is_success() {
+                if let Ok(body) = res.json::<Value>().await {
+                    if let Some(list) = body["models"].as_array() {
+                        models.extend(list.iter().filter_map(|m| {
+                            let info: GeminiModelInfo = serde_json::from_value(m.clone()).ok()?;
+                            if info.supported_generation_methods.contains(&"generateContent".to_string()) {
+                                Some(info)
+                            } else {
+                                None
+                            }
+                        }));
+                    }
+                }
+            }
         }
-        _ => Json(json!({ "models": [], "error": "API Error" })),
     }
+
+    // 2. Fetch Ollama models
+    if let Ok((ollama_url,)) = sqlx::query_as::<_, (String,)>("SELECT ollama_url FROM gh_settings WHERE id = 1")
+        .fetch_one(&state.db)
+        .await
+    {
+        let url = format!("{}/api/tags", ollama_url.trim_end_matches('/'));
+        // Use an async block for the request to simplify error handling logic?
+        // Or just keep it flat.
+        
+        if let Ok(res) = state.client.get(&url).timeout(std::time::Duration::from_secs(2)).send().await {
+            if res.status().is_success() {
+                if let Ok(body) = res.json::<Value>().await {
+                    if let Some(list) = body["models"].as_array() {
+                        for m in list {
+                            if let Some(name) = m["name"].as_str() {
+                                models.push(GeminiModelInfo {
+                                    name: format!("ollama:{}", name),
+                                    display_name: format!("Ollama: {}", name),
+                                    supported_generation_methods: vec!["generateContent".to_string()],
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Json(json!(GeminiModelsResponse { models }))
 }
 
 pub async fn system_stats() -> Json<SystemStats> {
@@ -589,11 +802,12 @@ pub async fn list_files(Json(body): Json<FileListRequest>) -> Json<Value> {
 
 fn build_tools() -> Value {
     json!([{
-        "functionDeclarations": [
+        "function_declarations": [
             { "name": "execute_command", "description": "Execute a shell command", "parameters": { "type": "object", "properties": { "command": { "type": "string" } }, "required": ["command"] } },
             { "name": "read_file", "description": "Read a file", "parameters": { "type": "object", "properties": { "path": { "type": "string" } }, "required": ["path"] } },
             { "name": "write_file", "description": "Write a file", "parameters": { "type": "object", "properties": { "path": { "type": "string" }, "content": { "type": "string" } }, "required": ["path", "content"] } },
-            { "name": "list_directory", "description": "List a directory", "parameters": { "type": "object", "properties": { "path": { "type": "string" }, "show_hidden": { "type": "boolean" } }, "required": ["path"] } }
+            { "name": "list_directory", "description": "List a directory", "parameters": { "type": "object", "properties": { "path": { "type": "string" }, "show_hidden": { "type": "boolean" } }, "required": ["path"] } },
+            { "name": "get_code_structure", "description": "Analyze code structure (AST) without reading full content. Useful for high-level understanding.", "parameters": { "type": "object", "properties": { "path": { "type": "string" } }, "required": ["path"] } }
         ]
     }])
 }

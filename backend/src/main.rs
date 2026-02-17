@@ -20,20 +20,11 @@ async fn build_app() -> axum::Router {
         .await
         .expect("Failed to run migrations");
 
-    let state = AppState::new(pool);
+    let state = AppState::new(pool).await;
 
-    // CORS — allow Vite dev server + Vercel production
+    // CORS — allow all origins for simplicity in Vercel/Fly deployment
     let cors = CorsLayer::new()
-        .allow_origin(AllowOrigin::list([
-            "http://localhost:5176".parse().unwrap(),
-            "http://localhost:5173".parse().unwrap(),
-            "http://localhost:4173".parse().unwrap(),
-            "http://localhost:3000".parse().unwrap(),
-            "https://geminihydra-v15.vercel.app".parse().unwrap(),
-            "https://geminihydra-v15-pawelserkowskis-projects.vercel.app"
-                .parse()
-                .unwrap(),
-        ]))
+        .allow_origin(AllowOrigin::any())
         .allow_methods(AllowMethods::any())
         .allow_headers(AllowHeaders::any());
 

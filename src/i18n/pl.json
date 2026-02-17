@@ -47,5 +47,63 @@
     "commander": "Dowodca",
     "coordinators": "Koordynatorzy",
     "executors": "Wykonawcy"
+  },
+  "settings": {
+    "title": "Ustawienia",
+    "subtitle": "Skonfiguruj swoje doswiadczenie z GeminiHydra",
+    "save": "Zapisz zmiany",
+    "reset": "Przywroc domyslne",
+    "reset_confirm": "Czy na pewno chcesz przywrocic wszystkie ustawienia do wartosci domyslnych? Tej operacji nie mozna cofnac.",
+    "save_success": "Ustawienia zapisane pomyslnie",
+    "reset_success": "Ustawienia przywrocone do domyslnych",
+    "sections": {
+      "model": "Konfiguracja modelu",
+      "ui": "Interfejs uzytkownika",
+      "advanced": "Zaawansowane"
+    },
+    "fields": {
+      "temperature": "Temperatura",
+      "temperature_desc": "Kontroluje losowosc odpowiedzi. Nizsze wartosci sa bardziej skupione, wyzsze bardziej kreatywne.",
+      "max_tokens": "Maks. tokenow",
+      "max_tokens_desc": "Maksymalna liczba tokenow w odpowiedzi.",
+      "default_model": "Domyslny model",
+      "default_model_desc": "Model AI uzywany do generowania odpowiedzi.",
+      "language": "Jezyk",
+      "language_desc": "Jezyk wyswietlania interfejsu.",
+      "theme": "Motyw",
+      "theme_desc": "Schemat kolorow aplikacji.",
+      "welcome_message": "Wiadomosc powitalna",
+      "welcome_message_desc": "Niestandardowa wiadomosc wyswietlana na ekranie startowym."
+    },
+    "temperature_labels": {
+      "focused": "Skupiony",
+      "balanced": "Zbalansowany",
+      "creative": "Kreatywny",
+      "experimental": "Eksperymentalny"
+    }
+  },
+  "status": {
+    "title": "Status systemu",
+    "subtitle": "Metryki zdrowia i wydajnosci systemu w czasie rzeczywistym",
+    "uptime": "Czas pracy",
+    "backend": "Backend",
+    "connection": "Polaczenie",
+    "mode": "Tryb",
+    "websocket": "WebSocket",
+    "http": "HTTP",
+    "version": "Wersja",
+    "stats": {
+      "cpu": "Uzycie CPU",
+      "memory": "Pamiec",
+      "active_agents": "Aktywni agenci",
+      "total_requests": "Laczna liczba zapytan",
+      "platform": "Platforma",
+      "uptime": "Czas pracy"
+    },
+    "health": {
+      "healthy": "Sprawny",
+      "degraded": "Obnizony",
+      "offline": "Offline"
+    }
   }
 }

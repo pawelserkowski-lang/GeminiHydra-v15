@@ -6,6 +6,9 @@
 
 use regex::Regex;
 use std::path::Path;
+use std::sync::OnceLock;
+use tokio::fs::File;
+use tokio::io::AsyncReadExt;
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -60,6 +63,12 @@ pub struct FileError {
 // Path extraction
 // ---------------------------------------------------------------------------
 
+static QUOTED_RE: OnceLock<Regex> = OnceLock::new();
+static WIN_FILE_RE: OnceLock<Regex> = OnceLock::new();
+static WIN_DIR_RE: OnceLock<Regex> = OnceLock::new();
+static UNIX_FILE_RE: OnceLock<Regex> = OnceLock::new();
+static UNIX_DIR_RE: OnceLock<Regex> = OnceLock::new();
+
 /// Extract file/directory paths from user prompt text.
 ///
 /// Matches:
@@ -70,72 +79,49 @@ pub struct FileError {
 pub fn extract_file_paths(prompt: &str) -> Vec<String> {
     let mut paths = Vec::new();
 
-    // Pattern 1: Quoted/backtick paths (highest priority — captures exact path)
-    let quoted_re = Regex::new(
-        r#"(?:["`'])((?:[A-Za-z]:\\|/)(?:[^\s"'`]*[^\s"'`.,;:!?]))["`']"#
-    ).unwrap();
+    let patterns = [
+        // Pattern 1: Quoted/backtick paths (highest priority — captures exact path)
+        (
+            QUOTED_RE.get_or_init(|| {
+                Regex::new(r#"(?:["`'])((?:[A-Za-z]:\\|/)(?:[^\s"'`]*[^\s"'`.,;:!?]))["`']"#).unwrap()
+            }),
+            1,
+        ),
+        // Pattern 2: Windows file paths (unquoted) — C:\...\file.ext
+        (
+            WIN_FILE_RE.get_or_init(|| {
+                Regex::new(r"(?:^|\s)([A-Za-z]:\\(?:[^\s\\]+\\)*[^\s\\]+\.[A-Za-z0-9]+)").unwrap()
+            }),
+            1,
+        ),
+        // Pattern 3: Windows directory paths (unquoted) — C:\dir1\dir2 (at least 2 segments, no extension)
+        (
+            WIN_DIR_RE.get_or_init(|| {
+                Regex::new(r"(?:^|\s)([A-Za-z]:\\[^\s\\]+(?:\\[^\s\\]+)+)").unwrap()
+            }),
+            1,
+        ),
+        // Pattern 4: Unix file paths (unquoted) — /path/to/file.ext
+        (
+            UNIX_FILE_RE.get_or_init(|| {
+                Regex::new(r"(?:^|\s)(/(?:[^\s/]+/)+[^\s/]+\.[A-Za-z0-9]+)").unwrap()
+            }),
+            1,
+        ),
+        // Pattern 5: Unix directory paths (unquoted) — /dir1/dir2 (at least 2 segments)
+        (
+            UNIX_DIR_RE.get_or_init(|| Regex::new(r"(?:^|\s)(/[^\s/]+(?:/[^\s/]+)+)").unwrap()),
+            1,
+        ),
+    ];
 
-    for cap in quoted_re.captures_iter(prompt) {
-        if let Some(m) = cap.get(1) {
-            let p = m.as_str().to_string();
-            if !paths.contains(&p) {
-                paths.push(p);
-            }
-        }
-    }
-
-    // Pattern 2: Windows file paths (unquoted) — C:\...\file.ext
-    let win_file_re = Regex::new(
-        r"(?:^|\s)([A-Za-z]:\\(?:[^\s\\]+\\)*[^\s\\]+\.[A-Za-z0-9]+)"
-    ).unwrap();
-
-    for cap in win_file_re.captures_iter(prompt) {
-        if let Some(m) = cap.get(1) {
-            let p = m.as_str().to_string();
-            if !paths.contains(&p) {
-                paths.push(p);
-            }
-        }
-    }
-
-    // Pattern 3: Windows directory paths (unquoted) — C:\dir1\dir2 (at least 2 segments, no extension)
-    let win_dir_re = Regex::new(
-        r"(?:^|\s)([A-Za-z]:\\[^\s\\]+(?:\\[^\s\\]+)+)"
-    ).unwrap();
-
-    for cap in win_dir_re.captures_iter(prompt) {
-        if let Some(m) = cap.get(1) {
-            let p = m.as_str().to_string();
-            if !paths.contains(&p) {
-                paths.push(p);
-            }
-        }
-    }
-
-    // Pattern 4: Unix file paths (unquoted) — /path/to/file.ext
-    let unix_file_re = Regex::new(
-        r"(?:^|\s)(/(?:[^\s/]+/)+[^\s/]+\.[A-Za-z0-9]+)"
-    ).unwrap();
-
-    for cap in unix_file_re.captures_iter(prompt) {
-        if let Some(m) = cap.get(1) {
-            let p = m.as_str().to_string();
-            if !paths.contains(&p) {
-                paths.push(p);
-            }
-        }
-    }
-
-    // Pattern 5: Unix directory paths (unquoted) — /dir1/dir2 (at least 2 segments)
-    let unix_dir_re = Regex::new(
-        r"(?:^|\s)(/[^\s/]+(?:/[^\s/]+)+)"
-    ).unwrap();
-
-    for cap in unix_dir_re.captures_iter(prompt) {
-        if let Some(m) = cap.get(1) {
-            let p = m.as_str().to_string();
-            if !paths.contains(&p) {
-                paths.push(p);
+    for (re, group_idx) in patterns {
+        for cap in re.captures_iter(prompt) {
+            if let Some(m) = cap.get(group_idx) {
+                let p = m.as_str().to_string();
+                if !paths.contains(&p) {
+                    paths.push(p);
+                }
             }
         }
     }
@@ -183,23 +169,36 @@ pub async fn read_file_for_context(path: &str) -> Result<FileContext, FileError>
     }
 
     let file_size = metadata.len();
-
-    // Read content (with truncation if too large)
-    let raw = tokio::fs::read_to_string(p).await.map_err(|e| FileError {
+    let file = File::open(p).await.map_err(|e| FileError {
         path: path.to_string(),
-        reason: format!("Cannot read file: {}", e),
+        reason: format!("Cannot open file: {}", e),
     })?;
 
-    let truncated = file_size > MAX_FILE_SIZE;
+    // Read up to MAX_FILE_SIZE + 1 to detect truncation
+    let limit = MAX_FILE_SIZE as usize;
+    let mut buffer = Vec::with_capacity(limit + 1);
+    file.take((limit + 1) as u64)
+        .read_to_end(&mut buffer)
+        .await
+        .map_err(|e| FileError {
+            path: path.to_string(),
+            reason: format!("Cannot read file: {}", e),
+        })?;
+
+    let truncated = buffer.len() > limit;
+    
+    // Convert to string (lossy to avoid UTF-8 errors on cut boundaries)
+    let raw = String::from_utf8_lossy(&buffer).to_string();
+    
     let content = if truncated {
-        let limit = MAX_FILE_SIZE as usize;
-        // Truncate at char boundary
+        // Find safe char boundary for truncation
         let end = raw
             .char_indices()
             .take_while(|(i, _)| *i < limit)
             .last()
             .map(|(i, c)| i + c.len_utf8())
             .unwrap_or(limit.min(raw.len()));
+            
         format!(
             "{}\n\n... [TRUNCATED — file is {} bytes, showing first {} bytes]",
             &raw[..end],
@@ -264,14 +263,14 @@ async fn build_directory_context(
     let mut key_files: Vec<FileContext> = Vec::new();
     for key_name in KEY_PROJECT_FILES {
         let full_path = format!("{}\\{}", dir_path.trim_end_matches('\\'), key_name);
-        let p = Path::new(&full_path);
-        if p.exists() && p.is_file() {
-            if let Ok(fc) = read_file_for_context(&full_path).await {
-                if *total_size + fc.content.len() <= MAX_TOTAL_SIZE {
-                    *total_size += fc.content.len();
-                    key_files.push(fc);
-                }
-            }
+        // Removed redundant p.is_file() check as read_file_for_context handles it
+        if let Some(fc) = read_file_for_context(&full_path)
+            .await
+            .ok()
+            .filter(|fc| *total_size + fc.content.len() <= MAX_TOTAL_SIZE)
+        {
+            *total_size += fc.content.len();
+            key_files.push(fc);
         }
     }
 
@@ -509,13 +508,11 @@ pub async fn write_file(path: &str, content: &str) -> Result<String, FileError> 
     }
 
     // Ensure parent directory exists
-    if let Some(parent) = Path::new(path).parent() {
-        if !parent.as_os_str().is_empty() && !parent.exists() {
-            tokio::fs::create_dir_all(parent).await.map_err(|e| FileError {
-                path: path.to_string(),
-                reason: format!("Cannot create parent directory: {}", e),
-            })?;
-        }
+    if let Some(parent) = Path::new(path).parent().filter(|p| !p.as_os_str().is_empty() && !p.exists()) {
+        tokio::fs::create_dir_all(parent).await.map_err(|e| FileError {
+            path: path.to_string(),
+            reason: format!("Cannot create parent directory: {}", e),
+        })?;
     }
 
     tokio::fs::write(path, content).await.map_err(|e| FileError {

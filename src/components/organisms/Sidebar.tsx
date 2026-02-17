@@ -10,6 +10,7 @@
  */
 
 import {
+  BrainCircuit,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -140,6 +141,7 @@ export function Sidebar() {
         { id: 'home', icon: Home, label: t('nav.home', 'Start') },
         { id: 'chat', icon: MessageSquare, label: t('nav.chat', 'Chat') },
         { id: 'agents', icon: Users, label: t('nav.agents', 'Agents') },
+        { id: 'brain', icon: BrainCircuit, label: t('nav.brain', 'Brain') },
       ],
     },
   ];
@@ -210,17 +212,20 @@ export function Sidebar() {
       </button>
 
       {/* Logo - click navigates to home */}
-      <button
+      <motion.button
         type="button"
         onClick={() => handleNavClick('home')}
         className="flex items-center justify-center py-3 flex-shrink-0 cursor-pointer"
+        whileHover={{ scale: 1.03 }}
+        whileTap={{ scale: 0.97 }}
+        transition={{ type: 'spring', stiffness: 400, damping: 25 }}
       >
         <motion.div
           className={cn('flex items-center justify-center', isCollapsed ? '' : 'gap-2')}
           layout
           transition={{ type: 'spring', stiffness: 300, damping: 30 }}
         >
-          <img
+          <motion.img
             src={isLight ? '/logolight.webp' : '/logodark.webp'}
             alt="GeminiHydra Logo"
             className={cn('flex-shrink-0 object-contain transition-all', isCollapsed ? 'w-16 h-16' : 'h-36')}
@@ -229,9 +234,15 @@ export function Sidebar() {
                 ? 'drop-shadow(0 0 12px rgba(45,106,79,0.5))'
                 : 'drop-shadow(0 0 12px rgba(255,255,255,0.4))',
             }}
+            whileHover={{
+              filter: isLight
+                ? 'drop-shadow(0 0 20px rgba(45,106,79,0.7))'
+                : 'drop-shadow(0 0 20px rgba(255,255,255,0.6))',
+            }}
+            transition={{ duration: 0.2 }}
           />
         </motion.div>
-      </button>
+      </motion.button>
 
       {/* Divider */}
       {!isCollapsed && <div className={cn('mx-3 border-t', isLight ? 'border-slate-200/40' : 'border-white/10')} />}

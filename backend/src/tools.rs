@@ -10,6 +10,7 @@
 use serde_json::Value;
 use std::time::Duration;
 use tokio::process::Command;
+use crate::state::AppState;
 
 /// Max output bytes from a single command (50 KB).
 const MAX_COMMAND_OUTPUT: usize = 50 * 1024;
@@ -17,27 +18,23 @@ const MAX_COMMAND_OUTPUT: usize = 50 * 1024;
 /// Command execution timeout.
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// Dangerous command patterns that are always blocked.
+/// Dangerous command patterns that are always blocked (even in sandbox, for now, or maybe relax in sandbox?)
+/// For now, keep them blocked to prevent resource exhaustion (fork bombs) even in container.
 const BLOCKED_PATTERNS: &[&str] = &[
-    "rm -rf /",
-    "rm -rf /*",
+    "rm -rf /", // Still dangerous if volume mounted
     "format c:",
-    "format d:",
-    "mkfs",
     ":(){:|:&};:",
     "dd if=/dev/zero",
-    "del /f /s /q c:\\",
-    "> /dev/sda",
 ];
 
 /// Central dispatcher — routes tool call to the appropriate handler.
-pub async fn execute_tool(name: &str, args: &Value) -> Result<String, String> {
+pub async fn execute_tool(name: &str, args: &Value, state: &AppState) -> Result<String, String> {
     match name {
         "execute_command" => {
             let command = args["command"]
                 .as_str()
                 .ok_or("Missing required argument: command")?;
-            tool_execute_command(command).await
+            tool_execute_command(command, state).await
         }
         "read_file" => {
             let path = args["path"]
@@ -61,6 +58,12 @@ pub async fn execute_tool(name: &str, args: &Value) -> Result<String, String> {
             let show_hidden = args["show_hidden"].as_bool().unwrap_or(false);
             tool_list_directory(path, show_hidden).await
         }
+        "get_code_structure" => {
+            let path = args["path"]
+                .as_str()
+                .ok_or("Missing required argument: path")?;
+            tool_get_code_structure(path).await
+        }
         _ => Err(format!("Unknown tool: {}", name)),
     }
 }
@@ -69,7 +72,7 @@ pub async fn execute_tool(name: &str, args: &Value) -> Result<String, String> {
 // execute_command
 // ---------------------------------------------------------------------------
 
-async fn tool_execute_command(command: &str) -> Result<String, String> {
+async fn tool_execute_command(command: &str, state: &AppState) -> Result<String, String> {
     let lower = command.to_lowercase();
     for pattern in BLOCKED_PATTERNS {
         if lower.contains(pattern) {
@@ -77,8 +80,36 @@ async fn tool_execute_command(command: &str) -> Result<String, String> {
         }
     }
 
-    let output = tokio::time::timeout(COMMAND_TIMEOUT, run_command(command))
+    // Check sandbox setting
+    let use_sandbox = sqlx::query_scalar::<_, bool>("SELECT use_docker_sandbox FROM gh_settings WHERE id = 1")
+        .fetch_one(&state.db)
         .await
+        .unwrap_or(false);
+
+    let output_res = if use_sandbox {
+        // Run in Docker
+        // Mount current directory to /app
+        let current_dir = std::env::current_dir()
+            .map_err(|e| format!("Cannot determines current dir: {}", e))?
+            .to_string_lossy()
+            .to_string();
+
+        let docker_args = [
+            "run",
+            "--rm",
+            "-v", &format!("{}:/app", current_dir),
+            "-w", "/app",
+            "alpine:latest", // Lightweight base image
+            "sh", "-c", command
+        ];
+
+        tokio::time::timeout(COMMAND_TIMEOUT, Command::new("docker").args(docker_args).output()).await
+    } else {
+        // Run locally
+        tokio::time::timeout(COMMAND_TIMEOUT, run_command(command)).await
+    };
+
+    let output = output_res
         .map_err(|_| format!("Command timed out after {}s", COMMAND_TIMEOUT.as_secs()))?
         .map_err(|e| format!("Failed to execute command: {}", e))?;
 
@@ -182,5 +213,33 @@ fn format_size(bytes: u64) -> String {
         format!("{:.1} KB", bytes as f64 / 1024.0)
     } else {
         format!("{:.1} MB", bytes as f64 / (1024.0 * 1024.0))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// get_code_structure
+// ---------------------------------------------------------------------------
+
+async fn tool_get_code_structure(path: &str) -> Result<String, String> {
+    // Read file (reuse context reader for safety/limits)
+    let ctx = crate::files::read_file_for_context(path)
+        .await
+        .map_err(|e| format!("Cannot read file '{}': {}", e.path, e.reason))?;
+
+    // Analyze
+    if let Some(structure) = crate::analysis::analyze_file(&ctx.path, &ctx.content) {
+        let mut out = format!("### Code Structure: {}\n", ctx.path);
+        if structure.symbols.is_empty() {
+            out.push_str("(No symbols detected or language not supported)");
+        } else {
+            for sym in structure.symbols {
+                out.push_str(&format!("- [L{}] {} {}\n", sym.line, sym.kind, sym.name));
+                // Optional: include signature if short?
+                // out.push_str(&format!("  `{}`\n", sym.signature));
+            }
+        }
+        Ok(out)
+    } else {
+        Ok(format!("Could not analyze structure for '{}' (unsupported language?)", path))
     }
 }

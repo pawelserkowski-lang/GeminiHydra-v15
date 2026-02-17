@@ -39,15 +39,18 @@ export const agentSchema = z.object({
   id: z.string(),
   name: z.string(),
   role: z.string(),
-  specialization: z.string(),
   tier: z.string(),
   status: z.string(),
   description: z.string(),
+  system_prompt: z.string().optional(),
+  keywords: z.array(z.string()).default([]),
 });
 
 export type Agent = z.infer<typeof agentSchema>;
 
-export const agentsListSchema = z.array(agentSchema);
+export const agentsListSchema = z.object({
+  agents: z.array(agentSchema),
+});
 
 export type AgentsList = z.infer<typeof agentsListSchema>;
 

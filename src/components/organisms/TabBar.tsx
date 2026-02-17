@@ -26,10 +26,11 @@ interface TabItemProps {
   onSwitch: (tabId: string) => void;
   onClose: (tabId: string) => void;
   onTogglePin: (tabId: string) => void;
+  onContextMenu?: (x: number, y: number, tabId: string) => void;
   messageCount: number;
 }
 
-const TabItem = memo<TabItemProps>(({ tab, isActive, onSwitch, onClose, onTogglePin, messageCount }) => {
+const TabItem = memo<TabItemProps>(({ tab, isActive, onSwitch, onClose, onTogglePin, onContextMenu, messageCount }) => {
   const theme = useViewTheme();
   const [isHovering, setIsHovering] = useState(false);
 
@@ -55,9 +56,13 @@ const TabItem = memo<TabItemProps>(({ tab, isActive, onSwitch, onClose, onToggle
   const handleContextMenu = useCallback(
     (e: React.MouseEvent) => {
       e.preventDefault();
-      onTogglePin(tab.id);
+      if (onContextMenu) {
+        onContextMenu(e.clientX, e.clientY, tab.id);
+      } else {
+        onTogglePin(tab.id);
+      }
     },
-    [tab.id, onTogglePin],
+    [tab.id, onTogglePin, onContextMenu],
   );
 
   return (
@@ -156,6 +161,24 @@ export const TabBar = memo(() => {
   const createSession = useViewStore((state) => state.createSession);
   const openTab = useViewStore((state) => state.openTab);
 
+  // Context menu state
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; tabId: string } | null>(null);
+
+  const handleContextMenuOpen = useCallback((x: number, y: number, tabId: string) => {
+    setContextMenu({ x, y, tabId });
+  }, []);
+
+  const handleCloseOtherTabs = useCallback(
+    (tabId: string) => {
+      const otherTabs = tabs.filter((t) => t.id !== tabId && !t.isPinned);
+      for (const tab of otherTabs) {
+        closeTab(tab.id);
+      }
+      setContextMenu(null);
+    },
+    [tabs, closeTab],
+  );
+
   const handleNewTab = useCallback(() => {
     createSession();
     const { currentSessionId } = useViewStore.getState();
@@ -195,6 +218,7 @@ export const TabBar = memo(() => {
               onSwitch={switchTab}
               onClose={closeTab}
               onTogglePin={togglePinTab}
+              onContextMenu={handleContextMenuOpen}
               messageCount={(chatHistory[tab.sessionId] || []).length}
             />
           ))}
@@ -215,6 +239,95 @@ export const TabBar = memo(() => {
       >
         <Plus size={18} strokeWidth={2.5} />
       </button>
+
+      {/* Context Menu Popup */}
+      <AnimatePresence>
+        {contextMenu && (() => {
+          const targetTab = tabs.find((t) => t.id === contextMenu.tabId);
+          if (!targetTab) return null;
+          return (
+            <>
+              {/* Backdrop */}
+              <div
+                className="fixed inset-0 z-50"
+                onClick={() => setContextMenu(null)}
+              />
+              {/* Menu */}
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                transition={{ duration: 0.1 }}
+                className={cn(
+                  'fixed z-50 min-w-[180px] rounded-xl border backdrop-blur-xl shadow-2xl overflow-hidden py-1',
+                  theme.isLight
+                    ? 'bg-white/95 border-slate-200/50'
+                    : 'bg-black/90 border-white/15',
+                )}
+                style={{ left: contextMenu.x, top: contextMenu.y }}
+              >
+                {/* Pin/Unpin */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    togglePinTab(contextMenu.tabId);
+                    setContextMenu(null);
+                  }}
+                  className={cn(
+                    'w-full flex items-center gap-2 px-3 py-2 text-sm font-mono transition-colors',
+                    theme.isLight
+                      ? 'text-slate-700 hover:bg-emerald-500/10 hover:text-emerald-800'
+                      : 'text-white/80 hover:bg-white/10 hover:text-white',
+                  )}
+                >
+                  <Pin size={14} />
+                  {targetTab.isPinned ? 'Unpin tab' : 'Pin tab'}
+                </button>
+
+                {/* Close tab (if not pinned) */}
+                {!targetTab.isPinned && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      closeTab(contextMenu.tabId);
+                      setContextMenu(null);
+                    }}
+                    className={cn(
+                      'w-full flex items-center gap-2 px-3 py-2 text-sm font-mono transition-colors',
+                      theme.isLight
+                        ? 'text-slate-700 hover:bg-red-500/10 hover:text-red-600'
+                        : 'text-white/80 hover:bg-red-500/15 hover:text-red-400',
+                    )}
+                  >
+                    <X size={14} />
+                    Close tab
+                  </button>
+                )}
+
+                {/* Close other tabs */}
+                {tabs.filter((t) => t.id !== contextMenu.tabId && !t.isPinned).length > 0 && (
+                  <>
+                    <div className={cn('mx-2 my-1 border-t', theme.isLight ? 'border-slate-200/50' : 'border-white/10')} />
+                    <button
+                      type="button"
+                      onClick={() => handleCloseOtherTabs(contextMenu.tabId)}
+                      className={cn(
+                        'w-full flex items-center gap-2 px-3 py-2 text-sm font-mono transition-colors',
+                        theme.isLight
+                          ? 'text-slate-700 hover:bg-slate-500/10 hover:text-slate-900'
+                          : 'text-white/80 hover:bg-white/10 hover:text-white',
+                      )}
+                    >
+                      <X size={14} />
+                      Close other tabs
+                    </button>
+                  </>
+                )}
+              </motion.div>
+            </>
+          );
+        })()}
+      </AnimatePresence>
     </div>
   );
 });

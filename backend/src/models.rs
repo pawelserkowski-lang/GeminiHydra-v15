@@ -12,6 +12,10 @@ pub struct SettingsRow {
     pub language: String,
     pub theme: String,
     pub welcome_message: String,
+    #[sqlx(default)]
+    pub ollama_url: Option<String>,
+    #[sqlx(default)]
+    pub use_docker_sandbox: bool,
 }
 
 #[derive(sqlx::FromRow)]
@@ -51,7 +55,7 @@ pub struct KnowledgeEdgeRow {
 // Witcher Agents
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct WitcherAgent {
     pub id: String,
     pub name: String,
@@ -59,6 +63,10 @@ pub struct WitcherAgent {
     pub tier: String,
     pub status: String,
     pub description: String,
+    #[serde(default)]
+    pub system_prompt: Option<String>,
+    #[serde(default)]
+    pub keywords: Vec<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -164,6 +172,8 @@ pub struct AppSettings {
     pub language: String,
     pub theme: String,
     pub welcome_message: String,
+    pub ollama_url: String,
+    pub use_docker_sandbox: bool,
 }
 
 /// Available Gemini 3 model IDs.
@@ -182,6 +192,8 @@ impl Default for AppSettings {
             language: "en".to_string(),
             theme: "dark".to_string(),
             welcome_message: String::new(),
+            ollama_url: "http://localhost:11434".to_string(),
+            use_docker_sandbox: false,
         }
     }
 }
