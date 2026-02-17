@@ -178,10 +178,10 @@ pub struct AppSettings {
 
 /// Available Gemini 3 model IDs.
 pub const GEMINI_MODELS: &[(&str, &str)] = &[
-    ("gemini-2.0-flash-thinking-exp-01-21", "Gemini 2.0 Flash Thinking"),
-    ("gemini-2.0-flash-exp", "Gemini 2.0 Flash"),
-    ("gemini-1.5-pro", "Gemini 1.5 Pro"),
-    ("gemini-1.5-flash", "Gemini 1.5 Flash"),
+    ("gemini-3-flash-thinking-preview", "Gemini 3 Flash Thinking"),
+    ("gemini-3-flash-preview", "Gemini 3 Flash"),
+    ("gemini-3-pro-preview", "Gemini 3 Pro"),
+    ("gemini-3-pro-image-preview", "Gemini 3 Pro Image"),
 ];
 
 impl Default for AppSettings {
@@ -189,7 +189,7 @@ impl Default for AppSettings {
         Self {
             temperature: 1.0,
             max_tokens: 8192,
-            default_model: "gemini-3-flash-preview".to_string(),
+            default_model: "gemini-3-flash-thinking-preview".to_string(),
             language: "en".to_string(),
             theme: "dark".to_string(),
             welcome_message: String::new(),
