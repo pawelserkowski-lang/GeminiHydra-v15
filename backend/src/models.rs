@@ -178,9 +178,10 @@ pub struct AppSettings {
 
 /// Available Gemini 3 model IDs.
 pub const GEMINI_MODELS: &[(&str, &str)] = &[
-    ("gemini-3-flash-preview", "Gemini 3 Flash"),
-    ("gemini-3-pro-preview", "Gemini 3 Pro"),
-    ("gemini-3-pro-image-preview", "Gemini 3 Pro Image"),
+    ("gemini-2.0-flash-thinking-exp-01-21", "Gemini 2.0 Flash Thinking"),
+    ("gemini-2.0-flash-exp", "Gemini 2.0 Flash"),
+    ("gemini-1.5-pro", "Gemini 1.5 Pro"),
+    ("gemini-1.5-flash", "Gemini 1.5 Flash"),
 ];
 
 impl Default for AppSettings {
