@@ -39,6 +39,14 @@ const HEARTBEAT_INTERVAL_MS = 30_000;
 const HEARTBEAT_TIMEOUT_MS = 10_000;
 
 function getWsUrl(): string {
+  const backendUrl = import.meta.env.VITE_BACKEND_URL;
+  
+  if (backendUrl) {
+    // If backend URL is provided (e.g. Fly.io), replace http/https with ws/wss
+    return backendUrl.replace(/^http/, 'ws') + '/ws/execute';
+  }
+
+  // Fallback for local dev (Vite proxy)
   const loc = window.location;
   const protocol = loc.protocol === 'https:' ? 'wss:' : 'ws:';
   return `${protocol}//${loc.host}/ws/execute`;
