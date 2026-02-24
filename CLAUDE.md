@@ -26,9 +26,9 @@
 - Stack: Rust + Axum 0.8 + SQLx + PostgreSQL 17 (pgvector)
 - Route syntax: `{id}` (NOT `:id` — axum 0.8 breaking change)
 - Entry point: `backend/src/lib.rs` → `create_router()` builds all API routes
-- Key modules: `handlers.rs` (system prompt + tool defs), `state.rs` (AppState), `sessions.rs`, `tools.rs`, `files.rs`, `analysis.rs` (tree-sitter code analysis)
+- Key modules: `handlers.rs` (system prompt + tool defs), `state.rs` (AppState), `sessions.rs`, `tools.rs`, `files.rs`, `analysis.rs` (tree-sitter code analysis), `model_registry.rs` (auto-fetches models from providers at startup, selects best chat/thinking/image model)
 - DB: `geminihydra` on localhost:5432 (user: gemini, pass: gemini_local)
-- Tables: gh_settings, gh_chat_messages, gh_sessions, gh_memories, gh_knowledge_nodes, gh_knowledge_edges, gh_agents, gh_rag_documents, gh_rag_chunks
+- Tables: gh_settings, gh_chat_messages, gh_sessions, gh_memories, gh_knowledge_nodes, gh_knowledge_edges, gh_agents, gh_rag_documents, gh_rag_chunks, gh_model_pins
 
 ## Backend Local Dev
 - Wymaga Docker Desktop (PostgreSQL container)
@@ -54,13 +54,29 @@
 - SQLx sorts by filename prefix — each migration MUST have a unique date prefix
 - Current order: 20260214_001 → 20260215_002 → 20260216_003 → 20260217_004 → 20260218_005 → 20260219_006 → 20260220_007 → 20260221_008 → 20260222_009 → 20260224_010
 - All migrations MUST be idempotent (IF NOT EXISTS, ON CONFLICT DO NOTHING) — SQLx checks checksums
+- All migration files MUST use LF line endings (not CRLF) — `.gitattributes` with `*.sql text eol=lf` enforces this
 - Migration 009: pgvector wrapped in DO/EXCEPTION block — skips gracefully if extension unavailable
+- Migration 010: model_pins table for pinning preferred models per role
 
 ## Migrations Gotchas (learned the hard way)
 - **Checksum mismatch on deploy**: SQLx stores SHA-256 checksum per migration. If line endings change (CRLF→LF between Windows and Docker), checksum won't match → `VersionMismatch` panic. Fix: reset `_sqlx_migrations` table
 - **Duplicate date prefixes**: Multiple files with same prefix (e.g. `20260218_005`, `20260218_006`) cause `duplicate key` error on fresh DB init. Each file MUST have unique prefix
 - **pgvector not on fly.io**: Fly Postgres (`jaskier-db`) does NOT have pgvector extension. Migration 009 uses `DO $$ ... EXCEPTION WHEN OTHERS` to skip embeddings table creation gracefully
 - **Reset prod DB migrations**: `fly pg connect -a jaskier-db -d geminihydra_v15_backend` then `DROP TABLE _sqlx_migrations CASCADE;` + drop all gh_* tables, then redeploy
+
+## Dynamic Model Registry
+- At startup `model_registry::startup_sync()` fetches all models from Google + Anthropic APIs
+- Caches them in `AppState.model_cache` (TTL 1h, refreshed on demand via `/api/models/refresh`)
+- Auto-selects best model per use case using `version_key()` sort (highest version + date wins):
+  - **chat**: latest `pro` (excludes lite, image, tts, thinking, computer, robotics, customtools)
+  - **thinking**: latest `flash thinking` (fallback to chat)
+  - **image**: latest model with `image` in ID (excludes robotics, computer)
+- Persists chosen chat model into `gh_settings.default_model` at startup
+- No hardcoded model list — adapts automatically when Google releases new models
+- Pin override: `POST /api/models/pin` saves to `gh_model_pins` (priority 1, above auto-selection)
+- API endpoints: `GET /api/models`, `POST /api/models/refresh`, `POST /api/models/pin`, `DELETE /api/models/pin/{use_case}`, `GET /api/models/pins`
+- Health check (`/api/health`) shows dynamic provider list from cache (not static)
+- `reset_settings` uses `get_model_id()` instead of hardcoded model name
 
 ## Agent System Prompt
 - Defined in `backend/src/handlers.rs` → `build_system_prompt()`
