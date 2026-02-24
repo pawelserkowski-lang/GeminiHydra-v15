@@ -300,7 +300,7 @@ async fn prepare_execution(
     )
     .fetch_one(&state.db)
     .await
-    .unwrap_or_else(|_| ("gemini-3-pro-preview".to_string(), "en".to_string()));
+    .unwrap_or_else(|_| ("gemini-3.1-pro-preview".to_string(), "en".to_string()));
 
     let model = model_override.unwrap_or(def_model);
     let language = match lang.as_str() { "pl" => "Polish", "en" => "English", other => other };

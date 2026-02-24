@@ -186,7 +186,7 @@ export default function SettingsView() {
                 value={formData.default_model ?? ''}
                 onChange={(e) => updateField('default_model', e.target.value)}
                 className="glass-input w-full rounded-lg font-mono text-sm px-3 py-2 text-[var(--matrix-text-primary)] placeholder:text-[var(--matrix-text-secondary)]/60 outline-none transition-all duration-200 focus:border-[var(--matrix-accent)] focus:ring-2 focus:ring-[var(--matrix-accent)]/30"
-                placeholder="e.g. gemini-2.0-flash"
+                placeholder="e.g. gemini-3.1-pro-preview"
               />
               <p className={cn('text-xs mt-1', theme.isLight ? 'text-slate-500' : 'text-white/40')}>
                 {t('settings.fields.default_model_desc')}

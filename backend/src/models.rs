@@ -181,7 +181,7 @@ impl Default for AppSettings {
         Self {
             temperature: 1.0,
             max_tokens: 8192,
-            default_model: "gemini-3-pro-preview".to_string(),
+            default_model: "gemini-3.1-pro-preview".to_string(),
             language: "en".to_string(),
             theme: "dark".to_string(),
             welcome_message: String::new(),

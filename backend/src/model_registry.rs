@@ -295,8 +295,8 @@ pub async fn resolve_models(state: &AppState) -> ResolvedModels {
     )
     .or_else(|| select_best(&google, &["pro"], &["lite", "latest", "thinking"]));
 
-    // Thinking: latest gemini flash thinking
-    let thinking = select_best(&google, &["flash", "thinking"], &["lite", "latest"])
+    // Thinking: highest version_key (Gemini 3+ has dynamic thinking built-in)
+    let thinking = select_best(&google, &[], &["lite", "latest", "image", "tts", "computer", "robotics", "audio"])
         .or_else(|| chat.clone());
 
     // Image: gemini model with image generation capability
@@ -332,10 +332,10 @@ pub async fn get_model_id(state: &AppState, use_case: &str) -> String {
     let resolved = resolve_models(state).await;
 
     let (model, fallback) = match use_case {
-        "chat" => (resolved.chat, "gemini-3-pro-preview"),
-        "thinking" => (resolved.thinking, "gemini-3-flash-thinking-preview"),
+        "chat" => (resolved.chat, "gemini-3.1-pro-preview"),
+        "thinking" => (resolved.thinking, "gemini-3.1-pro-preview"),
         "image" => (resolved.image, "gemini-3-pro-image-preview"),
-        _ => (resolved.chat, "gemini-3-pro-preview"),
+        _ => (resolved.chat, "gemini-3.1-pro-preview"),
     };
 
     let id = model.as_ref().map(|m| m.id.as_str()).unwrap_or(fallback);
