@@ -10,16 +10,19 @@
  */
 
 import {
+  Activity,
   BrainCircuit,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  Clock,
   Globe,
   Home,
   type LucideIcon,
   MessageSquare,
   Moon,
   Plus,
+  Settings,
   Sparkles,
   Sun,
   Swords,
@@ -83,6 +86,9 @@ export function Sidebar() {
   // Mobile drawer state
   const [mobileOpen, setMobileOpen] = useState(false);
 
+  // Collapsible sessions toggle
+  const [showSessions, setShowSessions] = useState(true);
+
   const handleNewChat = useCallback(() => {
     void createSessionWithSync();
     setCurrentView('chat');
@@ -131,7 +137,7 @@ export function Sidebar() {
 
   const currentLang = languages.find((l) => l.code === i18n.language) || languages[1];
 
-  // Navigation groups adapted for GeminiHydra v15
+  // Navigation groups adapted for GeminiHydra v15 (Tissaia style)
   const navGroups: NavGroup[] = [
     {
       id: 'main',
@@ -140,19 +146,37 @@ export function Sidebar() {
       items: [
         { id: 'home', icon: Home, label: t('nav.home', 'Start') },
         { id: 'chat', icon: MessageSquare, label: t('nav.chat', 'Chat') },
+      ],
+    },
+    {
+      id: 'tools',
+      label: t('sidebar.groups.tools', 'TOOLS'),
+      icon: Users,
+      items: [
         { id: 'agents', icon: Users, label: t('nav.agents', 'Agents') },
         { id: 'brain', icon: BrainCircuit, label: t('nav.brain', 'Brain') },
+      ],
+    },
+    {
+      id: 'system',
+      label: t('sidebar.groups.system', 'SYSTEM'),
+      icon: Settings,
+      items: [
+        { id: 'history', icon: Clock, label: t('nav.history', 'History') },
+        { id: 'settings', icon: Settings, label: t('nav.settings', 'Settings') },
+        { id: 'status', icon: Activity, label: t('nav.status', 'Status') },
       ],
     },
   ];
 
   // Track expanded groups
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(() => {
+    const defaults = { main: true, tools: true, system: true };
     try {
       const saved = localStorage.getItem('geminihydra_expanded_groups');
-      return saved ? JSON.parse(saved) : { main: true };
+      return saved ? { ...defaults, ...JSON.parse(saved) } : defaults;
     } catch {
-      return { main: true };
+      return defaults;
     }
   });
 
@@ -189,7 +213,7 @@ export function Sidebar() {
   const sidebarContent = (
     <div
       className={cn(
-        'h-full flex flex-col z-20 relative p-2 gap-2 overflow-y-auto scrollbar-hide hover:scrollbar-thin hover:scrollbar-thumb-white/20',
+        'h-full flex flex-col z-20 relative p-2 gap-2 overflow-y-auto scrollbar-hide hover:scrollbar-thin hover:scrollbar-thumb-current',
         glassPanel,
       )}
     >
@@ -211,41 +235,25 @@ export function Sidebar() {
         )}
       </button>
 
-      {/* Logo - click navigates to home */}
-      <motion.button
+      {/* Logo — click navigates to home */}
+      <button
         type="button"
         onClick={() => handleNavClick('home')}
-        className="flex items-center justify-center py-3 flex-shrink-0 cursor-pointer"
-        whileHover={{ scale: 1.03 }}
-        whileTap={{ scale: 0.97 }}
-        transition={{ type: 'spring', stiffness: 400, damping: 25 }}
+        className={cn(
+          'flex items-center justify-center py-4 px-1 flex-shrink-0 cursor-pointer',
+          isCollapsed ? 'w-full' : 'flex-1',
+        )}
+        title="Home"
       >
-        <motion.div
-          className={cn('flex items-center justify-center', isCollapsed ? '' : 'gap-2')}
-          layout
-          transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-        >
-          <motion.img
-            src={isLight ? '/logolight.webp' : '/logodark.webp'}
-            alt="GeminiHydra Logo"
-            className={cn('flex-shrink-0 object-contain transition-all', isCollapsed ? 'w-16 h-16' : 'h-36')}
-            style={{
-              filter: isLight
-                ? 'drop-shadow(0 0 12px rgba(45,106,79,0.5))'
-                : 'drop-shadow(0 0 12px rgba(255,255,255,0.4))',
-            }}
-            whileHover={{
-              filter: isLight
-                ? 'drop-shadow(0 0 20px rgba(45,106,79,0.7))'
-                : 'drop-shadow(0 0 20px rgba(255,255,255,0.6))',
-            }}
-            transition={{ duration: 0.2 }}
-          />
-        </motion.div>
-      </motion.button>
-
-      {/* Divider */}
-      {!isCollapsed && <div className={cn('mx-3 border-t', isLight ? 'border-slate-200/40' : 'border-white/10')} />}
+        <img
+          src={isLight ? '/logolight.webp' : '/logodark.webp'}
+          alt="GeminiHydra Logo"
+          className={cn(
+            'object-contain transition-all duration-300',
+            isCollapsed ? 'w-16 h-16' : 'h-36',
+          )}
+        />
+      </button>
 
       {/* Grouped Navigation */}
       <nav className="flex flex-col gap-2 flex-shrink-0">
@@ -255,7 +263,7 @@ export function Sidebar() {
           const GroupIcon = group.icon;
 
           return (
-            <div key={group.id} className="overflow-hidden">
+            <div key={group.id} className={cn(glassPanel, 'overflow-hidden')}>
               {/* Group Header */}
               {!isCollapsed ? (
                 <button
@@ -296,7 +304,7 @@ export function Sidebar() {
                     data-testid={`nav-${item.id}`}
                     onClick={() => handleNavClick(item.id)}
                     className={cn(
-                      'relative w-full flex items-center px-3 py-2 rounded-lg transition-all duration-200 group hover:translate-x-0.5',
+                      'relative w-full flex items-center px-3 py-2 rounded-lg transition-all duration-200 group',
                       isCollapsed ? 'justify-center' : 'space-x-3',
                       currentView === item.id
                         ? isLight
@@ -319,8 +327,7 @@ export function Sidebar() {
                     />
                     {!isCollapsed && <span className="font-medium text-base tracking-wide truncate">{item.label}</span>}
                     {currentView === item.id && (
-                      <motion.div
-                        layoutId="sidebar-active-indicator"
+                      <div
                         className={cn(
                           'absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 rounded-r-full',
                           isLight
@@ -337,92 +344,119 @@ export function Sidebar() {
         })}
       </nav>
 
-      {/* Chat Sessions / Tabs */}
+      {/* Chat Sessions (Tissaia style — glass panel + collapsible) */}
       {!isCollapsed && (
-        <div className="flex flex-col gap-1 flex-1 min-h-0 overflow-hidden">
+        <div className={cn(glassPanel, 'flex-1 flex flex-col min-h-0 p-2 overflow-hidden')}>
           {/* Section Header */}
-          <div className="flex items-center justify-between px-3 py-1.5">
-            <span className={cn('text-base font-bold tracking-[0.12em] uppercase', textDim)}>
-              {t('sidebar.chats', 'CZATY')}
-            </span>
+          <div className="flex items-center justify-between px-1 py-1.5">
             <button
               type="button"
-              onClick={handleNewChat}
-              className={cn('p-1 rounded-md transition-all', hoverBg)}
-              title={t('sidebar.newChat', 'Nowy czat')}
+              onClick={() => setShowSessions(!showSessions)}
+              className={cn(
+                'flex items-center gap-2 transition-colors',
+                textDim, textHover,
+              )}
             >
-              <Plus
+              <MessageSquare size={14} />
+              <span className="text-sm font-bold tracking-[0.12em] uppercase">
+                {t('sidebar.chats', 'CZATY')}
+              </span>
+              <ChevronDown
                 size={14}
-                className={cn(iconMuted, 'transition-colors', isLight ? 'hover:text-emerald-700' : 'hover:text-white')}
+                className={cn('transition-transform duration-200', showSessions ? '' : '-rotate-90')}
               />
             </button>
+            <div className="flex items-center gap-1">
+              <span className={cn('text-xs', textDim)}>{sessions.length}</span>
+              <button
+                type="button"
+                onClick={handleNewChat}
+                className={cn('p-1 rounded-md transition-all', hoverBg)}
+                title={t('sidebar.newChat', 'Nowy czat')}
+              >
+                <Plus
+                  size={14}
+                  className={cn(iconMuted, 'transition-colors', isLight ? 'hover:text-emerald-700' : 'hover:text-white')}
+                />
+              </button>
+            </div>
           </div>
 
           {/* Session List */}
-          <div className="flex-1 overflow-y-auto scrollbar-hide hover:scrollbar-thin hover:scrollbar-thumb-white/20 space-y-0.5 px-1.5">
-            {sortedSessions.map((session) => {
-              const isActive = session.id === currentSessionId;
-              const msgCount = (chatHistory[session.id] || []).length;
+          <AnimatePresence>
+            {showSessions && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: 'auto', opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.2, ease: 'easeInOut' }}
+                className="flex-1 overflow-y-auto scrollbar-hide hover:scrollbar-thin hover:scrollbar-thumb-current space-y-0.5 mt-1"
+              >
+                {sortedSessions.map((session) => {
+                  const isActive = session.id === currentSessionId;
+                  const msgCount = (chatHistory[session.id] || []).length;
 
-              return (
-                <button
-                  type="button"
-                  key={session.id}
-                  onClick={() => handleSelectSession(session.id)}
-                  className={cn(
-                    'relative w-full flex items-center gap-2 px-2.5 py-2 rounded-lg transition-all duration-200 group text-left',
-                    isActive
-                      ? isLight
-                        ? 'bg-emerald-500/15 text-emerald-800'
-                        : 'bg-white/10 text-white'
-                      : cn(textMuted, hoverBg, textHover),
-                  )}
-                  title={session.title}
-                >
-                  <MessageSquare
-                    size={14}
-                    className={cn(
-                      'flex-shrink-0 transition-colors',
-                      isActive ? (isLight ? 'text-emerald-700' : 'text-white') : iconMuted,
-                    )}
-                  />
-                  <div className="flex-1 min-w-0">
-                    <span className="text-base truncate block leading-tight">{session.title}</span>
-                    {msgCount > 0 && (
-                      <span className={cn('text-xs font-mono', textDim)}>
-                        {msgCount} {msgCount === 1 ? 'msg' : 'msgs'}
-                      </span>
-                    )}
-                  </div>
-                  {/* Delete button */}
-                  {sessions.length > 1 && (
+                  return (
                     <button
                       type="button"
-                      onClick={(e) => handleDeleteSession(e, session.id)}
+                      key={session.id}
+                      onClick={() => handleSelectSession(session.id)}
                       className={cn(
-                        'p-0.5 rounded opacity-0 group-hover:opacity-60 hover:!opacity-100 transition-all',
-                        isLight ? 'hover:text-red-600' : 'hover:text-red-400',
+                        'relative w-full flex items-center gap-2 px-2 py-1.5 rounded-lg transition-all duration-200 group text-left',
+                        isActive
+                          ? isLight
+                            ? 'bg-emerald-500/15 text-emerald-800'
+                            : 'bg-white/10 text-white'
+                          : cn(textMuted, hoverBg, textHover),
                       )}
-                      title={t('sidebar.deleteChat', 'Delete chat')}
+                      title={session.title}
                     >
-                      <X size={12} />
-                    </button>
-                  )}
-                  {/* Active indicator */}
-                  {isActive && (
-                    <div
-                      className={cn(
-                        'absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-4 rounded-r-full',
-                        isLight
-                          ? 'bg-emerald-600 shadow-[0_0_8px_rgba(5,150,105,0.5)]'
-                          : 'bg-white shadow-[0_0_8px_rgba(255,255,255,0.5)]',
+                      <MessageSquare
+                        size={14}
+                        className={cn(
+                          'flex-shrink-0 transition-colors',
+                          isActive ? (isLight ? 'text-emerald-700' : 'text-white') : iconMuted,
+                        )}
+                      />
+                      <div className="flex-1 min-w-0">
+                        <span className="text-sm truncate block leading-tight">{session.title}</span>
+                        {msgCount > 0 && (
+                          <span className={cn('text-[10px] font-mono', textDim)}>
+                            {msgCount} {msgCount === 1 ? 'msg' : 'msgs'}
+                          </span>
+                        )}
+                      </div>
+                      {/* Delete button */}
+                      {sessions.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={(e) => handleDeleteSession(e, session.id)}
+                          className={cn(
+                            'p-0.5 rounded opacity-0 group-hover:opacity-60 hover:!opacity-100 transition-all',
+                            isLight ? 'hover:text-red-600' : 'hover:text-red-400',
+                          )}
+                          title={t('sidebar.deleteChat', 'Delete chat')}
+                        >
+                          <X size={12} />
+                        </button>
                       )}
-                    />
-                  )}
-                </button>
-              );
-            })}
-          </div>
+                      {/* Active indicator */}
+                      {isActive && (
+                        <div
+                          className={cn(
+                            'absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-4 rounded-r-full',
+                            isLight
+                              ? 'bg-emerald-600 shadow-[0_0_8px_rgba(5,150,105,0.5)]'
+                              : 'bg-white shadow-[0_0_8px_rgba(255,255,255,0.5)]',
+                          )}
+                        />
+                      )}
+                    </button>
+                  );
+                })}
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       )}
 
@@ -435,13 +469,13 @@ export function Sidebar() {
             className={cn('p-2 rounded-lg transition-all', hoverBg)}
             title={t('sidebar.newChat', 'Nowy czat')}
           >
-            <Plus size={18} className={cn(iconMuted, 'hover:text-white transition-colors')} />
+            <Plus size={18} className={cn(iconMuted, isLight ? 'hover:text-emerald-700' : 'hover:text-white', 'transition-colors')} />
           </button>
         </div>
       )}
 
       {/* Footer / Lang & Theme Toggle */}
-      <div className={cn(glassPanel, 'p-2.5 space-y-1.5')}>
+      <div className={cn(glassPanel, 'p-2 space-y-1')}>
         {/* Theme Toggle */}
         <button
           type="button"
