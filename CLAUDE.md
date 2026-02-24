@@ -32,16 +32,35 @@
 
 ## Backend Local Dev
 - Wymaga Docker Desktop (PostgreSQL container)
-- Image: `pgvector/pgvector:pg16` (NOT standard postgres — pgvector extension required by migration 009)
+- Image: `pgvector/pgvector:pg16` (NOT standard postgres — pgvector extension required for embeddings locally)
 - Start: `docker run -d --name geminihydra-pg -e POSTGRES_USER=gemini -e POSTGRES_PASSWORD=gemini_local -e POSTGRES_DB=geminihydra -p 5432:5432 pgvector/pgvector:pg16`
 - Backend: `DATABASE_URL="postgresql://gemini:gemini_local@localhost:5432/geminihydra" cargo run --release`
 - Env vars: `DATABASE_URL` (required), `GOOGLE_API_KEY` or `GEMINI_API_KEY`, `ANTHROPIC_API_KEY` (optional), `PORT` (default 8081)
+
+## Fly.io Deploy
+- App: `geminihydra-v15-backend` | Region: `arn` | VM: shared-cpu-1x 256MB
+- Deploy: `cd backend && fly deploy`
+- Dockerfile: multi-stage (rust:1.93-bookworm builder → debian:bookworm-slim runtime, 32MB image)
+- DB: Fly Postgres `jaskier-db` → database `geminihydra_v15_backend` (NOT `geminihydra`!)
+- Shared DB cluster `jaskier-db` hosts: geminihydra_v15_backend, claudehydra_v4_backend, tissaia_v4_backend
+- Secrets: `DATABASE_URL`, `GOOGLE_API_KEY` (set via `fly secrets set`)
+- auto_stop_machines=stop, auto_start_machines=true, min_machines=0 (scales to zero)
+- Connect to prod DB: `fly pg connect -a jaskier-db -d geminihydra_v15_backend`
+- Logs: `fly logs --no-tail` or `fly logs`
+- Health: `curl https://geminihydra-v15-backend.fly.dev/api/health`
 
 ## Migrations
 - Folder: `backend/migrations/`
 - SQLx sorts by filename prefix — each migration MUST have a unique date prefix
 - Current order: 20260214_001 → 20260215_002 → 20260216_003 → 20260217_004 → 20260218_005 → 20260219_006 → 20260220_007 → 20260221_008 → 20260222_009
-- Migration 009 requires pgvector extension (`CREATE EXTENSION IF NOT EXISTS vector`)
+- All migrations MUST be idempotent (IF NOT EXISTS, ON CONFLICT DO NOTHING) — SQLx checks checksums
+- Migration 009: pgvector wrapped in DO/EXCEPTION block — skips gracefully if extension unavailable
+
+## Migrations Gotchas (learned the hard way)
+- **Checksum mismatch on deploy**: SQLx stores SHA-256 checksum per migration. If line endings change (CRLF→LF between Windows and Docker), checksum won't match → `VersionMismatch` panic. Fix: reset `_sqlx_migrations` table
+- **Duplicate date prefixes**: Multiple files with same prefix (e.g. `20260218_005`, `20260218_006`) cause `duplicate key` error on fresh DB init. Each file MUST have unique prefix
+- **pgvector not on fly.io**: Fly Postgres (`jaskier-db`) does NOT have pgvector extension. Migration 009 uses `DO $$ ... EXCEPTION WHEN OTHERS` to skip embeddings table creation gracefully
+- **Reset prod DB migrations**: `fly pg connect -a jaskier-db -d geminihydra_v15_backend` then `DROP TABLE _sqlx_migrations CASCADE;` + drop all gh_* tables, then redeploy
 
 ## Agent System Prompt
 - Defined in `backend/src/handlers.rs` → `build_system_prompt()`
