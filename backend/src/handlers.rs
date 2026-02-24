@@ -102,13 +102,19 @@ fn build_system_prompt(agent_id: &str, agents: &[WitcherAgent], language: &str) 
 
     let custom = agent.system_prompt.as_deref().unwrap_or("");
     let base_prompt = format!(
-        r#"## CRITICAL: Action-First Protocol
+        r#"## CRITICAL: Local Machine Access
+You are running on the user's LOCAL machine with FULL filesystem access.
+You CAN and MUST read, write, and browse local files directly using your tools.
+NEVER say "I don't have access to your files" or "I can't read local files" — YOU CAN.
+When the user provides a file path or directory path, USE your tools to access it immediately.
+
+## CRITICAL: Action-First Protocol
 1. **NEVER suggest commands** — EXECUTE them with `execute_command`.
-2. **NEVER ask the user to paste code** — use `read_file`.
-3. **Directory detected?** — Call `list_directory` IMMEDIATELY.
+2. **NEVER ask the user to paste code** — use `read_file` to read it yourself.
+3. **Directory detected?** — Call `list_directory` IMMEDIATELY, then explore.
 4. **Refactoring**: `list_directory` → `read_file` → analyze → `write_file` → verify.
 5. **Act first, explain after.**
-6. **Chain up to 10 tool calls.**
+6. **Chain up to 10 tool calls per turn.**
 
 ## Your Identity
 - **Name:** {name} | **Role:** {role} | **Tier:** {tier}
@@ -119,8 +125,12 @@ fn build_system_prompt(agent_id: &str, agents: &[WitcherAgent], language: &str) 
 ## Language
 - Respond in **{language}** unless the user writes in a different language.
 
-## Tools
-- `execute_command`, `read_file`, `write_file`, `list_directory`
+## Tools (all operate on the LOCAL filesystem)
+- `execute_command` — run shell commands on this machine
+- `read_file` — read any local file by absolute path
+- `write_file` — write/create local files
+- `list_directory` — browse local directories
+- `get_code_structure` — analyze code AST without full read
 
 ## Swarm Roster
 {roster}"#,
@@ -803,11 +813,11 @@ pub async fn list_files(Json(body): Json<FileListRequest>) -> Json<Value> {
 fn build_tools() -> Value {
     json!([{
         "function_declarations": [
-            { "name": "execute_command", "description": "Execute a shell command", "parameters": { "type": "object", "properties": { "command": { "type": "string" } }, "required": ["command"] } },
-            { "name": "read_file", "description": "Read a file", "parameters": { "type": "object", "properties": { "path": { "type": "string" } }, "required": ["path"] } },
-            { "name": "write_file", "description": "Write a file", "parameters": { "type": "object", "properties": { "path": { "type": "string" }, "content": { "type": "string" } }, "required": ["path", "content"] } },
-            { "name": "list_directory", "description": "List a directory", "parameters": { "type": "object", "properties": { "path": { "type": "string" }, "show_hidden": { "type": "boolean" } }, "required": ["path"] } },
-            { "name": "get_code_structure", "description": "Analyze code structure (AST) without reading full content. Useful for high-level understanding.", "parameters": { "type": "object", "properties": { "path": { "type": "string" } }, "required": ["path"] } }
+            { "name": "execute_command", "description": "Execute a shell command on the local machine. Use for git, npm, cargo, and other CLI operations.", "parameters": { "type": "object", "properties": { "command": { "type": "string", "description": "Shell command to execute" } }, "required": ["command"] } },
+            { "name": "read_file", "description": "Read a file from the local filesystem by its absolute path. Use this to inspect code, configs, logs, etc.", "parameters": { "type": "object", "properties": { "path": { "type": "string", "description": "Absolute path to the local file, e.g. C:\\Users\\...\\file.ts" } }, "required": ["path"] } },
+            { "name": "write_file", "description": "Write or create a file on the local filesystem. Use for code edits, config changes, etc.", "parameters": { "type": "object", "properties": { "path": { "type": "string", "description": "Absolute path for the file to write" }, "content": { "type": "string", "description": "Full file content to write" } }, "required": ["path", "content"] } },
+            { "name": "list_directory", "description": "List files and subdirectories in a local directory. Use to explore project structure.", "parameters": { "type": "object", "properties": { "path": { "type": "string", "description": "Absolute path to the local directory" }, "show_hidden": { "type": "boolean", "description": "Include hidden files (dotfiles)" } }, "required": ["path"] } },
+            { "name": "get_code_structure", "description": "Analyze code structure (functions, classes, imports) via AST without reading full file content. Supports Rust, TypeScript, JavaScript, Python, Go.", "parameters": { "type": "object", "properties": { "path": { "type": "string", "description": "Absolute path to the source file to analyze" } }, "required": ["path"] } }
         ]
     }])
 }
