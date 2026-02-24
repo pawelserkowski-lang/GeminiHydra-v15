@@ -19,6 +19,7 @@ import {
   useUpdateSettingsMutation,
 } from '@/features/settings/hooks/useSettings';
 import type { Settings } from '@/shared/api/schemas';
+import { OAuthSection } from './OAuthSection';
 
 // ============================================================================
 // HELPERS
@@ -259,6 +260,14 @@ export default function SettingsView() {
               {t('settings.fields.welcome_message_desc')}
             </p>
           </div>
+        </Card>
+
+        {/* Authentication */}
+        <Card variant="glass" padding="lg">
+          <h2 className={cn('text-lg font-bold font-mono mb-4', theme.isLight ? 'text-slate-800' : 'text-white/90')}>
+            Authentication
+          </h2>
+          <OAuthSection />
         </Card>
       </div>
 

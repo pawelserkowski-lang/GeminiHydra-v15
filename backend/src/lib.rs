@@ -3,6 +3,7 @@ pub mod files;
 pub mod handlers;
 pub mod model_registry;
 pub mod models;
+pub mod oauth;
 pub mod sessions;
 pub mod state;
 pub mod tools;
@@ -41,6 +42,11 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/files/list", post(handlers::list_files))
         // System
         .route("/api/system/stats", get(handlers::system_stats))
+        // OAuth authentication
+        .route("/api/auth/status", get(oauth::auth_status))
+        .route("/api/auth/login", post(oauth::auth_login))
+        .route("/api/auth/callback", post(oauth::auth_callback))
+        .route("/api/auth/logout", post(oauth::auth_logout))
         // Sessions / History / Settings / Memory / Knowledge
         .merge(sessions::session_routes())
         // Shared state

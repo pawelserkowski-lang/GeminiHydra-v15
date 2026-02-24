@@ -14,6 +14,12 @@ pub struct RuntimeState {
     pub api_keys: HashMap<String, String>,
 }
 
+/// Temporary PKCE state for an in-progress OAuth flow.
+pub struct OAuthPkceState {
+    pub code_verifier: String,
+    pub state: String,
+}
+
 /// Central application state. Clone-friendly — PgPool and Arc are both Clone.
 #[derive(Clone)]
 pub struct AppState {
@@ -23,6 +29,7 @@ pub struct AppState {
     pub model_cache: Arc<RwLock<ModelCache>>,
     pub start_time: Instant,
     pub client: Client,
+    pub oauth_pkce: Arc<RwLock<Option<OAuthPkceState>>>,
 }
 
 impl AppState {
@@ -62,6 +69,7 @@ impl AppState {
             model_cache: Arc::new(RwLock::new(ModelCache::new())),
             start_time: Instant::now(),
             client: Client::new(),
+            oauth_pkce: Arc::new(RwLock::new(None)),
         }
     }
 

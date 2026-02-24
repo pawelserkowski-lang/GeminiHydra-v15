@@ -32,6 +32,10 @@ tree-sitter-javascript = "0.25"
 tree-sitter-python = "0.25"
 tree-sitter-go = "0.25"
 pgvector = { version = "0.4", features = ["sqlx"] }
+sha2 = "0.10"
+base64 = "0.22"
+rand = "0.8"
+url = "2"
 shuttle-axum = { version = "0.57.0", optional = true }
 shuttle-runtime = { version = "0.57.0", optional = true }
 
