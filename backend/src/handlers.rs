@@ -169,12 +169,27 @@ pub async fn health(State(state): State<AppState>) -> Json<HealthResponse> {
     let google = cache.models.get("google").cloned().unwrap_or_default();
     drop(cache);
     Json(HealthResponse {
-        status: "ok".to_string(),
+        status: if state.is_ready() { "ok" } else { "starting" }.to_string(),
         version: "15.0.0".to_string(),
         app: "GeminiHydra".to_string(),
         uptime_seconds: state.start_time.elapsed().as_secs(),
         providers: build_providers(&rt.api_keys, &google),
     })
+}
+
+/// GET /api/health/ready — lightweight readiness probe (no locks, no DB).
+pub async fn readiness(State(state): State<AppState>) -> axum::response::Response {
+    use axum::http::StatusCode;
+
+    let ready = state.is_ready();
+    let uptime = state.start_time.elapsed().as_secs();
+    let body = json!({ "ready": ready, "uptime_seconds": uptime });
+
+    if ready {
+        (StatusCode::OK, Json(body)).into_response()
+    } else {
+        (StatusCode::SERVICE_UNAVAILABLE, Json(body)).into_response()
+    }
 }
 
 pub async fn health_detailed(State(state): State<AppState>) -> Json<DetailedHealthResponse> {

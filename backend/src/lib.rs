@@ -7,6 +7,7 @@ pub mod oauth;
 pub mod sessions;
 pub mod state;
 pub mod tools;
+pub mod watchdog;
 
 use axum::routing::{delete, get, post};
 use axum::Router;
@@ -20,6 +21,7 @@ pub fn create_router(state: AppState) -> Router {
     Router::new()
         // Health
         .route("/api/health", get(handlers::health))
+        .route("/api/health/ready", get(handlers::readiness))
         .route("/api/health/detailed", get(handlers::health_detailed))
         // Agents
         .route("/api/agents", get(handlers::list_agents).post(handlers::create_agent))

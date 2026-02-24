@@ -7,16 +7,17 @@
    TAILWIND v4 THEME CONFIGURATION
    ============================================ */
 @theme {
-  --color-matrix-bg-primary: #0f1419;
-  --color-matrix-bg-secondary: #0a0e13;
-  --color-matrix-bg-tertiary: #141a21;
-  --color-matrix-accent: #ffffff;
-  --color-matrix-accent-dim: #d1d5db;
-  --color-matrix-accent-glow: #e5e7eb;
-  --color-matrix-text: #e5e7eb;
-  --color-matrix-text-dim: #9ca3af;
-  --color-matrix-border: #1e2a35;
-  --color-matrix-glass: rgba(15, 20, 25, 0.8);
+  /* Colors — Dynamic: reference CSS vars so they switch with [data-theme] */
+  --color-matrix-bg-primary: var(--matrix-bg-primary);
+  --color-matrix-bg-secondary: var(--matrix-bg-secondary);
+  --color-matrix-bg-tertiary: var(--matrix-bg-tertiary);
+  --color-matrix-accent: var(--matrix-accent);
+  --color-matrix-accent-dim: var(--matrix-accent-dim);
+  --color-matrix-accent-glow: var(--matrix-accent-glow);
+  --color-matrix-text: var(--matrix-text);
+  --color-matrix-text-dim: var(--matrix-text-secondary);
+  --color-matrix-border: var(--matrix-border);
+  --color-matrix-glass: var(--matrix-glass-bg);
   --color-matrix-glass-light: rgba(255, 255, 255, 0.05);
 
   --font-mono: "JetBrains Mono", "Fira Code", "Consolas", monospace;
@@ -313,14 +314,14 @@ body {
 }
 
 [data-theme="light"] .glass-button {
-  background: rgba(45, 106, 79, 0.1);
-  border-color: rgba(45, 106, 79, 0.2);
+  background: rgba(45, 106, 79, 0.15);
+  border: 1px solid rgba(45, 106, 79, 0.3);
 }
 
 [data-theme="light"] .glass-button:hover {
-  background: rgba(45, 106, 79, 0.2);
-  border-color: rgba(45, 106, 79, 0.4);
-  box-shadow: 0 0 15px rgba(45, 106, 79, 0.15);
+  background: rgba(45, 106, 79, 0.25);
+  border-color: rgba(45, 106, 79, 0.5);
+  box-shadow: 0 0 15px rgba(45, 106, 79, 0.2);
 }
 
 /* ============================================
