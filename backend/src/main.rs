@@ -5,8 +5,9 @@ use tower_http::trace::TraceLayer;
 
 use geminihydra_backend::model_registry;
 use geminihydra_backend::state::AppState;
+use geminihydra_backend::watchdog;
 
-async fn build_app() -> axum::Router {
+async fn build_app() -> (axum::Router, AppState) {
     dotenvy::dotenv().ok();
 
     let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL required");
@@ -23,26 +24,28 @@ async fn build_app() -> axum::Router {
 
     let state = AppState::new(pool).await;
 
-    // Fetch models from API and set the best one as default
-    model_registry::startup_sync(&state).await;
-
     // CORS — allow all origins for simplicity in Vercel/Fly deployment
     let cors = CorsLayer::new()
         .allow_origin(AllowOrigin::any())
         .allow_methods(AllowMethods::any())
         .allow_headers(AllowHeaders::any());
 
-    geminihydra_backend::create_router(state)
+    let app = geminihydra_backend::create_router(state.clone())
         .layer(RequestBodyLimitLayer::new(10 * 1024 * 1024))
         .layer(cors)
-        .layer(TraceLayer::new_for_http())
+        .layer(TraceLayer::new_for_http());
+
+    (app, state)
 }
 
 // ── Shuttle deployment entry point ──────────────────────────────────
 #[cfg(feature = "shuttle")]
 #[shuttle_runtime::main]
 async fn main() -> shuttle_axum::ShuttleAxum {
-    Ok(build_app().await.into())
+    let (app, state) = build_app().await;
+    model_registry::startup_sync(&state).await;
+    state.mark_ready();
+    Ok(app.into())
 }
 
 // ── Local / Fly.io entry point ──────────────────────────────────────
@@ -57,7 +60,25 @@ async fn main() -> anyhow::Result<()> {
         )
         .init();
 
-    let app = build_app().await;
+    let (app, state) = build_app().await;
+
+    // ── Non-blocking startup: model sync in background ──
+    let startup_state = state.clone();
+    tokio::spawn(async move {
+        let sync_timeout = std::time::Duration::from_secs(90);
+        match tokio::time::timeout(sync_timeout, model_registry::startup_sync(&startup_state)).await
+        {
+            Ok(()) => tracing::info!("startup: model registry sync complete"),
+            Err(_) => tracing::error!(
+                "startup: model registry sync timed out after {}s — using fallback models",
+                sync_timeout.as_secs()
+            ),
+        }
+        startup_state.mark_ready();
+    });
+
+    // ── Spawn background watchdog ──
+    let _watchdog = watchdog::spawn(state.clone());
 
     let port: u16 = std::env::var("PORT")
         .unwrap_or_else(|_| "8081".to_string())
