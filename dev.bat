@@ -1,14 +1,18 @@
 @echo off
-title GeminiHydra DEV :5176
+echo === GeminiHydra v15 DEV ===
 
-:: Launch Chrome in debug mode (shared, idempotent)
-call "C:\Users\BIURODOM\Desktop\chrome-debug.bat"
+:: Kill old backend on port 8081
+echo [RESTART] Stopping old backend on port 8081...
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":8081 " ^| findstr LISTENING') do taskkill /f /pid %%a >nul 2>&1
+timeout /t 1 /nobreak >nul
 
-:: Kill old dev server on port 5176
-for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":5176 " ^| findstr "LISTENING"') do (
-    taskkill /PID %%a /F >nul 2>&1
-)
+:: Start new backend
+echo [START] Backend (cargo run)...
+start "GeminiHydra Backend" /min cmd /c "cd /d %~dp0backend && cargo run"
 
-:: Start dev server
-cd /d "C:\Users\BIURODOM\Desktop\GeminiHydra-v15"
-pnpm dev
+:: Open Chrome after delay
+start /b cmd /c "timeout /t 5 /nobreak >nul && start chrome --new-window http://localhost:5176"
+
+:: Start frontend dev server
+echo [DEV] Starting frontend dev server...
+npm run dev

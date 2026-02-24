@@ -26,9 +26,9 @@
 - Stack: Rust + Axum 0.8 + SQLx + PostgreSQL 17 (pgvector)
 - Route syntax: `{id}` (NOT `:id` — axum 0.8 breaking change)
 - Entry point: `backend/src/lib.rs` → `create_router()` builds all API routes
-- Key modules: `handlers.rs` (system prompt + tool defs), `state.rs` (AppState), `sessions.rs`, `tools.rs`, `files.rs`, `analysis.rs` (tree-sitter code analysis), `model_registry.rs` (auto-fetches models from providers at startup, selects best chat/thinking/image model)
+- Key modules: `handlers.rs` (system prompt + tool defs), `state.rs` (AppState), `sessions.rs`, `tools.rs`, `files.rs`, `analysis.rs` (tree-sitter code analysis), `model_registry.rs` (auto-fetches models from providers at startup, selects best chat/thinking/image model), `oauth.rs` (Anthropic OAuth PKCE flow)
 - DB: `geminihydra` on localhost:5432 (user: gemini, pass: gemini_local)
-- Tables: gh_settings, gh_chat_messages, gh_sessions, gh_memories, gh_knowledge_nodes, gh_knowledge_edges, gh_agents, gh_rag_documents, gh_rag_chunks, gh_model_pins
+- Tables: gh_settings, gh_chat_messages, gh_sessions, gh_memories, gh_knowledge_nodes, gh_knowledge_edges, gh_agents, gh_rag_documents, gh_rag_chunks, gh_model_pins, gh_oauth_tokens
 
 ## Backend Local Dev
 - Wymaga Docker Desktop (PostgreSQL container)
@@ -52,11 +52,12 @@
 ## Migrations
 - Folder: `backend/migrations/`
 - SQLx sorts by filename prefix — each migration MUST have a unique date prefix
-- Current order: 20260214_001 → 20260215_002 → 20260216_003 → 20260217_004 → 20260218_005 → 20260219_006 → 20260220_007 → 20260221_008 → 20260222_009 → 20260224_010
+- Current order: 20260214_001 → 20260215_002 → 20260216_003 → 20260217_004 → 20260218_005 → 20260219_006 → 20260220_007 → 20260221_008 → 20260222_009 → 20260224_010 → 20260225_011
 - All migrations MUST be idempotent (IF NOT EXISTS, ON CONFLICT DO NOTHING) — SQLx checks checksums
 - All migration files MUST use LF line endings (not CRLF) — `.gitattributes` with `*.sql text eol=lf` enforces this
 - Migration 009: pgvector wrapped in DO/EXCEPTION block — skips gracefully if extension unavailable
 - Migration 010: model_pins table for pinning preferred models per role
+- Migration 011: oauth_tokens table (singleton row, PKCE tokens for Anthropic Claude MAX)
 
 ## Migrations Gotchas (learned the hard way)
 - **Checksum mismatch on deploy**: SQLx stores SHA-256 checksum per migration. If line endings change (CRLF→LF between Windows and Docker), checksum won't match → `VersionMismatch` panic. Fix: reset `_sqlx_migrations` table
@@ -78,6 +79,17 @@
 - API endpoints: `GET /api/models`, `POST /api/models/refresh`, `POST /api/models/pin`, `DELETE /api/models/pin/{use_case}`, `GET /api/models/pins`
 - Health check (`/api/health`) shows dynamic provider list from cache (not static)
 - `reset_settings` uses `get_model_id()` instead of hardcoded model name
+
+## OAuth / Authentication (Anthropic Claude MAX Plan)
+- Ported from ClaudeHydra-v4 (identical PKCE flow, adapted table prefix `gh_`)
+- Backend module: `backend/src/oauth.rs` — handlers: `auth_status`, `auth_login`, `auth_callback`, `auth_logout`
+- State: `OAuthPkceState` in `state.rs` → `AppState.oauth_pkce: Arc<RwLock<Option<OAuthPkceState>>>`
+- DB table: `gh_oauth_tokens` (singleton row with `id=1` CHECK constraint)
+- Token auto-refresh: `get_valid_access_token()` refreshes expired tokens automatically
+- API endpoints: `GET /api/auth/status`, `POST /api/auth/login`, `POST /api/auth/callback`, `POST /api/auth/logout`
+- Frontend: `src/features/settings/components/OAuthSection.tsx` — 3-step PKCE flow (idle → waiting_code → exchanging)
+- Integrated in `SettingsView.tsx` as "Authentication" Card section
+- Cargo deps added: `sha2`, `base64`, `rand`, `url`
 
 ## Agent System Prompt
 - Defined in `backend/src/handlers.rs` → `build_system_prompt()`
