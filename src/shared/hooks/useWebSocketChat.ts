@@ -4,6 +4,10 @@
  * =======================================
  * Manages WebSocket lifecycle for streaming AI responses.
  * Auto-connect, reconnection with exponential backoff, heartbeat ping/pong.
+ *
+ * Heartbeat is paused while streaming (backend can't respond to pings during
+ * execute_streaming) and reset on ANY incoming message to avoid killing the
+ * connection during long tool-call loops.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -40,13 +44,11 @@ const HEARTBEAT_TIMEOUT_MS = 10_000;
 
 function getWsUrl(): string {
   const backendUrl = import.meta.env.VITE_BACKEND_URL;
-  
+
   if (backendUrl) {
-    // If backend URL is provided (e.g. Fly.io), replace http/https with ws/wss
     return backendUrl.replace(/^http/, 'ws') + '/ws/execute';
   }
 
-  // Fallback for local dev (Vite proxy)
   const loc = window.location;
   const protocol = loc.protocol === 'https:' ? 'wss:' : 'ws:';
   return `${protocol}//${loc.host}/ws/execute`;
@@ -64,6 +66,7 @@ export function useWebSocketChat(callbacks: WsCallbacks) {
   const callbacksRef = useRef(callbacks);
   callbacksRef.current = callbacks;
 
+  const isStreamingRef = useRef(false);
   const reconnectAttemptRef = useRef(0);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const heartbeatTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -87,6 +90,15 @@ export function useWebSocketChat(callbacks: WsCallbacks) {
 
   const startHeartbeat = useCallback(() => {
     if (heartbeatTimerRef.current) clearTimeout(heartbeatTimerRef.current);
+    if (pongTimerRef.current) {
+      clearTimeout(pongTimerRef.current);
+      pongTimerRef.current = null;
+    }
+
+    // Don't send heartbeat pings while streaming — backend blocks on
+    // execute_streaming and can't respond to pings, which would cause
+    // the pong timeout to kill the connection during long tool-call loops.
+    if (isStreamingRef.current) return;
 
     heartbeatTimerRef.current = setTimeout(() => {
       const ws = wsRef.current;
@@ -116,8 +128,15 @@ export function useWebSocketChat(callbacks: WsCallbacks) {
     };
 
     ws.onmessage = (event) => {
-      const parsed = wsServerMessageSchema.safeParse(JSON.parse(event.data));
-      if (!parsed.success) return;
+      // Reset heartbeat on ANY incoming message — proves connection is alive
+      startHeartbeat();
+
+      const raw = JSON.parse(event.data);
+      const parsed = wsServerMessageSchema.safeParse(raw);
+      if (!parsed.success) {
+        // Silently ignore unknown message types (tool_call, tool_result, etc.)
+        return;
+      }
 
       const msg: WsServerMessage = parsed.data;
       const cbs = callbacksRef.current;
@@ -125,6 +144,7 @@ export function useWebSocketChat(callbacks: WsCallbacks) {
       switch (msg.type) {
         case 'start':
           setIsStreaming(true);
+          isStreamingRef.current = true;
           cbs.onStart?.(msg);
           break;
         case 'token':
@@ -135,11 +155,15 @@ export function useWebSocketChat(callbacks: WsCallbacks) {
           break;
         case 'complete':
           setIsStreaming(false);
+          isStreamingRef.current = false;
           cbs.onComplete?.(msg);
+          startHeartbeat(); // Resume heartbeat after streaming ends
           break;
         case 'error':
           setIsStreaming(false);
+          isStreamingRef.current = false;
           cbs.onError?.(msg.message);
+          startHeartbeat();
           break;
         case 'pong':
           if (pongTimerRef.current) {
@@ -154,6 +178,7 @@ export function useWebSocketChat(callbacks: WsCallbacks) {
     ws.onclose = () => {
       setStatus('disconnected');
       setIsStreaming(false);
+      isStreamingRef.current = false;
       clearTimers();
 
       if (!intentionalCloseRef.current) {
@@ -178,6 +203,7 @@ export function useWebSocketChat(callbacks: WsCallbacks) {
     wsRef.current = null;
     setStatus('disconnected');
     setIsStreaming(false);
+    isStreamingRef.current = false;
   }, [clearTimers]);
 
   // Auto-connect on mount, cleanup on unmount
@@ -205,6 +231,7 @@ export function useWebSocketChat(callbacks: WsCallbacks) {
     const msg: WsClientMessage = { type: 'cancel' };
     ws.send(JSON.stringify(msg));
     setIsStreaming(false);
+    isStreamingRef.current = false;
   }, []);
 
   return { status, isStreaming, sendExecute, cancelStream };

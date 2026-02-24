@@ -82,14 +82,16 @@
 ## Agent System Prompt
 - Defined in `backend/src/handlers.rs` → `build_system_prompt()`
 - Contains "CRITICAL: Local Machine Access" section — tells agents they run on user's LOCAL machine with FULL filesystem access
+- Contains "Tool Selection Rules" section — forces Gemini to use `list_directory`/`read_file`/`write_file` instead of `execute_command` for file ops
 - Tool definitions in `build_tools()` — explicit local filesystem descriptions with Windows path examples
-- Without this section, Gemini models default to "I can't access your files"
+- Without "Local Machine Access" section, Gemini models default to "I can't access your files"
+- Without "Tool Selection Rules", Gemini wastes iterations using `execute_command` with Linux commands on Windows
 
 ## Agent Tools (all tested & working)
 - `read_file` — reads local files by absolute path
 - `write_file` — creates/overwrites local files
 - `list_directory` — lists directory contents with sizes
-- `execute_command` — runs shell commands (build, test, git, etc.)
+- `execute_command` — runs shell commands (build, test, git, etc.), 30s timeout, cmd.exe shell (NOT PowerShell)
 
 ## Tree-sitter (Code Analysis)
 - tree-sitter v0.24+ with streaming-iterator crate
@@ -101,14 +103,22 @@
 - Biome for linting (not ESLint)
 - npm (not pnpm) as package manager
 
+## WebSocket Streaming Fix (2026-02-24)
+- **Problem**: Tool-call responses were empty — WebSocket killed by heartbeat before tokens arrived
+- **Root cause**: Frontend heartbeat (30s ping + 10s pong timeout = 40s max) < tool execution time (60s+). Backend blocks on `execute_streaming().await` and can't respond to pings during tool loops
+- **Fix 1 — Frontend** (`src/shared/hooks/useWebSocketChat.ts`): Heartbeat paused during streaming via `isStreamingRef`, reset on ANY incoming WS message, resumed after `complete`/`error`
+- **Fix 2 — Backend** (`handlers.rs` handle_ws): Changed from sequential while loop to `tokio::select!` with explicit WebSocket Ping/Pong frame handling concurrent with message processing
+- **Fix 3 — Backend** (`handlers.rs` build_system_prompt): Added "Tool Selection Rules" — forces `list_directory`/`read_file`/`write_file` over `execute_command` for file ops, declares Windows environment
+- **Gotcha**: Zod `wsServerMessageSchema` only has start/token/plan/complete/error/pong — `tool_call`/`tool_result` types silently dropped by safeParse (tool output rendered via Token messages instead)
+
 ## Dead Code Cleanup (2026-02-24)
 - Removed 18 files, -380 lines of unused code
 - Deleted: useHistory.ts (4 hooks), useGeminiModelsQuery, useClassifyMutation, useExecuteMutation, useFileListMutation, useHealthQuery, useSessionQuery, clearHistory action, selectCurrentMessages/selectSortedSessions/selectMessageCount selectors, DataSkeleton component, 6 barrel index.ts files, empty workers/ dir
 - Schema types made private: fileEntrySchema, geminiModelSchema, historyMessageSchema, memoryEntrySchema, knowledgeNodeSchema, knowledgeEdgeSchema
 
 ## Knowledge Base (SQLite)
-- Plik: `C:\Users\BIURODOM\Desktop\jaskier_knowledge.db`
+- Plik: `C:\Users\BIURODOM\Desktop\ClaudeDesktop\jaskier_knowledge.db`
 - Zawiera kompletną wiedzę o 4 projektach
 - Tabele: projects, dependencies, components, views, stores, hooks, theme_tokens, i18n_keys, api_endpoints, scripts, public_assets, shared_patterns, store_api_diff, unique_features, source_files
-- 535 rekordów, ostatni sync: 2026-02-24 13:02
-- Query: `py -c "import sqlite3; c=sqlite3.connect(r'C:\Users\BIURODOM\Desktop\jaskier_knowledge.db'); [print(r) for r in c.execute('SELECT * FROM projects')]"`
+- 535 rekordów, ostatni sync: 2026-02-24 17:38
+- Query: `py -c "import sqlite3; c=sqlite3.connect(r'C:\Users\BIURODOM\Desktop\ClaudeDesktop\jaskier_knowledge.db'); [print(r) for r in c.execute('SELECT * FROM projects')]"`

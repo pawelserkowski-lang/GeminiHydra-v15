@@ -117,6 +117,13 @@ When the user provides a file path or directory path, USE your tools to access i
 5. **Act first, explain after.**
 6. **Chain up to 10 tool calls per turn.**
 
+## CRITICAL: Tool Selection Rules
+- **To list files/directories** → ALWAYS use `list_directory`, NEVER `execute_command` with ls/dir.
+- **To read a file** → ALWAYS use `read_file`, NEVER `execute_command` with cat/type.
+- **To write a file** → ALWAYS use `write_file`, NEVER `execute_command` with echo/redirect.
+- Use `execute_command` ONLY for: build, test, git, npm, cargo, pip, and other CLI tools.
+- This is a **Windows** machine. If you must use `execute_command`, use Windows commands (dir, type, etc.), NOT Unix (ls, cat, cd ~).
+
 ## Your Identity
 - **Name:** {name} | **Role:** {role} | **Tier:** {tier}
 - {description}
@@ -428,20 +435,32 @@ async fn handle_ws(socket: WebSocket, state: AppState) {
     let (mut sender, mut receiver) = socket.split();
     let cancel = CancellationToken::new();
 
-    while let Some(Ok(WsMessage::Text(text))) = receiver.next().await {
-        let client_msg: WsClientMessage = match serde_json::from_str(&text) {
-            Ok(m) => m,
-            Err(e) => {
-                let _ = ws_send(&mut sender, &WsServerMessage::Error { message: e.to_string(), code: Some("PARSE_ERROR".into()) }).await;
-                continue;
-            }
-        };
-
-        match client_msg {
-            WsClientMessage::Ping => { let _ = ws_send(&mut sender, &WsServerMessage::Pong).await; }
-            WsClientMessage::Cancel => { cancel.cancel(); }
-            WsClientMessage::Execute { prompt, model, session_id, .. } => {
-                execute_streaming(&mut sender, &state, &prompt, model, session_id, cancel.child_token()).await;
+    loop {
+        tokio::select! {
+            msg = receiver.next() => {
+                match msg {
+                    Some(Ok(WsMessage::Text(text))) => {
+                        let client_msg: WsClientMessage = match serde_json::from_str(&text) {
+                            Ok(m) => m,
+                            Err(e) => {
+                                let _ = ws_send(&mut sender, &WsServerMessage::Error { message: e.to_string(), code: Some("PARSE_ERROR".into()) }).await;
+                                continue;
+                            }
+                        };
+                        match client_msg {
+                            WsClientMessage::Ping => { let _ = ws_send(&mut sender, &WsServerMessage::Pong).await; }
+                            WsClientMessage::Cancel => { cancel.cancel(); }
+                            WsClientMessage::Execute { prompt, model, session_id, .. } => {
+                                execute_streaming(&mut sender, &state, &prompt, model, session_id, cancel.child_token()).await;
+                            }
+                        }
+                    }
+                    Some(Ok(WsMessage::Ping(data))) => {
+                        let _ = sender.send(WsMessage::Pong(data)).await;
+                    }
+                    Some(Ok(_)) => {} // ignore binary, close frames etc.
+                    _ => break, // connection closed or error
+                }
             }
         }
     }
@@ -511,7 +530,8 @@ async fn execute_streaming_gemini(
         let resp = match state.client.post(&url).json(&body).send().await {
             Ok(r) if r.status().is_success() => r,
             Ok(r) => {
-                let _ = ws_send(sender, &WsServerMessage::Error { message: format!("API Error: {}", r.status()), code: Some("GEMINI_ERROR".into()) }).await;
+                let err_body = r.text().await.unwrap_or_default();
+                let _ = ws_send(sender, &WsServerMessage::Error { message: format!("API Error: {}", &err_body[..err_body.len().min(300)]), code: Some("GEMINI_ERROR".into()) }).await;
                 return full_text;
             }
             Err(e) => {
@@ -535,9 +555,9 @@ async fn execute_streaming_gemini(
             full_text.push_str(&header);
             let _ = ws_send(sender, &WsServerMessage::Token { content: header }).await;
 
-            let output = crate::tools::execute_tool(&name, &args, state).await.unwrap_or_else(|e| e);
+            let output = crate::tools::execute_tool(&name, &args, state).await.unwrap_or_else(|e| format!("TOOL_ERROR: {}", e));
             let _ = ws_send(sender, &WsServerMessage::ToolResult { name: name.clone(), success: true, summary: output.chars().take(200).collect(), iteration: iter + 1 }).await;
-            
+
             let res_md = format!("```\n{}\n```\n---\n\n", output);
             full_text.push_str(&res_md);
             let _ = ws_send(sender, &WsServerMessage::Token { content: res_md }).await;
