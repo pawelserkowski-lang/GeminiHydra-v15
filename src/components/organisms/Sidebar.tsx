@@ -226,7 +226,7 @@ export function Sidebar() {
           'absolute -right-4 top-1/2 -translate-y-1/2 z-30 hidden md:flex items-center justify-center w-9 h-9 border rounded-full shadow-lg backdrop-blur-sm transition-all duration-200 hover:scale-110 active:scale-95',
           collapseBtn,
         )}
-        title={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+        title={isCollapsed ? t('sidebar.expandSidebar', 'Expand sidebar') : t('sidebar.collapseSidebar', 'Collapse sidebar')}
       >
         {isCollapsed ? (
           <ChevronRight size={18} strokeWidth={2.5} className={collapseIcon} />
@@ -243,7 +243,7 @@ export function Sidebar() {
           'flex items-center justify-center py-4 px-1 flex-shrink-0 cursor-pointer',
           isCollapsed ? 'w-full' : 'flex-1',
         )}
-        title="Home"
+        title={t('nav.home', 'Home')}
       >
         <img
           src={isLight ? '/logolight.webp' : '/logodark.webp'}
@@ -359,7 +359,7 @@ export function Sidebar() {
             >
               <MessageSquare size={14} />
               <span className="text-sm font-bold tracking-[0.12em] uppercase">
-                {t('sidebar.chats', 'CZATY')}
+                {t('sidebar.chats', 'CHATS')}
               </span>
               <ChevronDown
                 size={14}
@@ -372,7 +372,7 @@ export function Sidebar() {
                 type="button"
                 onClick={handleNewChat}
                 className={cn('p-1 rounded-md transition-all', hoverBg)}
-                title={t('sidebar.newChat', 'Nowy czat')}
+                title={t('sidebar.newChat', 'New chat')}
               >
                 <Plus
                   size={14}
@@ -422,7 +422,7 @@ export function Sidebar() {
                         <span className="text-sm truncate block leading-tight">{session.title}</span>
                         {msgCount > 0 && (
                           <span className={cn('text-[10px] font-mono', textDim)}>
-                            {msgCount} {msgCount === 1 ? 'msg' : 'msgs'}
+                            {msgCount} {msgCount === 1 ? t('sidebar.message', 'msg') : t('sidebar.messages', 'msgs')}
                           </span>
                         )}
                       </div>
@@ -467,7 +467,7 @@ export function Sidebar() {
             type="button"
             onClick={handleNewChat}
             className={cn('p-2 rounded-lg transition-all', hoverBg)}
-            title={t('sidebar.newChat', 'Nowy czat')}
+            title={t('sidebar.newChat', 'New chat')}
           >
             <Plus size={18} className={cn(iconMuted, isLight ? 'hover:text-emerald-700' : 'hover:text-white', 'transition-colors')} />
           </button>
@@ -593,7 +593,7 @@ export function Sidebar() {
       {/* Version */}
       {!isCollapsed && (
         <div className={cn('text-center text-xs py-2', isLight ? 'text-slate-600' : 'text-white/50')}>
-          <span className={isLight ? 'text-emerald-700' : 'text-white'}>GeminiHydra</span> v15.0.0 | Wolf Swarm
+          <span className={isLight ? 'text-emerald-700' : 'text-white'}>GeminiHydra</span> v15.0.0 | {t('footer.tagline', 'Wolf Swarm')}
         </div>
       )}
     </div>

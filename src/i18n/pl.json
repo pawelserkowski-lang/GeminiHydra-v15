@@ -3,9 +3,27 @@
     "home": "Start",
     "chat": "Czat",
     "agents": "Agenci",
+    "brain": "Mozg",
     "history": "Historia",
     "settings": "Ustawienia",
     "status": "Status"
+  },
+  "sidebar": {
+    "groups": {
+      "main": "GLOWNE",
+      "tools": "NARZEDZIA",
+      "system": "SYSTEM"
+    },
+    "chats": "CZATY",
+    "newChat": "Nowy czat",
+    "deleteChat": "Usun czat",
+    "message": "wiad.",
+    "messages": "wiad.",
+    "expandSidebar": "Rozwin pasek boczny",
+    "collapseSidebar": "Zwin pasek boczny"
+  },
+  "footer": {
+    "tagline": "Wilczy Roj"
   },
   "common": {
     "save": "Zapisz",

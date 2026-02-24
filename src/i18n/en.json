@@ -3,9 +3,27 @@
     "home": "Home",
     "chat": "Chat",
     "agents": "Agents",
+    "brain": "Brain",
     "history": "History",
     "settings": "Settings",
     "status": "Status"
+  },
+  "sidebar": {
+    "groups": {
+      "main": "MAIN",
+      "tools": "TOOLS",
+      "system": "SYSTEM"
+    },
+    "chats": "CHATS",
+    "newChat": "New chat",
+    "deleteChat": "Delete chat",
+    "message": "msg",
+    "messages": "msgs",
+    "expandSidebar": "Expand sidebar",
+    "collapseSidebar": "Collapse sidebar"
+  },
+  "footer": {
+    "tagline": "Wolf Swarm"
   },
   "common": {
     "save": "Save",
