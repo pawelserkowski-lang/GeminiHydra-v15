@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS gh_sessions (
 ALTER TABLE gh_chat_messages ADD COLUMN IF NOT EXISTS session_id UUID REFERENCES gh_sessions(id) ON DELETE CASCADE;
 
 -- Create a "Legacy Chat" session for existing orphan messages
-INSERT INTO gh_sessions (id, title) VALUES ('00000000-0000-0000-0000-000000000001', 'Legacy Chat');
+INSERT INTO gh_sessions (id, title) VALUES ('00000000-0000-0000-0000-000000000001', 'Legacy Chat') ON CONFLICT (id) DO NOTHING;
 UPDATE gh_chat_messages SET session_id = '00000000-0000-0000-0000-000000000001' WHERE session_id IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_gh_sessions_updated ON gh_sessions(updated_at DESC);
