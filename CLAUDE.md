@@ -109,5 +109,5 @@
 - Plik: `C:\Users\BIURODOM\Desktop\jaskier_knowledge.db`
 - Zawiera kompletną wiedzę o 4 projektach
 - Tabele: projects, dependencies, components, views, stores, hooks, theme_tokens, i18n_keys, api_endpoints, scripts, public_assets, shared_patterns, store_api_diff, unique_features, source_files
-- 535 rekordów, ostatni sync: 2026-02-24 11:43
+- 535 rekordów, ostatni sync: 2026-02-24 12:31
 - Query: `py -c "import sqlite3; c=sqlite3.connect(r'C:\Users\BIURODOM\Desktop\jaskier_knowledge.db'); [print(r) for r in c.execute('SELECT * FROM projects')]"`
