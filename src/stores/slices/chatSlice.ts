@@ -16,6 +16,11 @@ export interface ChatSlice {
 
   addMessage: (msg: Message) => void;
   updateLastMessage: (content: string) => void;
+
+  /** Add a message to a specific session (for background streaming). */
+  addMessageToSession: (sessionId: string, msg: Message) => void;
+  /** Append content to the last message of a specific session. */
+  updateLastMessageInSession: (sessionId: string, content: string) => void;
 }
 
 export const createChatSlice: StateCreator<
@@ -163,6 +168,57 @@ export const createChatSlice: StateCreator<
           ...state.chatHistory,
           [state.currentSessionId]: newMessages,
         },
+      };
+    }),
+
+  addMessageToSession: (sessionId, msg) =>
+    set((state) => {
+      const sanitizedMsg: Message = {
+        ...msg,
+        content: sanitizeContent(msg.content, 100_000),
+      };
+
+      const currentMessages = state.chatHistory[sessionId] || [];
+      let updatedMessages = [...currentMessages, sanitizedMsg];
+      if (updatedMessages.length > MAX_MESSAGES_PER_SESSION) {
+        updatedMessages = updatedMessages.slice(-MAX_MESSAGES_PER_SESSION);
+      }
+
+      // Auto-title from first user message
+      let updatedSessions = state.sessions;
+      let updatedTabs = state.tabs;
+      if (msg.role === 'user' && currentMessages.length === 0) {
+        const title = sanitizeTitle(
+          msg.content.substring(0, 30) + (msg.content.length > 30 ? '...' : ''),
+          MAX_TITLE_LENGTH,
+        );
+        updatedSessions = state.sessions.map((s) => (s.id === sessionId ? { ...s, title } : s));
+        updatedTabs = state.tabs.map((t) => (t.sessionId === sessionId ? { ...t, title } : t));
+      }
+
+      return {
+        chatHistory: { ...state.chatHistory, [sessionId]: updatedMessages },
+        sessions: updatedSessions,
+        tabs: updatedTabs,
+      };
+    }),
+
+  updateLastMessageInSession: (sessionId, content) =>
+    set((state) => {
+      const messages = state.chatHistory[sessionId] || [];
+      if (messages.length === 0) return state;
+
+      const newMessages = [...messages];
+      const lastMsg = newMessages[newMessages.length - 1];
+      if (!lastMsg) return state;
+
+      newMessages[newMessages.length - 1] = {
+        ...lastMsg,
+        content: sanitizeContent(lastMsg.content + content, 100_000),
+      };
+
+      return {
+        chatHistory: { ...state.chatHistory, [sessionId]: newMessages },
       };
     }),
 

@@ -44,15 +44,18 @@ const LazyKnowledgeGraphView = lazy(() => import('@/features/memory/components/K
  */
 function ChatViewWrapper() {
   const executeMutation = useChatExecuteMutation();
-  const addMessage = useViewStore((s) => s.addMessage);
-  const updateLastMessage = useViewStore((s) => s.updateLastMessage);
+  const addMessageToSession = useViewStore((s) => s.addMessageToSession);
+  const updateLastMessageInSession = useViewStore((s) => s.updateLastMessageInSession);
+  const currentSessionId = useViewStore((s) => s.currentSessionId);
   const [usingFallback, setUsingFallback] = useState(false);
   const fallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const httpStreamingSessionIdRef = useRef<string | null>(null);
 
   const wsCallbacks = useMemo<WsCallbacks>(
     () => ({
-      onStart: (msg) => {
-        addMessage({
+      onStart: (msg, sessionId) => {
+        if (!sessionId) return;
+        addMessageToSession(sessionId, {
           role: 'assistant',
           content: '',
           timestamp: Date.now(),
@@ -60,21 +63,23 @@ function ChatViewWrapper() {
         });
         useViewStore.getState().setActiveModel(msg.model);
       },
-      onToken: (content) => {
-        updateLastMessage(content);
+      onToken: (content, sessionId) => {
+        if (!sessionId) return;
+        updateLastMessageInSession(sessionId, content);
       },
-      onError: (message) => {
-        addMessage({
+      onError: (message, sessionId) => {
+        if (!sessionId) return;
+        addMessageToSession(sessionId, {
           role: 'assistant',
           content: `Error: ${message}`,
           timestamp: Date.now(),
         });
       },
     }),
-    [addMessage, updateLastMessage],
+    [addMessageToSession, updateLastMessageInSession],
   );
 
-  const { status, isStreaming: wsStreaming, sendExecute, cancelStream } =
+  const { status, streamingSessionId, sendExecute, cancelStream } =
     useWebSocketChat(wsCallbacks);
 
   // Fallback: if WS never reaches 'connected' within 5s, switch to HTTP.
@@ -92,8 +97,12 @@ function ChatViewWrapper() {
     };
   }, [status, usingFallback]);
 
-  const [httpStreaming, setHttpStreaming] = useState(false);
-  const isStreaming = usingFallback ? httpStreaming : wsStreaming;
+  const [httpStreamingSessionId, setHttpStreamingSessionId] = useState<string | null>(null);
+
+  // Derive per-session streaming: only block input for the currently viewed session
+  const isStreamingCurrentSession = usingFallback
+    ? httpStreamingSessionId === currentSessionId
+    : streamingSessionId === currentSessionId;
 
   const handleSubmit = useCallback(
     (prompt: string, _image: string | null) => {
@@ -103,51 +112,64 @@ function ChatViewWrapper() {
         const sid = useViewStore.getState().currentSessionId;
         if (sid) useViewStore.getState().openTab(sid);
       }
-      addMessage({ role: 'user', content: prompt, timestamp: Date.now() });
+
+      const sessionId = useViewStore.getState().currentSessionId;
+      if (!sessionId) return;
+
+      addMessageToSession(sessionId, { role: 'user', content: prompt, timestamp: Date.now() });
 
       if (!usingFallback && status === 'connected') {
         // Primary: WebSocket streaming (only when WS is actually connected)
-        const currentSessionId = useViewStore.getState().currentSessionId;
-        sendExecute(prompt, 'chat', undefined, currentSessionId ?? undefined);
+        sendExecute(prompt, 'chat', undefined, sessionId);
       } else {
-        // Fallback: HTTP
-        setHttpStreaming(true);
+        // Fallback: HTTP — track which session is streaming
+        setHttpStreamingSessionId(sessionId);
+        httpStreamingSessionIdRef.current = sessionId;
         executeMutation.mutate(
           { prompt, mode: 'chat' },
           {
             onSuccess: (data) => {
-              addMessage({
-                role: 'assistant',
-                content: data.result,
-                timestamp: Date.now(),
-                model: data.plan?.agent,
-              });
-              setHttpStreaming(false);
+              const sid = httpStreamingSessionIdRef.current;
+              if (sid) {
+                addMessageToSession(sid, {
+                  role: 'assistant',
+                  content: data.result,
+                  timestamp: Date.now(),
+                  model: data.plan?.agent,
+                });
+              }
+              setHttpStreamingSessionId(null);
+              httpStreamingSessionIdRef.current = null;
             },
             onError: () => {
-              addMessage({
-                role: 'assistant',
-                content: 'An error occurred while generating a response.',
-                timestamp: Date.now(),
-              });
-              setHttpStreaming(false);
+              const sid = httpStreamingSessionIdRef.current;
+              if (sid) {
+                addMessageToSession(sid, {
+                  role: 'assistant',
+                  content: 'An error occurred while generating a response.',
+                  timestamp: Date.now(),
+                });
+              }
+              setHttpStreamingSessionId(null);
+              httpStreamingSessionIdRef.current = null;
             },
           },
         );
       }
     },
-    [addMessage, usingFallback, status, sendExecute, executeMutation],
+    [addMessageToSession, usingFallback, status, sendExecute, executeMutation],
   );
 
   const handleStop = useCallback(() => {
     if (!usingFallback) {
       cancelStream();
     } else {
-      setHttpStreaming(false);
+      setHttpStreamingSessionId(null);
+      httpStreamingSessionIdRef.current = null;
     }
   }, [usingFallback, cancelStream]);
 
-  return <LazyChatContainer isStreaming={isStreaming} onSubmit={handleSubmit} onStop={handleStop} />;
+  return <LazyChatContainer isStreaming={isStreamingCurrentSession} onSubmit={handleSubmit} onStop={handleStop} />;
 }
 
 // ============================================================================

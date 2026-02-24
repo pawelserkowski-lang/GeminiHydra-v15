@@ -27,11 +27,11 @@ import { wsServerMessageSchema } from '@/shared/api/schemas';
 export type WsStatus = 'connecting' | 'connected' | 'disconnected' | 'error';
 
 export interface WsCallbacks {
-  onStart?: (msg: WsStartMessage) => void;
-  onToken?: (content: string) => void;
-  onPlan?: (msg: WsPlanMessage) => void;
-  onComplete?: (msg: WsCompleteMessage) => void;
-  onError?: (message: string) => void;
+  onStart?: (msg: WsStartMessage, sessionId: string | null) => void;
+  onToken?: (content: string, sessionId: string | null) => void;
+  onPlan?: (msg: WsPlanMessage, sessionId: string | null) => void;
+  onComplete?: (msg: WsCompleteMessage, sessionId: string | null) => void;
+  onError?: (message: string, sessionId: string | null) => void;
 }
 
 // ============================================================================
@@ -61,12 +61,14 @@ function getWsUrl(): string {
 export function useWebSocketChat(callbacks: WsCallbacks) {
   const [status, setStatus] = useState<WsStatus>('disconnected');
   const [isStreaming, setIsStreaming] = useState(false);
+  const [streamingSessionId, setStreamingSessionId] = useState<string | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
   const callbacksRef = useRef(callbacks);
   callbacksRef.current = callbacks;
 
   const isStreamingRef = useRef(false);
+  const streamingSessionIdRef = useRef<string | null>(null);
   const reconnectAttemptRef = useRef(0);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const heartbeatTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -141,28 +143,35 @@ export function useWebSocketChat(callbacks: WsCallbacks) {
       const msg: WsServerMessage = parsed.data;
       const cbs = callbacksRef.current;
 
+      const sid = streamingSessionIdRef.current;
+
       switch (msg.type) {
         case 'start':
           setIsStreaming(true);
           isStreamingRef.current = true;
-          cbs.onStart?.(msg);
+          setStreamingSessionId(sid);
+          cbs.onStart?.(msg, sid);
           break;
         case 'token':
-          cbs.onToken?.(msg.content);
+          cbs.onToken?.(msg.content, sid);
           break;
         case 'plan':
-          cbs.onPlan?.(msg);
+          cbs.onPlan?.(msg, sid);
           break;
         case 'complete':
           setIsStreaming(false);
           isStreamingRef.current = false;
-          cbs.onComplete?.(msg);
+          setStreamingSessionId(null);
+          cbs.onComplete?.(msg, sid);
+          streamingSessionIdRef.current = null;
           startHeartbeat(); // Resume heartbeat after streaming ends
           break;
         case 'error':
           setIsStreaming(false);
           isStreamingRef.current = false;
-          cbs.onError?.(msg.message);
+          setStreamingSessionId(null);
+          cbs.onError?.(msg.message, sid);
+          streamingSessionIdRef.current = null;
           startHeartbeat();
           break;
         case 'pong':
@@ -179,6 +188,8 @@ export function useWebSocketChat(callbacks: WsCallbacks) {
       setStatus('disconnected');
       setIsStreaming(false);
       isStreamingRef.current = false;
+      setStreamingSessionId(null);
+      streamingSessionIdRef.current = null;
       clearTimers();
 
       if (!intentionalCloseRef.current) {
@@ -204,6 +215,8 @@ export function useWebSocketChat(callbacks: WsCallbacks) {
     setStatus('disconnected');
     setIsStreaming(false);
     isStreamingRef.current = false;
+    setStreamingSessionId(null);
+    streamingSessionIdRef.current = null;
   }, [clearTimers]);
 
   // Auto-connect on mount, cleanup on unmount
@@ -217,6 +230,9 @@ export function useWebSocketChat(callbacks: WsCallbacks) {
     (prompt: string, mode: string, model?: string, session_id?: string) => {
       const ws = wsRef.current;
       if (!ws || ws.readyState !== WebSocket.OPEN) return;
+
+      // Track which session this stream belongs to
+      streamingSessionIdRef.current = session_id ?? null;
 
       const msg: WsClientMessage = { type: 'execute', prompt, mode, model, session_id };
       ws.send(JSON.stringify(msg));
@@ -232,7 +248,9 @@ export function useWebSocketChat(callbacks: WsCallbacks) {
     ws.send(JSON.stringify(msg));
     setIsStreaming(false);
     isStreamingRef.current = false;
+    setStreamingSessionId(null);
+    streamingSessionIdRef.current = null;
   }, []);
 
-  return { status, isStreaming, sendExecute, cancelStream };
+  return { status, isStreaming, streamingSessionId, sendExecute, cancelStream };
 }
