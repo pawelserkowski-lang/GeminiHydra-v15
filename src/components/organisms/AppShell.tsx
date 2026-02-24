@@ -10,15 +10,29 @@
  */
 
 import { AnimatePresence, motion } from 'motion/react';
-import { type ReactNode, Suspense, useCallback, useEffect } from 'react';
+import { type ReactNode, Suspense, useCallback, useEffect, useMemo } from 'react';
 import { LayeredBackground, WitcherRunes } from '@/components/atoms';
 import { Sidebar } from '@/components/organisms/Sidebar';
 import type { StatusFooterProps } from '@/components/organisms/StatusFooter';
 import { StatusFooter } from '@/components/organisms/StatusFooter';
 import { TabBar } from '@/components/organisms/TabBar';
 import { ThemeProvider, useTheme } from '@/contexts/ThemeContext';
+import { useSettingsQuery } from '@/features/settings/hooks/useSettings';
+import { useSystemStatsQuery } from '@/features/health/hooks/useHealth';
 import { cn } from '@/shared/utils/cn';
 import { useViewStore } from '@/stores/viewStore';
+
+/** Format raw model ID (e.g. "gemini-3.1-pro-preview") into a display name ("Gemini 3.1 Pro"). */
+function formatModelName(id: string): string {
+  if (id.startsWith('ollama:')) return `Ollama: ${id.slice(7)}`;
+  // Strip common suffixes
+  let name = id.replace(/-preview$/, '').replace(/-latest$/, '');
+  // "gemini-3.1-pro" → ["gemini", "3.1", "pro"]
+  const parts = name.split('-');
+  return parts
+    .map((p) => (/^\d/.test(p) ? p : p.charAt(0).toUpperCase() + p.slice(1)))
+    .join(' ');
+}
 
 // ============================================================================
 // TYPES
@@ -41,6 +55,32 @@ function AppShellInner({ children, statusFooterProps }: AppShellProps) {
   const isLight = resolvedTheme === 'light';
 
   const currentView = useViewStore((s) => s.currentView);
+  const activeModel = useViewStore((s) => s.activeModel);
+  const { data: settings } = useSettingsQuery();
+  const { data: stats } = useSystemStatsQuery();
+
+  // Resolve display model: WS activeModel → settings.default_model → fallback
+  const displayModel = useMemo(() => {
+    const raw = activeModel ?? settings?.default_model;
+    return raw ? formatModelName(raw) : undefined;
+  }, [activeModel, settings?.default_model]);
+
+  // Build live footer props
+  // Backend returns cpu_usage_percent / memory_used_mb / memory_total_mb (not matching TS schema)
+  const raw = stats as Record<string, number> | undefined;
+  const resolvedFooterProps = useMemo<StatusFooterProps>(() => ({
+    ...statusFooterProps,
+    ...(displayModel && { selectedModel: displayModel }),
+    ...(raw && {
+      cpuUsage: Math.round(raw.cpu_usage_percent ?? raw.cpu_usage ?? 0),
+      ramUsage: Math.round(
+        ((raw.memory_used_mb ?? raw.memory_used ?? 0) /
+          (raw.memory_total_mb ?? raw.memory_total ?? 1)) *
+          100,
+      ),
+      statsLoaded: true,
+    }),
+  }), [statusFooterProps, displayModel, raw]);
 
   // Global Ctrl+T shortcut — creates a new chat tab when in chat view
   const handleKeyDown = useCallback(
@@ -109,7 +149,7 @@ function AppShellInner({ children, statusFooterProps }: AppShellProps) {
           </div>
 
           {/* Status Footer */}
-          <StatusFooter {...statusFooterProps} />
+          <StatusFooter {...resolvedFooterProps} />
         </main>
       </div>
     </div>

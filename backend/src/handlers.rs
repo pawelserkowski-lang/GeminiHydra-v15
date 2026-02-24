@@ -92,7 +92,7 @@ fn classify_prompt(prompt: &str, agents: &[WitcherAgent]) -> (String, f64, Strin
 // System Prompt Factory
 // ---------------------------------------------------------------------------
 
-fn build_system_prompt(agent_id: &str, agents: &[WitcherAgent], language: &str) -> String {
+fn build_system_prompt(agent_id: &str, agents: &[WitcherAgent], language: &str, model: &str) -> String {
     let agent = agents.iter().find(|a| a.id == agent_id).unwrap_or(&agents[0]);
 
     let roster: String = agents
@@ -126,6 +126,7 @@ When the user provides a file path or directory path, USE your tools to access i
 
 ## Your Identity
 - **Name:** {name} | **Role:** {role} | **Tier:** {tier}
+- **AI Model:** You are powered by `{model}`. NEVER claim to use a different model or version.
 - {description}
 - Part of **GeminiHydra v15 Wolf Swarm**.
 - Speak as {name}, but tool usage is priority.
@@ -145,6 +146,7 @@ When the user provides a file path or directory path, USE your tools to access i
         name = agent.name,
         role = agent.role,
         tier = agent.tier,
+        model = model,
         description = agent.description,
         language = language,
         roster = roster
@@ -306,7 +308,7 @@ async fn prepare_execution(
     let language = match lang.as_str() { "pl" => "Polish", "en" => "English", other => other };
 
     let api_key = state.runtime.read().await.api_keys.get("google").cloned().unwrap_or_default();
-    let system_prompt = build_system_prompt(&agent_id, &agents_lock, language);
+    let system_prompt = build_system_prompt(&agent_id, &agents_lock, language, &model);
 
     let detected_paths = files::extract_file_paths(prompt);
     let (file_context, _) = if !detected_paths.is_empty() {

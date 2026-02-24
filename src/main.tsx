@@ -58,6 +58,7 @@ function ChatViewWrapper() {
           timestamp: Date.now(),
           model: msg.agent,
         });
+        useViewStore.getState().setActiveModel(msg.model);
       },
       onToken: (content) => {
         updateLastMessage(content);
