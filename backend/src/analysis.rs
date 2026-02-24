@@ -5,6 +5,7 @@
 //! of code without reading entire file contents.
 
 use serde::Serialize;
+use streaming_iterator::StreamingIterator;
 use tree_sitter::{Parser, Query, QueryCursor};
 
 #[derive(Debug, Serialize)]
@@ -29,15 +30,15 @@ pub fn analyze_file(path: &str, content: &str) -> Option<FileStructure> {
 
     let mut parser = Parser::new();
     let language = match extension {
-        "rs" => tree_sitter_rust::language(),
-        "ts" | "tsx" => tree_sitter_typescript::language_tsx(),
-        "js" | "jsx" => tree_sitter_javascript::language(),
-        "py" => tree_sitter_python::language(),
-        "go" => tree_sitter_go::language(),
+        "rs" => tree_sitter_rust::LANGUAGE.into(),
+        "ts" | "tsx" => tree_sitter_typescript::LANGUAGE_TSX.into(),
+        "js" | "jsx" => tree_sitter_javascript::LANGUAGE.into(),
+        "py" => tree_sitter_python::LANGUAGE.into(),
+        "go" => tree_sitter_go::LANGUAGE.into(),
         _ => return None,
     };
 
-    parser.set_language(language).ok()?;
+    parser.set_language(&language).ok()?;
     let tree = parser.parse(content, None)?;
     let root = tree.root_node();
 
@@ -69,13 +70,14 @@ pub fn analyze_file(path: &str, content: &str) -> Option<FileStructure> {
         _ => return None,
     };
 
-    let query = Query::new(language, query_str).ok()?;
+    let query = Query::new(&language, query_str).ok()?;
     let mut cursor = QueryCursor::new();
     let mut symbols = Vec::new();
 
     let lines: Vec<&str> = content.lines().collect();
 
-    for m in cursor.matches(&query, root, content.as_bytes()) {
+    let mut matches = cursor.matches(&query, root, content.as_bytes());
+    while let Some(m) = matches.next() {
         let node = m.captures[0].node;
         let kind = node.kind().to_string();
         
