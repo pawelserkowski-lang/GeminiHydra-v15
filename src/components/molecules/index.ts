@@ -3,8 +3,6 @@
 
 export type { CodeBlockProps } from './CodeBlock';
 export { CodeBlock } from './CodeBlock';
-export type { DataSkeletonProps } from './DataSkeleton';
-export { DataSkeleton } from './DataSkeleton';
 export type {
   ModelOption,
   ModelSelectorProps,

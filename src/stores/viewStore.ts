@@ -11,8 +11,6 @@ import { persist } from 'zustand/middleware';
 import { ChatSlice, createChatSlice } from './slices/chatSlice';
 import { createSessionSlice, SessionSlice } from './slices/sessionSlice';
 import { createViewSlice, ViewSlice } from './slices/viewSlice';
-import { Message, Session } from './types';
-
 // ============================================================================
 // TYPES
 // ============================================================================
@@ -59,17 +57,3 @@ export const useViewStore = create<ViewStoreState>()(
   ),
 );
 
-// ============================================================================
-// SELECTORS
-// ============================================================================
-
-export const selectCurrentMessages = (state: ViewStoreState): Message[] => {
-  if (!state.currentSessionId) return [];
-  return state.chatHistory[state.currentSessionId] || [];
-};
-
-export const selectSortedSessions = (state: ViewStoreState): Session[] =>
-  [...state.sessions].sort((a, b) => b.createdAt - a.createdAt);
-
-export const selectMessageCount = (state: ViewStoreState, sessionId: string): number =>
-  (state.chatHistory[sessionId] || []).length;

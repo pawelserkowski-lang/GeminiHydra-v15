@@ -7,7 +7,7 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiDelete, apiGet, apiPost } from '@/shared/api/client';
-import type { Agent, AgentsList, ClassifyResponse, ExecuteResponse } from '@/shared/api/schemas';
+import type { Agent, AgentsList } from '@/shared/api/schemas';
 
 export function useAgentsQuery() {
   return useQuery<AgentsList>({
@@ -46,25 +46,3 @@ export function useDeleteAgentMutation() {
   });
 }
 
-interface ClassifyInput {
-  message: string;
-}
-
-export function useClassifyMutation() {
-  return useMutation<ClassifyResponse, Error, ClassifyInput>({
-    mutationFn: (input) => apiPost<ClassifyResponse>('/api/agents/classify', input),
-  });
-}
-
-interface ExecuteInput {
-  message: string;
-  agent_id?: string;
-  model?: string;
-  temperature?: number;
-}
-
-export function useExecuteMutation() {
-  return useMutation<ExecuteResponse, Error, ExecuteInput>({
-    mutationFn: (input) => apiPost<ExecuteResponse>('/api/execute', input),
-  });
-}

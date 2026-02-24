@@ -102,15 +102,13 @@ export const fileReadResponseSchema = z.object({
 
 export type FileReadResponse = z.infer<typeof fileReadResponseSchema>;
 
-export const fileEntrySchema = z.object({
+const fileEntrySchema = z.object({
   name: z.string(),
   path: z.string(),
   is_dir: z.boolean(),
   size_bytes: z.number(),
   extension: z.string().nullable().optional(),
 });
-
-export type FileEntry = z.infer<typeof fileEntrySchema>;
 
 export const fileListResponseSchema = z.object({
   path: z.string(),
@@ -124,14 +122,12 @@ export type FileListResponse = z.infer<typeof fileListResponseSchema>;
 // GEMINI MODELS
 // ============================================================================
 
-export const geminiModelSchema = z.object({
+const geminiModelSchema = z.object({
   name: z.string(),
   display_name: z.string(),
   description: z.string(),
   supported_methods: z.array(z.string()),
 });
-
-export type GeminiModel = z.infer<typeof geminiModelSchema>;
 
 export const geminiModelsSchema = z.object({
   models: z.array(geminiModelSchema),
@@ -158,14 +154,12 @@ export type SystemStats = z.infer<typeof systemStatsSchema>;
 // HISTORY
 // ============================================================================
 
-export const historyMessageSchema = z.object({
+const historyMessageSchema = z.object({
   role: z.string(),
   content: z.string(),
   timestamp: z.string(),
   model: z.string().optional(),
 });
-
-export type HistoryMessage = z.infer<typeof historyMessageSchema>;
 
 export const historyEntrySchema = z.object({
   id: z.string(),
@@ -197,38 +191,6 @@ export const settingsSchema = z
 
 export type Settings = z.infer<typeof settingsSchema>;
 
-// ============================================================================
-// MEMORY
-// ============================================================================
-
-export const memoryEntrySchema = z.object({
-  id: z.string(),
-  content: z.string(),
-  created_at: z.string(),
-  agent_id: z.string(),
-});
-
-export type MemoryEntry = z.infer<typeof memoryEntrySchema>;
-
-// ============================================================================
-// KNOWLEDGE GRAPH
-// ============================================================================
-
-export const knowledgeNodeSchema = z.object({
-  id: z.string(),
-  label: z.string(),
-  node_type: z.string(),
-});
-
-export type KnowledgeNode = z.infer<typeof knowledgeNodeSchema>;
-
-export const knowledgeEdgeSchema = z.object({
-  source_id: z.string(),
-  target_id: z.string(),
-  relation: z.string(),
-});
-
-export type KnowledgeEdge = z.infer<typeof knowledgeEdgeSchema>;
 
 // ============================================================================
 // WEBSOCKET PROTOCOL

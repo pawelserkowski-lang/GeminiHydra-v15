@@ -5,9 +5,9 @@
  * TanStack Query hooks for chat execution and Gemini model listing.
  */
 
-import { useMutation, useQuery } from '@tanstack/react-query';
-import { apiGet, apiPost } from '@/shared/api/client';
-import type { ExecuteResponse, GeminiModels } from '@/shared/api/schemas';
+import { useMutation } from '@tanstack/react-query';
+import { apiPost } from '@/shared/api/client';
+import type { ExecuteResponse } from '@/shared/api/schemas';
 
 interface ChatExecuteInput {
   prompt: string;
@@ -21,9 +21,3 @@ export function useChatExecuteMutation() {
   });
 }
 
-export function useGeminiModelsQuery() {
-  return useQuery<GeminiModels>({
-    queryKey: ['gemini', 'models'],
-    queryFn: () => apiGet<GeminiModels>('/api/gemini/models'),
-  });
-}

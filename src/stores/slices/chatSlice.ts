@@ -16,7 +16,6 @@ export interface ChatSlice {
 
   addMessage: (msg: Message) => void;
   updateLastMessage: (content: string) => void;
-  clearHistory: () => void;
 }
 
 export const createChatSlice: StateCreator<
@@ -167,14 +166,4 @@ export const createChatSlice: StateCreator<
       };
     }),
 
-  clearHistory: () =>
-    set((state) => {
-      if (!state.currentSessionId) return state;
-      return {
-        chatHistory: {
-          ...state.chatHistory,
-          [state.currentSessionId]: [],
-        },
-      };
-    }),
 });

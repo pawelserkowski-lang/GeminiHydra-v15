@@ -7,15 +7,7 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { apiGet } from '@/shared/api/client';
-import type { DetailedHealth, Health, SystemStats } from '@/shared/api/schemas';
-
-export function useHealthQuery() {
-  return useQuery<Health>({
-    queryKey: ['health'],
-    queryFn: () => apiGet<Health>('/api/health'),
-    refetchInterval: 30_000,
-  });
-}
+import type { DetailedHealth, SystemStats } from '@/shared/api/schemas';
 
 export function useDetailedHealthQuery() {
   return useQuery<DetailedHealth>({

@@ -8,15 +8,10 @@
 
 import { useMutation } from '@tanstack/react-query';
 import { apiPost } from '@/shared/api/client';
-import type { FileReadResponse, FileListResponse } from '@/shared/api/schemas';
+import type { FileReadResponse } from '@/shared/api/schemas';
 
 interface FileReadInput {
   path: string;
-}
-
-interface FileListInput {
-  path: string;
-  show_hidden?: boolean;
 }
 
 export function useFileReadMutation() {
@@ -25,8 +20,3 @@ export function useFileReadMutation() {
   });
 }
 
-export function useFileListMutation() {
-  return useMutation<FileListResponse, Error, FileListInput>({
-    mutationFn: (input) => apiPost<FileListResponse>('/api/files/list', input),
-  });
-}

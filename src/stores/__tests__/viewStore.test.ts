@@ -457,39 +457,6 @@ describe('viewStore - updateLastMessage', () => {
   });
 });
 
-describe('viewStore - clearHistory', () => {
-  it('should clear messages for the current session', () => {
-    getState().createSession();
-    getState().addMessage(makeMsg('user', 'Hello'));
-    getState().addMessage(makeMsg('assistant', 'Hi!'));
-
-    getState().clearHistory();
-    const id = getState().currentSessionId!;
-    expect(getState().chatHistory[id]).toEqual([]);
-  });
-
-  it('should not affect other sessions', () => {
-    getState().createSession();
-    const s1 = getState().currentSessionId!;
-    getState().addMessage(makeMsg('user', 'Session 1'));
-
-    getState().createSession();
-    getState().addMessage(makeMsg('user', 'Session 2'));
-
-    getState().clearHistory();
-    // Current session (s2) is cleared
-    const s2 = getState().currentSessionId!;
-    expect(getState().chatHistory[s2]).toEqual([]);
-    // s1 is untouched
-    expect(getState().chatHistory[s1]).toHaveLength(1);
-  });
-
-  it('should do nothing if no current session', () => {
-    getState().clearHistory();
-    expect(getState().chatHistory).toEqual({});
-  });
-});
-
 // ============================================================================
 // AUTO-TITLING
 // ============================================================================
