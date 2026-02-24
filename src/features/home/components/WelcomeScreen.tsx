@@ -6,9 +6,11 @@
  * Ported from legacy GeminiHydra WelcomeScreen with glassmorphism + motion.
  */
 
+import type { TFunction } from 'i18next';
 import { Clock, Cpu, Globe, Layers, MessageSquare, Plus, Settings, Sparkles, Users, Workflow } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { memo, useCallback, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Badge, Button } from '@/components/atoms';
 import { useViewTheme } from '@/shared/hooks/useViewTheme';
@@ -20,10 +22,10 @@ import { type Session, useViewStore } from '@/stores/viewStore';
 // ============================================================================
 
 const FEATURE_BADGES = [
-  { label: '12 Agents', icon: Users },
-  { label: '5-Phase Pipeline', icon: Workflow },
-  { label: 'Multi-Provider', icon: Globe },
-  { label: 'Swarm Architecture', icon: Cpu },
+  { key: 'home.badges.agents', fallback: '12 Agents', icon: Users },
+  { key: 'home.badges.pipeline', fallback: '5-Phase Pipeline', icon: Workflow },
+  { key: 'home.badges.multiProvider', fallback: 'Multi-Provider', icon: Globe },
+  { key: 'home.badges.swarmArch', fallback: 'Swarm Architecture', icon: Cpu },
 ] as const;
 
 const MAX_RECENT_SESSIONS = 5;
@@ -32,16 +34,16 @@ const MAX_RECENT_SESSIONS = 5;
 // HELPERS
 // ============================================================================
 
-function timeAgo(timestamp: number): string {
+function timeAgo(timestamp: number, t: TFunction): string {
   const diff = Date.now() - timestamp;
   const minutes = Math.floor(diff / 60_000);
-  if (minutes < 1) return 'just now';
-  if (minutes < 60) return `${minutes}m ago`;
+  if (minutes < 1) return t('time.justNow', 'just now');
+  if (minutes < 60) return t('time.minutesAgo', { defaultValue: '{{m}}m ago', m: minutes });
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
+  if (hours < 24) return t('time.hoursAgo', { defaultValue: '{{h}}h ago', h: hours });
   const days = Math.floor(hours / 24);
-  if (days === 1) return 'yesterday';
-  return `${days}d ago`;
+  if (days === 1) return t('time.yesterday', 'yesterday');
+  return t('time.daysAgo', { defaultValue: '{{d}}d ago', d: days });
 }
 
 // ============================================================================
@@ -99,34 +101,37 @@ interface SessionRowProps {
   theme: ReturnType<typeof useViewTheme>;
 }
 
-const SessionRow = memo<SessionRowProps>(({ session, messageCount, onOpen, theme }) => (
-  <motion.button
-    type="button"
-    onClick={() => onOpen(session.id)}
-    className={cn(
-      'w-full flex items-center gap-3 p-3 rounded-xl',
-      'transition-all duration-200 group cursor-pointer text-left',
-      theme.listItem,
-      theme.listItemHover,
-    )}
-    whileHover={{ x: 4 }}
-    whileTap={{ scale: 0.98 }}
-  >
-    <MessageSquare
-      size={16}
-      className={cn('flex-shrink-0 transition-colors', 'group-hover:text-[var(--matrix-accent)]', theme.iconMuted)}
-    />
-    <div className="flex-1 min-w-0">
-      <p className={cn('text-sm truncate transition-colors', 'group-hover:text-[var(--matrix-accent)]', theme.text)}>
-        {session.title}
-      </p>
-    </div>
-    <div className="flex flex-col items-end flex-shrink-0">
-      <span className={cn('text-[10px] font-mono', theme.textMuted)}>{timeAgo(session.createdAt)}</span>
-      {messageCount > 0 && <span className={cn('text-[10px] font-mono', theme.textMuted)}>{messageCount} msg</span>}
-    </div>
-  </motion.button>
-));
+const SessionRow = memo<SessionRowProps>(({ session, messageCount, onOpen, theme }) => {
+  const { t } = useTranslation();
+  return (
+    <motion.button
+      type="button"
+      onClick={() => onOpen(session.id)}
+      className={cn(
+        'w-full flex items-center gap-3 p-3 rounded-xl',
+        'transition-all duration-200 group cursor-pointer text-left',
+        theme.listItem,
+        theme.listItemHover,
+      )}
+      whileHover={{ x: 4 }}
+      whileTap={{ scale: 0.98 }}
+    >
+      <MessageSquare
+        size={16}
+        className={cn('flex-shrink-0 transition-colors', 'group-hover:text-[var(--matrix-accent)]', theme.iconMuted)}
+      />
+      <div className="flex-1 min-w-0">
+        <p className={cn('text-sm truncate transition-colors', 'group-hover:text-[var(--matrix-accent)]', theme.text)}>
+          {session.title}
+        </p>
+      </div>
+      <div className="flex flex-col items-end flex-shrink-0">
+        <span className={cn('text-[10px] font-mono', theme.textMuted)}>{timeAgo(session.createdAt, t)}</span>
+        {messageCount > 0 && <span className={cn('text-[10px] font-mono', theme.textMuted)}>{messageCount} {t('home.msg', 'msg')}</span>}
+      </div>
+    </motion.button>
+  );
+});
 
 SessionRow.displayName = 'SessionRow';
 
@@ -135,6 +140,7 @@ SessionRow.displayName = 'SessionRow';
 // ============================================================================
 
 export const WelcomeScreen = memo(() => {
+  const { t } = useTranslation();
   const theme = useViewTheme();
 
   const rawSessions = useViewStore((s) => s.sessions);
@@ -200,7 +206,7 @@ export const WelcomeScreen = memo(() => {
         <div className="text-center">
           <h1 className={cn('text-3xl font-bold font-mono tracking-tight', theme.title)}>GeminiHydra</h1>
           <p className={cn('text-sm mt-1.5 max-w-xs', theme.textMuted)}>
-            AI Swarm Control Center -- start a new chat or continue a previous conversation.
+            {t('home.subtitle', 'AI Swarm Control Center — start a new chat or continue a previous conversation.')}
           </p>
         </div>
 
@@ -211,10 +217,10 @@ export const WelcomeScreen = memo(() => {
           initial="hidden"
           animate="visible"
         >
-          {FEATURE_BADGES.map(({ label, icon: Icon }) => (
-            <motion.div key={label} variants={badgeItemVariants}>
+          {FEATURE_BADGES.map(({ key, fallback, icon: Icon }) => (
+            <motion.div key={key} variants={badgeItemVariants}>
               <Badge variant="accent" size="sm" icon={<Icon size={12} />}>
-                {label}
+                {t(key, fallback)}
               </Badge>
             </motion.div>
           ))}
@@ -235,7 +241,7 @@ export const WelcomeScreen = memo(() => {
             className="w-full"
             data-testid="btn-new-chat"
           >
-            New Chat
+            {t('home.newChat', 'New Chat')}
           </Button>
           <Button
             variant="secondary"
@@ -244,7 +250,7 @@ export const WelcomeScreen = memo(() => {
             onClick={handleViewAgents}
             className="w-full"
           >
-            Agents
+            {t('home.agents', 'Agents')}
           </Button>
           <Button
             variant="ghost"
@@ -253,7 +259,7 @@ export const WelcomeScreen = memo(() => {
             onClick={handleOpenSettings}
             className="w-full"
           >
-            Settings
+            {t('home.settings', 'Settings')}
           </Button>
         </motion.div>
       </motion.div>
@@ -270,7 +276,7 @@ export const WelcomeScreen = memo(() => {
           >
             <div className="flex items-center gap-2 mb-3">
               <Clock size={14} className={theme.iconMuted} />
-              <span className={cn('text-xs uppercase tracking-wider font-mono', theme.textMuted)}>Recent Chats</span>
+              <span className={cn('text-xs uppercase tracking-wider font-mono', theme.textMuted)}>{t('home.recentChats', 'Recent Chats')}</span>
             </div>
 
             <div className="space-y-2">
@@ -299,7 +305,7 @@ export const WelcomeScreen = memo(() => {
             transition={{ delay: 0.35 }}
           >
             <Sparkles size={32} className={cn(theme.iconMuted, 'opacity-40')} />
-            <p className={cn('text-sm', theme.textMuted)}>No chats yet. Start a new conversation!</p>
+            <p className={cn('text-sm', theme.textMuted)}>{t('home.noChats', 'No chats yet. Start a new conversation!')}</p>
           </motion.div>
         )}
       </AnimatePresence>

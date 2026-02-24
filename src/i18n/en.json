@@ -66,6 +66,28 @@
     "coordinators": "Coordinators",
     "executors": "Executors"
   },
+  "home": {
+    "subtitle": "AI Swarm Control Center — start a new chat or continue a previous conversation.",
+    "newChat": "New Chat",
+    "agents": "Agents",
+    "settings": "Settings",
+    "recentChats": "Recent Chats",
+    "noChats": "No chats yet. Start a new conversation!",
+    "msg": "msg",
+    "badges": {
+      "agents": "12 Agents",
+      "pipeline": "5-Phase Pipeline",
+      "multiProvider": "Multi-Provider",
+      "swarmArch": "Swarm Architecture"
+    }
+  },
+  "time": {
+    "justNow": "just now",
+    "minutesAgo": "{{m}}m ago",
+    "hoursAgo": "{{h}}h ago",
+    "yesterday": "yesterday",
+    "daysAgo": "{{d}}d ago"
+  },
   "settings": {
     "title": "Settings",
     "subtitle": "Configure your GeminiHydra experience",

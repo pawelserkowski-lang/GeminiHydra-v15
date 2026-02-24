@@ -66,6 +66,28 @@
     "coordinators": "Koordynatorzy",
     "executors": "Wykonawcy"
   },
+  "home": {
+    "subtitle": "Centrum Sterowania Rojem AI — rozpocznij nowy czat lub kontynuuj rozmowe.",
+    "newChat": "Nowy Czat",
+    "agents": "Agenci",
+    "settings": "Ustawienia",
+    "recentChats": "Ostatnie Czaty",
+    "noChats": "Brak czatow. Rozpocznij nowa rozmowe!",
+    "msg": "wiad.",
+    "badges": {
+      "agents": "12 Agentow",
+      "pipeline": "5-fazowy Pipeline",
+      "multiProvider": "Wielu Dostawcow",
+      "swarmArch": "Architektura Roju"
+    }
+  },
+  "time": {
+    "justNow": "przed chwila",
+    "minutesAgo": "{{m}} min temu",
+    "hoursAgo": "{{h}} godz. temu",
+    "yesterday": "wczoraj",
+    "daysAgo": "{{d}} dn. temu"
+  },
   "settings": {
     "title": "Ustawienia",
     "subtitle": "Skonfiguruj swoje doswiadczenie z GeminiHydra",
