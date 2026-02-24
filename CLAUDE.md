@@ -67,10 +67,11 @@
 ## Dynamic Model Registry
 - At startup `model_registry::startup_sync()` fetches all models from Google + Anthropic APIs
 - Caches them in `AppState.model_cache` (TTL 1h, refreshed on demand via `/api/models/refresh`)
+- Currently: 22 models cached (22 Google, keys: `["google"]`)
 - Auto-selects best model per use case using `version_key()` sort (highest version + date wins):
-  - **chat**: latest `pro` (excludes lite, image, tts, thinking, computer, robotics, customtools)
-  - **thinking**: latest `flash thinking` (fallback to chat)
-  - **image**: latest model with `image` in ID (excludes robotics, computer)
+  - **chat**: latest `pro` (excludes lite, image, tts, thinking, computer, robotics, customtools) → `gemini-3.1-pro-preview`
+  - **thinking**: latest `flash thinking` (fallback to chat) → `gemini-3.1-pro-preview`
+  - **image**: latest model with `image` in ID (excludes robotics, computer) → `gemini-3-pro-image-preview`
 - Persists chosen chat model into `gh_settings.default_model` at startup
 - No hardcoded model list — adapts automatically when Google releases new models
 - Pin override: `POST /api/models/pin` saves to `gh_model_pins` (priority 1, above auto-selection)
@@ -109,5 +110,5 @@
 - Plik: `C:\Users\BIURODOM\Desktop\jaskier_knowledge.db`
 - Zawiera kompletną wiedzę o 4 projektach
 - Tabele: projects, dependencies, components, views, stores, hooks, theme_tokens, i18n_keys, api_endpoints, scripts, public_assets, shared_patterns, store_api_diff, unique_features, source_files
-- 535 rekordów, ostatni sync: 2026-02-24 12:31
+- 535 rekordów, ostatni sync: 2026-02-24 13:02
 - Query: `py -c "import sqlite3; c=sqlite3.connect(r'C:\Users\BIURODOM\Desktop\jaskier_knowledge.db'); [print(r) for r in c.execute('SELECT * FROM projects')]"`
