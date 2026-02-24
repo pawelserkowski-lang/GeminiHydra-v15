@@ -6,6 +6,7 @@ use reqwest::Client;
 use sqlx::PgPool;
 use tokio::sync::RwLock;
 
+use crate::model_registry::ModelCache;
 use crate::models::WitcherAgent;
 
 /// Mutable runtime state (not persisted — lost on restart).
@@ -19,6 +20,7 @@ pub struct AppState {
     pub db: PgPool,
     pub agents: Arc<RwLock<Vec<WitcherAgent>>>,
     pub runtime: Arc<RwLock<RuntimeState>>,
+    pub model_cache: Arc<RwLock<ModelCache>>,
     pub start_time: Instant,
     pub client: Client,
 }
@@ -57,6 +59,7 @@ impl AppState {
             db,
             agents: Arc::new(RwLock::new(agents_vec)),
             runtime: Arc::new(RwLock::new(RuntimeState { api_keys })),
+            model_cache: Arc::new(RwLock::new(ModelCache::new())),
             start_time: Instant::now(),
             client: Client::new(),
         }

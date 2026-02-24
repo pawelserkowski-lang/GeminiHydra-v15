@@ -176,20 +176,12 @@ pub struct AppSettings {
     pub use_docker_sandbox: bool,
 }
 
-/// Available Gemini 3 model IDs.
-pub const GEMINI_MODELS: &[(&str, &str)] = &[
-    ("gemini-3-flash-thinking-preview", "Gemini 3 Flash Thinking"),
-    ("gemini-3-flash-preview", "Gemini 3 Flash"),
-    ("gemini-3-pro-preview", "Gemini 3 Pro"),
-    ("gemini-3-pro-image-preview", "Gemini 3 Pro Image"),
-];
-
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
             temperature: 1.0,
             max_tokens: 8192,
-            default_model: "gemini-3-flash-thinking-preview".to_string(),
+            default_model: "gemini-3-pro-preview".to_string(),
             language: "en".to_string(),
             theme: "dark".to_string(),
             welcome_message: String::new(),

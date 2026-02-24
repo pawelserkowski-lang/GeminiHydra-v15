@@ -1,12 +1,13 @@
 pub mod analysis;
 pub mod files;
 pub mod handlers;
+pub mod model_registry;
 pub mod models;
 pub mod sessions;
 pub mod state;
 pub mod tools;
 
-use axum::routing::{get, post};
+use axum::routing::{delete, get, post};
 use axum::Router;
 
 use state::AppState;
@@ -29,6 +30,12 @@ pub fn create_router(state: AppState) -> Router {
         .route("/ws/execute", get(handlers::ws_execute))
         // Gemini proxy
         .route("/api/gemini/models", get(handlers::gemini_models))
+        // Model registry
+        .route("/api/models", get(model_registry::list_models))
+        .route("/api/models/refresh", post(model_registry::refresh_models))
+        .route("/api/models/pin", post(model_registry::pin_model))
+        .route("/api/models/pin/{use_case}", delete(model_registry::unpin_model))
+        .route("/api/models/pins", get(model_registry::list_pins))
         // Files
         .route("/api/files/read", post(handlers::read_file))
         .route("/api/files/list", post(handlers::list_files))

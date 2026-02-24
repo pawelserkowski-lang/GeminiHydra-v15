@@ -531,16 +531,19 @@ async fn update_settings(
     Ok(Json(row_to_settings(row)))
 }
 
-/// POST /api/settings/reset — restore defaults
+/// POST /api/settings/reset — restore defaults (picks best model from cache)
 async fn reset_settings(
     State(state): State<AppState>,
 ) -> Result<Json<AppSettings>, StatusCode> {
+    let best_model = crate::model_registry::get_model_id(&state, "chat").await;
+
     let row = sqlx::query_as::<_, SettingsRow>(
         "UPDATE gh_settings SET temperature=1.0, max_tokens=8192, \
-         default_model='gemini-3-flash-preview', language='en', theme='dark', \
+         default_model=$1, language='en', theme='dark', \
          welcome_message='', ollama_url='http://localhost:11434', use_docker_sandbox=FALSE, updated_at=NOW() WHERE id=1 \
          RETURNING temperature, max_tokens, default_model, language, theme, welcome_message, ollama_url, use_docker_sandbox",
     )
+    .bind(&best_model)
     .fetch_one(&state.db)
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;

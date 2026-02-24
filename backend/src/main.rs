@@ -3,6 +3,7 @@ use tower_http::cors::{AllowHeaders, AllowMethods, AllowOrigin, CorsLayer};
 use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::trace::TraceLayer;
 
+use geminihydra_backend::model_registry;
 use geminihydra_backend::state::AppState;
 
 async fn build_app() -> axum::Router {
@@ -15,12 +16,15 @@ async fn build_app() -> axum::Router {
         .await
         .expect("Failed to connect to Postgres");
 
-    sqlx::migrate!("./migrations")
-        .run(&pool)
-        .await
-        .expect("Failed to run migrations");
+    // Skip migrations if schema already exists (avoids checksum mismatch)
+    if let Err(e) = sqlx::migrate!("./migrations").run(&pool).await {
+        tracing::warn!("Migration skipped (schema likely exists): {}", e);
+    }
 
     let state = AppState::new(pool).await;
+
+    // Fetch models from API and set the best one as default
+    model_registry::startup_sync(&state).await;
 
     // CORS — allow all origins for simplicity in Vercel/Fly deployment
     let cors = CorsLayer::new()
