@@ -52,7 +52,7 @@
 ## Migrations
 - Folder: `backend/migrations/`
 - SQLx sorts by filename prefix — each migration MUST have a unique date prefix
-- Current order: 20260214_001 → 20260215_002 → 20260216_003 → 20260217_004 → 20260218_005 → 20260219_006 → 20260220_007 → 20260221_008 → 20260222_009
+- Current order: 20260214_001 → 20260215_002 → 20260216_003 → 20260217_004 → 20260218_005 → 20260219_006 → 20260220_007 → 20260221_008 → 20260222_009 → 20260224_010
 - All migrations MUST be idempotent (IF NOT EXISTS, ON CONFLICT DO NOTHING) — SQLx checks checksums
 - Migration 009: pgvector wrapped in DO/EXCEPTION block — skips gracefully if extension unavailable
 
