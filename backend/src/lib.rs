@@ -22,7 +22,7 @@ pub fn create_router(state: AppState) -> Router {
         // Agents
         .route("/api/agents", get(handlers::list_agents).post(handlers::create_agent))
         .route("/api/agents/classify", post(handlers::classify_agent))
-        .route("/api/agents/:id", post(handlers::update_agent).delete(handlers::delete_agent))
+        .route("/api/agents/{id}", post(handlers::update_agent).delete(handlers::delete_agent))
         // Execute
         .route("/api/execute", post(handlers::execute))
         // WebSocket streaming
