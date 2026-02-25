@@ -212,9 +212,9 @@ export const MessageBubble = memo<MessageBubbleProps>(({ message, isLast, isStre
                 children,
                 node,
               }: {
-                className?: string;
-                children?: ReactNode;
-                node?: { position?: { start: { line: number }; end: { line: number } } };
+                className?: string | undefined;
+                children?: ReactNode | undefined;
+                node?: { position?: { start: { line: number }; end: { line: number } } } | undefined;
               }) {
                 const match = /language-(\w+)/.exec(className ?? '');
                 const isInline = !node?.position || (node.position.start.line === node.position.end.line && !match);
@@ -228,9 +228,9 @@ export const MessageBubble = memo<MessageBubbleProps>(({ message, isLast, isStre
                   );
                 }
 
-                return <CodeBlock language={match?.[1]} code={codeContent} />;
+                return <CodeBlock {...(match?.[1] != null && { language: match[1] })} code={codeContent} />;
               },
-              pre({ children }: { children?: ReactNode }) {
+              pre({ children }: { children?: ReactNode | undefined }) {
                 return <>{children}</>;
               },
             }}

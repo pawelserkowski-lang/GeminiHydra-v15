@@ -7,7 +7,7 @@ const getState = () => useViewStore.getState();
 
 // Helper to create a message
 function makeMsg(role: Message['role'], content: string, model?: string): Message {
-  return { role, content, timestamp: Date.now(), model };
+  return { role, content, timestamp: Date.now(), ...(model !== undefined && { model }) };
 }
 
 // ============================================================================

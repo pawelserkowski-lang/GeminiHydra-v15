@@ -604,12 +604,11 @@ async fn execute_streaming_ollama(
     if let Some(s) = &sid {
         let history = load_session_history(&state.db, s).await;
         for msg in history {
-            if let Some(parts) = msg["parts"].as_array() {
-                if let Some(text) = parts[0]["text"].as_str() {
+            if let Some(parts) = msg["parts"].as_array()
+                && let Some(text) = parts[0]["text"].as_str() {
                     let role = msg["role"].as_str().unwrap_or("user");
                     messages.push(json!({ "role": if role == "model" { "assistant" } else { "user" }, "content": text }));
                 }
-            }
         }
     }
     
@@ -773,10 +772,10 @@ pub async fn gemini_models(State(state): State<AppState>) -> Json<Value> {
     let key = state.runtime.read().await.api_keys.get("google").cloned().unwrap_or_default();
     if !key.is_empty() {
         let url = format!("https://generativelanguage.googleapis.com/v1beta/models?key={}", key);
-        if let Ok(res) = state.client.get(&url).send().await {
-            if res.status().is_success() {
-                if let Ok(body) = res.json::<Value>().await {
-                    if let Some(list) = body["models"].as_array() {
+        if let Ok(res) = state.client.get(&url).send().await
+            && res.status().is_success()
+                && let Ok(body) = res.json::<Value>().await
+                    && let Some(list) = body["models"].as_array() {
                         models.extend(list.iter().filter_map(|m| {
                             let info: GeminiModelInfo = serde_json::from_value(m.clone()).ok()?;
                             if info.supported_generation_methods.contains(&"generateContent".to_string()) {
@@ -786,9 +785,6 @@ pub async fn gemini_models(State(state): State<AppState>) -> Json<Value> {
                             }
                         }));
                     }
-                }
-            }
-        }
     }
 
     // 2. Fetch Ollama models
@@ -800,10 +796,10 @@ pub async fn gemini_models(State(state): State<AppState>) -> Json<Value> {
         // Use an async block for the request to simplify error handling logic?
         // Or just keep it flat.
         
-        if let Ok(res) = state.client.get(&url).timeout(std::time::Duration::from_secs(2)).send().await {
-            if res.status().is_success() {
-                if let Ok(body) = res.json::<Value>().await {
-                    if let Some(list) = body["models"].as_array() {
+        if let Ok(res) = state.client.get(&url).timeout(std::time::Duration::from_secs(2)).send().await
+            && res.status().is_success()
+                && let Ok(body) = res.json::<Value>().await
+                    && let Some(list) = body["models"].as_array() {
                         for m in list {
                             if let Some(name) = m["name"].as_str() {
                                 models.push(GeminiModelInfo {
@@ -814,9 +810,6 @@ pub async fn gemini_models(State(state): State<AppState>) -> Json<Value> {
                             }
                         }
                     }
-                }
-            }
-        }
     }
 
     Json(json!(GeminiModelsResponse { models }))

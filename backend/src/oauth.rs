@@ -286,11 +286,10 @@ pub fn ensure_system_prompt(body: &mut Value) {
     match body.get("system") {
         Some(Value::Array(arr)) => {
             // Check if already first element
-            if let Some(first) = arr.first() {
-                if first.get("text").and_then(|t| t.as_str()) == Some(REQUIRED_SYSTEM_PROMPT) {
+            if let Some(first) = arr.first()
+                && first.get("text").and_then(|t| t.as_str()) == Some(REQUIRED_SYSTEM_PROMPT) {
                     return;
                 }
-            }
             let mut new_arr = vec![required_block];
             new_arr.extend(arr.iter().cloned());
             body["system"] = Value::Array(new_arr);

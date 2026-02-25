@@ -158,7 +158,7 @@ function AppShellInner({ children, statusFooterProps }: AppShellProps) {
 export function AppShell({ children, statusFooterProps }: AppShellProps) {
   return (
     <ThemeProvider defaultTheme="dark">
-      <AppShellInner statusFooterProps={statusFooterProps}>{children}</AppShellInner>
+      <AppShellInner {...(statusFooterProps !== undefined && { statusFooterProps })}>{children}</AppShellInner>
     </ThemeProvider>
   );
 }

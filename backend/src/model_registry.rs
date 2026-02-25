@@ -54,6 +54,12 @@ pub struct ModelCache {
     pub fetched_at: Option<Instant>,
 }
 
+impl Default for ModelCache {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ModelCache {
     pub fn new() -> Self {
         Self {

@@ -107,14 +107,14 @@ export async function apiGet<T>(path: string): Promise<T> {
 export async function apiPost<T>(path: string, body?: unknown): Promise<T> {
   return apiFetch<T>(path, {
     method: 'POST',
-    body: body !== undefined ? JSON.stringify(body) : undefined,
+    ...(body !== undefined && { body: JSON.stringify(body) }),
   });
 }
 
 export async function apiPatch<T>(path: string, body?: unknown): Promise<T> {
   return apiFetch<T>(path, {
     method: 'PATCH',
-    body: body !== undefined ? JSON.stringify(body) : undefined,
+    ...(body !== undefined && { body: JSON.stringify(body) }),
   });
 }
 
@@ -151,7 +151,7 @@ export async function checkHealth(): Promise<HealthStatus> {
     // 503 = starting up
     if (response.status === 503) {
       const body = (await response.json()) as HealthStatus;
-      return { ready: false, uptime_seconds: body.uptime_seconds };
+      return { ready: false, ...(body.uptime_seconds !== undefined && { uptime_seconds: body.uptime_seconds }) };
     }
 
     return { ready: false };

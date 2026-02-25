@@ -133,7 +133,7 @@ function ChatViewWrapper() {
                   role: 'assistant',
                   content: data.result,
                   timestamp: Date.now(),
-                  model: data.plan?.agent,
+                  ...(data.plan?.agent !== undefined && { model: data.plan.agent }),
                 });
               }
               setHttpStreamingSessionId(null);

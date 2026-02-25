@@ -234,7 +234,7 @@ export function useWebSocketChat(callbacks: WsCallbacks) {
       // Track which session this stream belongs to
       streamingSessionIdRef.current = session_id ?? null;
 
-      const msg: WsClientMessage = { type: 'execute', prompt, mode, model, session_id };
+      const msg: WsClientMessage = { type: 'execute', prompt, mode, ...(model !== undefined && { model }), ...(session_id !== undefined && { session_id }) };
       ws.send(JSON.stringify(msg));
     },
     [],

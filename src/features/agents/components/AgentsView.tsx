@@ -133,15 +133,13 @@ function PipelineStrip({ activePhase, agentColor }: { activePhase: PipelinePhase
                       ? 'bg-slate-50 border-slate-100 text-slate-300'
                       : 'bg-white/3 border-white/5 text-white/20',
               )}
-              style={
-                isActive
-                  ? {
-                      backgroundColor: `${agentColor}20`,
-                      borderColor: `${agentColor}50`,
-                      color: agentColor,
-                    }
-                  : undefined
-              }
+              {...(isActive && {
+                style: {
+                  backgroundColor: `${agentColor}20`,
+                  borderColor: `${agentColor}50`,
+                  color: agentColor,
+                },
+              })}
               title={PIPELINE_LABELS[phase]}
             >
               {phase}

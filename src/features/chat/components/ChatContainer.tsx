@@ -605,7 +605,7 @@ export const ChatContainer = memo<ChatContainerProps>(({ isStreaming, onSubmit, 
           <ChatInput
             isStreaming={isStreaming}
             onSubmit={handleSubmit}
-            onStop={onStop}
+            {...(onStop !== undefined && { onStop })}
             pendingImage={pendingImage}
             onClearImage={() => setPendingImage(null)}
             onPasteImage={handlePasteImage}
