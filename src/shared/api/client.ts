@@ -9,6 +9,7 @@
  */
 
 const BASE_URL = import.meta.env.VITE_BACKEND_URL ?? (import.meta.env.PROD ? 'https://geminihydra-v15-backend.fly.dev' : '');
+const AUTH_SECRET = import.meta.env.VITE_AUTH_SECRET as string | undefined;
 
 const MAX_RETRIES = 3;
 const RETRY_BASE_MS = 1000;
@@ -74,6 +75,7 @@ async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> 
     ...options,
     headers: {
       'Content-Type': 'application/json',
+      ...(AUTH_SECRET ? { Authorization: `Bearer ${AUTH_SECRET}` } : {}),
       ...options.headers,
     },
   });

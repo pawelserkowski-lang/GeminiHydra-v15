@@ -44,14 +44,16 @@ const HEARTBEAT_TIMEOUT_MS = 10_000;
 
 function getWsUrl(): string {
   const backendUrl = import.meta.env.VITE_BACKEND_URL;
+  const authSecret = import.meta.env.VITE_AUTH_SECRET as string | undefined;
+  const tokenParam = authSecret ? `?token=${encodeURIComponent(authSecret)}` : '';
 
   if (backendUrl) {
-    return backendUrl.replace(/^http/, 'ws') + '/ws/execute';
+    return backendUrl.replace(/^http/, 'ws') + '/ws/execute' + tokenParam;
   }
 
   const loc = window.location;
   const protocol = loc.protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${protocol}//${loc.host}/ws/execute`;
+  return `${protocol}//${loc.host}/ws/execute${tokenParam}`;
 }
 
 // ============================================================================

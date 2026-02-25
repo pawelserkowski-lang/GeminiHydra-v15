@@ -191,6 +191,13 @@ pub async fn readiness(State(state): State<AppState>) -> axum::response::Respons
     }
 }
 
+/// GET /api/auth/mode — returns whether auth is required (public endpoint).
+pub async fn auth_mode(State(state): State<AppState>) -> Json<Value> {
+    Json(json!({
+        "auth_required": state.auth_secret.is_some()
+    }))
+}
+
 pub async fn health_detailed(State(state): State<AppState>) -> Json<DetailedHealthResponse> {
     let rt = state.runtime.read().await;
     let cache = state.model_cache.read().await;
@@ -440,8 +447,24 @@ async fn ws_send(sender: &mut futures_util::stream::SplitSink<WebSocket, WsMessa
 // WebSocket Handler
 // ---------------------------------------------------------------------------
 
-pub async fn ws_execute(ws: WebSocketUpgrade, State(state): State<AppState>) -> impl IntoResponse {
+pub async fn ws_execute(
+    ws: WebSocketUpgrade,
+    State(state): State<AppState>,
+    axum::extract::Query(params): axum::extract::Query<HashMap<String, String>>,
+) -> impl IntoResponse {
+    // Validate auth for WebSocket connections via query param
+    let query_str = params
+        .iter()
+        .map(|(k, v)| format!("{}={}", k, v))
+        .collect::<Vec<_>>()
+        .join("&");
+
+    if !crate::auth::validate_ws_token(&query_str, state.auth_secret.as_deref()) {
+        return (axum::http::StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+    }
+
     ws.on_upgrade(move |socket| handle_ws(socket, state))
+        .into_response()
 }
 
 async fn handle_ws(socket: WebSocket, state: AppState) {

@@ -61,6 +61,8 @@ pub struct AppState {
     pub system_monitor: Arc<RwLock<SystemSnapshot>>,
     /// `true` once startup_sync completes (or times out).
     pub ready: Arc<AtomicBool>,
+    /// Optional auth secret from AUTH_SECRET env. None = dev mode (no auth).
+    pub auth_secret: Option<String>,
 }
 
 // ── Shared: readiness helpers ───────────────────────────────────────────────
@@ -99,6 +101,13 @@ impl AppState {
                 vec![]
             });
 
+        let auth_secret = std::env::var("AUTH_SECRET").ok().filter(|s| !s.is_empty());
+        if auth_secret.is_some() {
+            tracing::info!("AUTH_SECRET configured — authentication enabled");
+        } else {
+            tracing::info!("AUTH_SECRET not set — authentication disabled (dev mode)");
+        }
+
         tracing::info!(
             "AppState initialised — {} agents loaded, keys: {:?}",
             agents_vec.len(),
@@ -115,6 +124,7 @@ impl AppState {
             oauth_pkce: Arc::new(RwLock::new(None)),
             system_monitor: Arc::new(RwLock::new(SystemSnapshot::default())),
             ready: Arc::new(AtomicBool::new(false)),
+            auth_secret,
         }
     }
 
