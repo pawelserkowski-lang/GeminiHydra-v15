@@ -4,6 +4,7 @@ use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
 use tower_http::cors::CorsLayer;
 use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::set_header::SetResponseHeaderLayer;
+use tower_http::compression::CompressionLayer;
 use tower_http::trace::TraceLayer;
 
 use geminihydra_backend::model_registry;
@@ -16,6 +17,9 @@ async fn build_app() -> (axum::Router, AppState) {
     let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL required");
     let pool = PgPoolOptions::new()
         .max_connections(5)
+        .acquire_timeout(std::time::Duration::from_secs(3))
+        .idle_timeout(std::time::Duration::from_secs(600))
+        .max_lifetime(std::time::Duration::from_secs(1800))
         .connect(&database_url)
         .await
         .expect("Failed to connect to Postgres");
@@ -62,6 +66,16 @@ async fn build_app() -> (axum::Router, AppState) {
         header::REFERRER_POLICY,
         HeaderValue::from_static("strict-origin-when-cross-origin"),
     );
+    let csp: SetResponseHeaderLayer<HeaderValue> = SetResponseHeaderLayer::overriding(
+        header::CONTENT_SECURITY_POLICY,
+        HeaderValue::from_static(
+            "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://generativelanguage.googleapis.com https://api.anthropic.com https://api.openai.com; img-src 'self' data: blob:",
+        ),
+    );
+    let hsts: SetResponseHeaderLayer<HeaderValue> = SetResponseHeaderLayer::overriding(
+        header::STRICT_TRANSPORT_SECURITY,
+        HeaderValue::from_static("max-age=63072000; includeSubDomains"),
+    );
 
     // Rate limiting: 30 req burst, replenish 1 per 2 seconds, per IP
     // Jaskier Shared Pattern -- rate_limit
@@ -78,7 +92,10 @@ async fn build_app() -> (axum::Router, AppState) {
         .layer(nosniff)
         .layer(frame_deny)
         .layer(referrer)
-        .layer(TraceLayer::new_for_http());
+        .layer(csp)
+        .layer(hsts)
+        .layer(TraceLayer::new_for_http())
+        .layer(CompressionLayer::new());
 
     (app, state)
 }
@@ -99,11 +116,17 @@ async fn main() -> shuttle_axum::ShuttleAxum {
 async fn main() -> anyhow::Result<()> {
     use tracing_subscriber::EnvFilter;
 
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
-        )
-        .init();
+    let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into());
+    if std::env::var("RUST_LOG_FORMAT").as_deref() == Ok("json") {
+        tracing_subscriber::fmt()
+            .with_env_filter(env_filter)
+            .json()
+            .init();
+    } else {
+        tracing_subscriber::fmt()
+            .with_env_filter(env_filter)
+            .init();
+    }
 
     let (app, state) = build_app().await;
 
@@ -137,7 +160,26 @@ async fn main() -> anyhow::Result<()> {
         listener,
         app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
     )
+    .with_graceful_shutdown(shutdown_signal())
     .await?;
 
     Ok(())
+}
+
+async fn shutdown_signal() {
+    let ctrl_c = tokio::signal::ctrl_c();
+    #[cfg(unix)]
+    {
+        let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("failed to install SIGTERM handler");
+        tokio::select! {
+            _ = ctrl_c => {},
+            _ = sigterm.recv() => {},
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        ctrl_c.await.ok();
+    }
+    tracing::info!("Shutdown signal received, starting graceful shutdown");
 }

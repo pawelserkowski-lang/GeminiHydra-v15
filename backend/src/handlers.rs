@@ -20,6 +20,62 @@ use crate::models::{
 use crate::state::AppState;
 
 // ---------------------------------------------------------------------------
+// Jaskier Shared Pattern -- error
+// ---------------------------------------------------------------------------
+
+/// Centralized API error type for all handlers.
+/// Logs full details server-side, returns sanitized JSON to the client.
+#[derive(Debug, thiserror::Error)]
+pub enum ApiError {
+    #[error("Bad request: {0}")]
+    BadRequest(String),
+
+    #[error("Not found: {0}")]
+    NotFound(String),
+
+    #[error("Upstream API error: {0}")]
+    Upstream(String),
+
+    #[error("Internal error: {0}")]
+    Internal(String),
+
+    #[error("Not authenticated: {0}")]
+    Unauthorized(String),
+
+    #[error("Service unavailable: {0}")]
+    Unavailable(String),
+}
+
+impl axum::response::IntoResponse for ApiError {
+    fn into_response(self) -> axum::response::Response {
+        let status = match &self {
+            ApiError::BadRequest(_) => axum::http::StatusCode::BAD_REQUEST,
+            ApiError::NotFound(_) => axum::http::StatusCode::NOT_FOUND,
+            ApiError::Upstream(_) => axum::http::StatusCode::BAD_GATEWAY,
+            ApiError::Internal(_) => axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            ApiError::Unauthorized(_) => axum::http::StatusCode::UNAUTHORIZED,
+            ApiError::Unavailable(_) => axum::http::StatusCode::SERVICE_UNAVAILABLE,
+        };
+
+        // Log full detail server-side
+        tracing::error!("API error ({}): {}", status.as_u16(), self);
+
+        // Return sanitised message to client — never leak internal details
+        let message = match &self {
+            ApiError::BadRequest(m) => m.clone(),
+            ApiError::NotFound(_) => "Resource not found".to_string(),
+            ApiError::Upstream(_) => "Upstream service error".to_string(),
+            ApiError::Internal(_) => "Internal server error".to_string(),
+            ApiError::Unauthorized(m) => m.clone(),
+            ApiError::Unavailable(m) => m.clone(),
+        };
+
+        let body = json!({ "error": message });
+        (status, Json(body)).into_response()
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Helpers & Routing Logic
 // ---------------------------------------------------------------------------
 
@@ -162,6 +218,9 @@ When the user provides a file path or directory path, USE your tools to access i
 // REST Handlers
 // ---------------------------------------------------------------------------
 
+#[utoipa::path(get, path = "/api/health", tag = "health",
+    responses((status = 200, description = "Health check with provider status", body = HealthResponse))
+)]
 pub async fn health(State(state): State<AppState>) -> Json<HealthResponse> {
     let rt = state.runtime.read().await;
     let cache = state.model_cache.read().await;
@@ -177,6 +236,12 @@ pub async fn health(State(state): State<AppState>) -> Json<HealthResponse> {
 }
 
 /// GET /api/health/ready — lightweight readiness probe (no locks, no DB).
+#[utoipa::path(get, path = "/api/health/ready", tag = "health",
+    responses(
+        (status = 200, description = "Service ready", body = Value),
+        (status = 503, description = "Service not ready", body = Value)
+    )
+)]
 pub async fn readiness(State(state): State<AppState>) -> axum::response::Response {
     use axum::http::StatusCode;
 
@@ -192,12 +257,18 @@ pub async fn readiness(State(state): State<AppState>) -> axum::response::Respons
 }
 
 /// GET /api/auth/mode — returns whether auth is required (public endpoint).
+#[utoipa::path(get, path = "/api/auth/mode", tag = "auth",
+    responses((status = 200, description = "Auth mode info", body = Value))
+)]
 pub async fn auth_mode(State(state): State<AppState>) -> Json<Value> {
     Json(json!({
         "auth_required": state.auth_secret.is_some()
     }))
 }
 
+#[utoipa::path(get, path = "/api/health/detailed", tag = "health",
+    responses((status = 200, description = "Detailed health with system metrics", body = DetailedHealthResponse))
+)]
 pub async fn health_detailed(State(state): State<AppState>) -> Json<DetailedHealthResponse> {
     let rt = state.runtime.read().await;
     let cache = state.model_cache.read().await;
@@ -217,11 +288,18 @@ pub async fn health_detailed(State(state): State<AppState>) -> Json<DetailedHeal
     })
 }
 
+#[utoipa::path(get, path = "/api/agents", tag = "agents",
+    responses((status = 200, description = "List of configured agents", body = Value))
+)]
 pub async fn list_agents(State(state): State<AppState>) -> Json<Value> {
     let agents = state.agents.read().await;
     Json(json!({ "agents": *agents }))
 }
 
+#[utoipa::path(post, path = "/api/agents/classify", tag = "agents",
+    request_body = ClassifyRequest,
+    responses((status = 200, description = "Agent classification result", body = ClassifyResponse))
+)]
 pub async fn classify_agent(
     State(state): State<AppState>,
     Json(body): Json<ClassifyRequest>,
@@ -233,6 +311,10 @@ pub async fn classify_agent(
 
 // ── Agent CRUD ─────────────────────────────────────────────────────────────
 
+#[utoipa::path(post, path = "/api/agents", tag = "agents",
+    request_body = WitcherAgent,
+    responses((status = 200, description = "Agent created", body = Value))
+)]
 pub async fn create_agent(
     State(state): State<AppState>,
     Json(agent): Json<WitcherAgent>,
@@ -256,6 +338,11 @@ pub async fn create_agent(
     Json(json!({ "success": true }))
 }
 
+#[utoipa::path(post, path = "/api/agents/{id}", tag = "agents",
+    params(("id" = String, Path, description = "Agent ID")),
+    request_body = WitcherAgent,
+    responses((status = 200, description = "Agent updated", body = Value))
+)]
 pub async fn update_agent(
     State(state): State<AppState>,
     axum::extract::Path(id): axum::extract::Path<String>,
@@ -280,6 +367,10 @@ pub async fn update_agent(
     Json(json!({ "success": true }))
 }
 
+#[utoipa::path(delete, path = "/api/agents/{id}", tag = "agents",
+    params(("id" = String, Path, description = "Agent ID")),
+    responses((status = 200, description = "Agent deleted", body = Value))
+)]
 pub async fn delete_agent(
     State(state): State<AppState>,
     axum::extract::Path(id): axum::extract::Path<String>,
@@ -793,6 +884,9 @@ async fn store_messages(db: &sqlx::PgPool, sid: Option<Uuid>, rid: Uuid, prompt:
 // Other Handlers (Proxy, Stats, Files)
 // ---------------------------------------------------------------------------
 
+#[utoipa::path(get, path = "/api/gemini/models", tag = "models",
+    responses((status = 200, description = "Available Gemini and Ollama models", body = GeminiModelsResponse))
+)]
 pub async fn gemini_models(State(state): State<AppState>) -> Json<Value> {
     let mut models = Vec::new();
 
@@ -843,6 +937,9 @@ pub async fn gemini_models(State(state): State<AppState>) -> Json<Value> {
     Json(json!(GeminiModelsResponse { models }))
 }
 
+#[utoipa::path(get, path = "/api/system/stats", tag = "system",
+    responses((status = 200, description = "System resource usage", body = SystemStats))
+)]
 pub async fn system_stats(State(state): State<AppState>) -> Json<SystemStats> {
     let snap = state.system_monitor.read().await;
     Json(SystemStats {
@@ -853,6 +950,10 @@ pub async fn system_stats(State(state): State<AppState>) -> Json<SystemStats> {
     })
 }
 
+#[utoipa::path(post, path = "/api/files/read", tag = "files",
+    request_body = FileReadRequest,
+    responses((status = 200, description = "File content", body = FileReadResponse))
+)]
 pub async fn read_file(Json(body): Json<FileReadRequest>) -> Json<Value> {
     match files::read_file_raw(&body.path).await {
         Ok(f) => Json(json!(FileReadResponse { path: f.path, content: f.content, size_bytes: f.size_bytes, truncated: f.truncated, extension: f.extension })),
@@ -860,6 +961,10 @@ pub async fn read_file(Json(body): Json<FileReadRequest>) -> Json<Value> {
     }
 }
 
+#[utoipa::path(post, path = "/api/files/list", tag = "files",
+    request_body = FileListRequest,
+    responses((status = 200, description = "Directory listing", body = FileListResponse))
+)]
 pub async fn list_files(Json(body): Json<FileListRequest>) -> Json<Value> {
     match files::list_directory(&body.path, body.show_hidden).await {
         Ok(e) => {
@@ -886,6 +991,10 @@ fn build_tools() -> Value {
 // HTTP Execute (Legacy)
 // ---------------------------------------------------------------------------
 
+#[utoipa::path(post, path = "/api/execute", tag = "chat",
+    request_body = ExecuteRequest,
+    responses((status = 200, description = "Execution result", body = ExecuteResponse))
+)]
 pub async fn execute(State(state): State<AppState>, Json(body): Json<ExecuteRequest>) -> Json<Value> {
     let start = Instant::now();
     let ctx = prepare_execution(&state, &body.prompt, body.model.clone(), None).await;

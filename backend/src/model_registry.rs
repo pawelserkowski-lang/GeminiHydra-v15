@@ -11,6 +11,7 @@ use axum::extract::{Path, State};
 use axum::Json;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use utoipa::ToSchema;
 
 use crate::state::AppState;
 
@@ -22,7 +23,7 @@ const CACHE_TTL: Duration = Duration::from_secs(3600); // 1 hour
 
 // ── Model info ───────────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ModelInfo {
     pub id: String,
     pub provider: String,
@@ -32,7 +33,7 @@ pub struct ModelInfo {
 
 // --- Project-Specific Types ---
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct ResolvedModels {
     pub chat: Option<ModelInfo>,
     pub thinking: Option<ModelInfo>,
@@ -41,7 +42,7 @@ pub struct ResolvedModels {
 
 // ── Pin request ──────────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, ToSchema)]
 pub struct PinModelRequest {
     pub use_case: String,
     pub model_id: String,
@@ -425,6 +426,9 @@ pub async fn startup_sync(state: &AppState) {
 // --- Shared Handlers ---
 
 /// GET /api/models — Return all cached models + resolved selections + pins
+#[utoipa::path(get, path = "/api/models", tag = "models",
+    responses((status = 200, description = "Cached models, resolved selections, and pins", body = Value))
+)]
 pub async fn list_models(State(state): State<AppState>) -> Json<Value> {
     let resolved = resolve_models(&state).await;
     let pins = get_pins_map(&state).await;
@@ -452,6 +456,9 @@ pub async fn list_models(State(state): State<AppState>) -> Json<Value> {
 }
 
 /// POST /api/models/refresh — Force refresh of model cache
+#[utoipa::path(post, path = "/api/models/refresh", tag = "models",
+    responses((status = 200, description = "Refreshed model cache", body = Value))
+)]
 pub async fn refresh_models(State(state): State<AppState>) -> Json<Value> {
     let models = refresh_cache(&state).await;
     let resolved = resolve_models(&state).await;
@@ -472,6 +479,10 @@ pub async fn refresh_models(State(state): State<AppState>) -> Json<Value> {
 }
 
 /// POST /api/models/pin — Pin a specific model to a use case
+#[utoipa::path(post, path = "/api/models/pin", tag = "models",
+    request_body = PinModelRequest,
+    responses((status = 200, description = "Model pinned", body = Value))
+)]
 pub async fn pin_model(
     State(state): State<AppState>,
     Json(body): Json<PinModelRequest>,
@@ -502,6 +513,10 @@ pub async fn pin_model(
 }
 
 /// DELETE /api/models/pin/{use_case} — Unpin a use case
+#[utoipa::path(delete, path = "/api/models/pin/{use_case}", tag = "models",
+    params(("use_case" = String, Path, description = "Use case to unpin")),
+    responses((status = 200, description = "Model unpinned", body = Value))
+)]
 pub async fn unpin_model(
     State(state): State<AppState>,
     Path(use_case): Path<String>,
@@ -518,6 +533,9 @@ pub async fn unpin_model(
 }
 
 /// GET /api/models/pins — List all active pins
+#[utoipa::path(get, path = "/api/models/pins", tag = "models",
+    responses((status = 200, description = "All active model pins", body = Value))
+)]
 pub async fn list_pins(State(state): State<AppState>) -> Json<Value> {
     let pins = get_pins_map(&state).await;
     Json(json!({ "pins": pins }))

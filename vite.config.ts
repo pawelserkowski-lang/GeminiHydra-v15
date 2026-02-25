@@ -2,13 +2,20 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
+import { visualizer } from 'rollup-plugin-visualizer';
 import { resolve } from 'path';
 
 const backendUrl = process.env.VITE_BACKEND_URL || 'http://localhost:8081';
 const partnerBackendUrl = process.env.VITE_PARTNER_BACKEND_URL || 'http://localhost:8082';
 
-export default defineConfig({
-  plugins: [react(), tailwindcss()],
+export default defineConfig(({ mode }) => ({
+  plugins: [
+    react(),
+    tailwindcss(),
+    ...(mode === 'analyze'
+      ? [visualizer({ open: true, filename: 'dist/stats.html', gzipSize: true })]
+      : []),
+  ],
   resolve: {
     alias: {
       '@': resolve(__dirname, './src'),
@@ -55,4 +62,4 @@ export default defineConfig({
     setupFiles: ['./src/test/setup.ts'],
     include: ['src/**/*.test.{ts,tsx}'],
   },
-});
+}));

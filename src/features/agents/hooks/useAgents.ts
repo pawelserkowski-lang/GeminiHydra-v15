@@ -6,6 +6,7 @@
  */
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import { apiDelete, apiGet, apiPost } from '@/shared/api/client';
 import type { Agent, AgentsList } from '@/shared/api/schemas';
 
@@ -23,6 +24,9 @@ export function useCreateAgentMutation() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['agents'] });
     },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : 'Operation failed');
+    },
   });
 }
 
@@ -33,6 +37,9 @@ export function useUpdateAgentMutation() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['agents'] });
     },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : 'Operation failed');
+    },
   });
 }
 
@@ -42,6 +49,9 @@ export function useDeleteAgentMutation() {
     mutationFn: (id) => apiDelete<void>(`/api/agents/${id}`),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['agents'] });
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : 'Operation failed');
     },
   });
 }

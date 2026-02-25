@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 // ---------------------------------------------------------------------------
 // DB row types
@@ -55,7 +56,7 @@ pub struct KnowledgeEdgeRow {
 // Witcher Agents
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, ToSchema)]
 pub struct WitcherAgent {
     pub id: String,
     pub name: String,
@@ -73,14 +74,14 @@ pub struct WitcherAgent {
 // Health
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ProviderInfo {
     pub name: String,
     pub available: bool,
     pub model: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct HealthResponse {
     pub status: String,
     pub version: String,
@@ -89,7 +90,7 @@ pub struct HealthResponse {
     pub providers: Vec<ProviderInfo>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct DetailedHealthResponse {
     pub status: String,
     pub version: String,
@@ -105,7 +106,7 @@ pub struct DetailedHealthResponse {
 // Execute (Chat / Swarm)
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ExecuteRequest {
     pub prompt: String,
     pub mode: String,
@@ -113,14 +114,14 @@ pub struct ExecuteRequest {
     pub model: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ExecutePlan {
     pub agent: Option<String>,
     pub steps: Vec<String>,
     pub estimated_time: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ExecuteResponse {
     pub id: String,
     pub result: String,
@@ -135,7 +136,7 @@ pub struct ExecuteResponse {
 // Gemini Proxy
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct GeminiStreamRequest {
     pub prompt: String,
     #[serde(default)]
@@ -146,12 +147,12 @@ pub struct GeminiStreamRequest {
     pub max_tokens: Option<u32>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct GeminiModelsResponse {
     pub models: Vec<GeminiModelInfo>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct GeminiModelInfo {
     pub name: String,
     #[serde(default, alias = "displayName")]
@@ -164,7 +165,7 @@ pub struct GeminiModelInfo {
 // Settings
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct AppSettings {
     pub temperature: f64,
     pub max_tokens: u32,
@@ -195,7 +196,7 @@ impl Default for AppSettings {
 // System Stats
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct SystemStats {
     pub cpu_usage_percent: f32,
     pub memory_used_mb: f64,
@@ -207,7 +208,7 @@ pub struct SystemStats {
 // Chat History
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ChatMessage {
     pub id: String,
     pub role: String,
@@ -223,12 +224,12 @@ pub struct ChatMessage {
 // File Access
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct FileReadRequest {
     pub path: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct FileReadResponse {
     pub path: String,
     pub content: String,
@@ -237,21 +238,21 @@ pub struct FileReadResponse {
     pub extension: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct FileListRequest {
     pub path: String,
     #[serde(default)]
     pub show_hidden: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct FileListResponse {
     pub path: String,
     pub entries: Vec<FileEntryResponse>,
     pub count: usize,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct FileEntryResponse {
     pub name: String,
     pub path: String,
@@ -264,12 +265,12 @@ pub struct FileEntryResponse {
 // Classify
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ClassifyRequest {
     pub prompt: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ClassifyResponse {
     pub agent: String,
     pub confidence: f64,
@@ -296,7 +297,7 @@ pub struct SessionSummaryRow {
     pub message_count: i64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct Session {
     pub id: String,
     pub title: String,
@@ -304,7 +305,7 @@ pub struct Session {
     pub messages: Vec<ChatMessage>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct SessionSummary {
     pub id: String,
     pub title: String,
@@ -312,12 +313,12 @@ pub struct SessionSummary {
     pub message_count: usize,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct CreateSessionRequest {
     pub title: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct UpdateSessionRequest {
     pub title: String,
 }

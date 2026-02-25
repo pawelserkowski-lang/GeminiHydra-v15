@@ -9,6 +9,7 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use utoipa::ToSchema;
 
 use crate::models::{
     AppSettings, ChatMessage, ChatMessageRow, CreateSessionRequest, KnowledgeEdgeRow,
@@ -30,14 +31,14 @@ pub struct MemoryEntry {
     pub timestamp: String,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
 pub struct KnowledgeNode {
     pub id: String,
     pub node_type: String,
     pub label: String,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
 pub struct KnowledgeEdge {
     pub source: String,
     pub target: String,
@@ -51,7 +52,7 @@ pub struct SearchQuery {
     pub q: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct AddMessageRequest {
     pub role: String,
     pub content: String,
@@ -82,7 +83,7 @@ pub struct ClearMemoryParams {
 }
 
 /// Partial settings for PATCH merge.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct PartialSettings {
     #[serde(default)]
     pub temperature: Option<f64>,
@@ -102,7 +103,7 @@ pub struct PartialSettings {
     pub use_docker_sandbox: Option<bool>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct AddMemoryRequest {
     pub agent: String,
     pub content: String,
@@ -197,7 +198,10 @@ pub fn session_routes() -> Router<AppState> {
 // ============================================================================
 
 /// GET /api/history?limit=50
-async fn get_history(
+#[utoipa::path(get, path = "/api/history", tag = "history",
+    responses((status = 200, description = "Chat history messages", body = Value))
+)]
+pub async fn get_history(
     State(state): State<AppState>,
     Query(params): Query<HistoryParams>,
 ) -> Result<Json<Value>, StatusCode> {
@@ -230,7 +234,10 @@ async fn get_history(
 }
 
 /// GET /api/history/search?q=...
-async fn search_history(
+#[utoipa::path(get, path = "/api/history/search", tag = "history",
+    responses((status = 200, description = "Search results", body = Value))
+)]
+pub async fn search_history(
     State(state): State<AppState>,
     Query(params): Query<SearchQuery>,
 ) -> Result<Json<Value>, StatusCode> {
@@ -256,7 +263,11 @@ async fn search_history(
 }
 
 /// POST /api/history — add a single message
-async fn add_message(
+#[utoipa::path(post, path = "/api/history", tag = "history",
+    request_body = AddMessageRequest,
+    responses((status = 200, description = "Message added", body = Value))
+)]
+pub async fn add_message(
     State(state): State<AppState>,
     Json(body): Json<AddMessageRequest>,
 ) -> Result<Json<Value>, StatusCode> {
@@ -278,7 +289,10 @@ async fn add_message(
 }
 
 /// DELETE /api/history — clear all history
-async fn clear_history(
+#[utoipa::path(delete, path = "/api/history", tag = "history",
+    responses((status = 200, description = "History cleared", body = Value))
+)]
+pub async fn clear_history(
     State(state): State<AppState>,
 ) -> Result<Json<Value>, StatusCode> {
     sqlx::query("DELETE FROM gh_chat_messages")
@@ -294,7 +308,10 @@ async fn clear_history(
 // ============================================================================
 
 /// GET /api/sessions
-async fn list_sessions(
+#[utoipa::path(get, path = "/api/sessions", tag = "sessions",
+    responses((status = 200, description = "List of session summaries", body = Vec<SessionSummary>))
+)]
+pub async fn list_sessions(
     State(state): State<AppState>,
 ) -> Result<Json<Value>, StatusCode> {
     let rows = sqlx::query_as::<_, SessionSummaryRow>(
@@ -320,7 +337,11 @@ async fn list_sessions(
 }
 
 /// POST /api/sessions
-async fn create_session(
+#[utoipa::path(post, path = "/api/sessions", tag = "sessions",
+    request_body = CreateSessionRequest,
+    responses((status = 201, description = "Session created", body = Session))
+)]
+pub async fn create_session(
     State(state): State<AppState>,
     Json(req): Json<CreateSessionRequest>,
 ) -> Result<(StatusCode, Json<Value>), StatusCode> {
@@ -344,7 +365,14 @@ async fn create_session(
 }
 
 /// GET /api/sessions/:id
-async fn get_session(
+#[utoipa::path(get, path = "/api/sessions/{id}", tag = "sessions",
+    params(("id" = String, Path, description = "Session UUID")),
+    responses(
+        (status = 200, description = "Session with messages", body = Session),
+        (status = 404, description = "Session not found")
+    )
+)]
+pub async fn get_session(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<Value>, StatusCode> {
@@ -381,7 +409,15 @@ async fn get_session(
 }
 
 /// PATCH /api/sessions/:id
-async fn update_session(
+#[utoipa::path(patch, path = "/api/sessions/{id}", tag = "sessions",
+    params(("id" = String, Path, description = "Session UUID")),
+    request_body = UpdateSessionRequest,
+    responses(
+        (status = 200, description = "Session updated", body = SessionSummary),
+        (status = 404, description = "Session not found")
+    )
+)]
+pub async fn update_session(
     State(state): State<AppState>,
     Path(id): Path<String>,
     Json(req): Json<UpdateSessionRequest>,
@@ -410,7 +446,14 @@ async fn update_session(
 }
 
 /// DELETE /api/sessions/:id
-async fn delete_session(
+#[utoipa::path(delete, path = "/api/sessions/{id}", tag = "sessions",
+    params(("id" = String, Path, description = "Session UUID")),
+    responses(
+        (status = 200, description = "Session deleted", body = Value),
+        (status = 404, description = "Session not found")
+    )
+)]
+pub async fn delete_session(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<Value>, StatusCode> {
@@ -430,7 +473,15 @@ async fn delete_session(
 }
 
 /// POST /api/sessions/:id/messages
-async fn add_session_message(
+#[utoipa::path(post, path = "/api/sessions/{id}/messages", tag = "sessions",
+    params(("id" = String, Path, description = "Session UUID")),
+    request_body = AddMessageRequest,
+    responses(
+        (status = 201, description = "Message added", body = Value),
+        (status = 404, description = "Session not found")
+    )
+)]
+pub async fn add_session_message(
     State(state): State<AppState>,
     Path(id): Path<String>,
     Json(body): Json<AddMessageRequest>,
@@ -475,7 +526,10 @@ async fn add_session_message(
 // ============================================================================
 
 /// GET /api/settings
-async fn get_settings(
+#[utoipa::path(get, path = "/api/settings", tag = "settings",
+    responses((status = 200, description = "Current application settings", body = AppSettings))
+)]
+pub async fn get_settings(
     State(state): State<AppState>,
 ) -> Result<Json<AppSettings>, StatusCode> {
     let row = sqlx::query_as::<_, SettingsRow>(
@@ -490,7 +544,10 @@ async fn get_settings(
 }
 
 /// PATCH /api/settings — partial update (read-modify-write)
-async fn update_settings(
+#[utoipa::path(patch, path = "/api/settings", tag = "settings",
+    responses((status = 200, description = "Updated settings", body = AppSettings))
+)]
+pub async fn update_settings(
     State(state): State<AppState>,
     Json(patch): Json<PartialSettings>,
 ) -> Result<Json<AppSettings>, StatusCode> {
@@ -532,7 +589,10 @@ async fn update_settings(
 }
 
 /// POST /api/settings/reset — restore defaults (picks best model from cache)
-async fn reset_settings(
+#[utoipa::path(post, path = "/api/settings/reset", tag = "settings",
+    responses((status = 200, description = "Settings reset to defaults", body = AppSettings))
+)]
+pub async fn reset_settings(
     State(state): State<AppState>,
 ) -> Result<Json<AppSettings>, StatusCode> {
     let best_model = crate::model_registry::get_model_id(&state, "chat").await;
@@ -556,6 +616,9 @@ async fn reset_settings(
 // ============================================================================
 
 /// GET /api/memory/memories?agent=Geralt&topK=10
+#[utoipa::path(get, path = "/api/memory/memories", tag = "memory",
+    responses((status = 200, description = "Agent memories", body = Value))
+)]
 pub async fn list_memories(
     State(state): State<AppState>,
     Query(params): Query<MemoryQueryParams>,
@@ -596,6 +659,9 @@ pub async fn list_memories(
 }
 
 /// POST /api/memory/memories
+#[utoipa::path(post, path = "/api/memory/memories", tag = "memory",
+    responses((status = 200, description = "Memory added", body = Value))
+)]
 pub async fn add_memory(
     State(state): State<AppState>,
     Json(body): Json<AddMemoryRequest>,
@@ -618,7 +684,10 @@ pub async fn add_memory(
 }
 
 /// DELETE /api/memory/memories?agent=Geralt
-async fn clear_memories(
+#[utoipa::path(delete, path = "/api/memory/memories", tag = "memory",
+    responses((status = 200, description = "Memories cleared", body = Value))
+)]
+pub async fn clear_memories(
     State(state): State<AppState>,
     Query(params): Query<ClearMemoryParams>,
 ) -> Result<Json<Value>, StatusCode> {
@@ -646,6 +715,9 @@ async fn clear_memories(
 // ============================================================================
 
 /// GET /api/memory/graph
+#[utoipa::path(get, path = "/api/memory/graph", tag = "memory",
+    responses((status = 200, description = "Knowledge graph nodes and edges", body = Value))
+)]
 pub async fn get_knowledge_graph(
     State(state): State<AppState>,
 ) -> Result<Json<Value>, StatusCode> {
@@ -673,6 +745,9 @@ pub async fn get_knowledge_graph(
 }
 
 /// POST /api/memory/graph/nodes
+#[utoipa::path(post, path = "/api/memory/graph/nodes", tag = "memory",
+    responses((status = 200, description = "Knowledge node added/updated", body = Value))
+)]
 pub async fn add_knowledge_node(
     State(state): State<AppState>,
     Json(node): Json<KnowledgeNode>,
@@ -692,6 +767,9 @@ pub async fn add_knowledge_node(
 }
 
 /// POST /api/memory/graph/edges
+#[utoipa::path(post, path = "/api/memory/graph/edges", tag = "memory",
+    responses((status = 200, description = "Knowledge edge added", body = Value))
+)]
 pub async fn add_graph_edge(
     State(state): State<AppState>,
     Json(edge): Json<KnowledgeEdge>,

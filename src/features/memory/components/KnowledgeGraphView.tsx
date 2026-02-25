@@ -66,7 +66,7 @@ const SPRING_STRENGTH = 0.05;
 const DAMPING = 0.9;
 const CENTER_STRENGTH = 0.01;
 
-function runSimulation(nodes: Node[], edges: Edge[]) {
+function runSimulation(nodes: Node[], edges: Edge[]): number {
   // Repulsion
   for (let i = 0; i < nodes.length; i++) {
     const n1 = nodes[i];
@@ -124,6 +124,13 @@ function runSimulation(nodes: Node[], edges: Edge[]) {
     n.x += n.vx;
     n.y += n.vy;
   });
+
+  // Compute total kinetic energy for convergence detection
+  let totalKineticEnergy = 0;
+  for (const node of nodes) {
+    totalKineticEnergy += node.vx * node.vx + node.vy * node.vy;
+  }
+  return totalKineticEnergy;
 }
 
 // ============================================================================
@@ -137,6 +144,7 @@ export function KnowledgeGraphView() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [nodes, setNodes] = useState<Node[]>([]);
   const requestRef = useRef<number>(0);
+  const convergedFramesRef = useRef(0);
 
   // Sync data to local state
   useEffect(() => {
@@ -165,7 +173,18 @@ export function KnowledgeGraphView() {
         ctx.scale(dpr, dpr);
       }
 
-      runSimulation(nodes, data.edges);
+      const totalKineticEnergy = runSimulation(nodes, data.edges);
+
+      // If converged, reduce frame rate by skipping frames
+      if (totalKineticEnergy < 0.01) {
+        convergedFramesRef.current++;
+        if (convergedFramesRef.current % 10 !== 0) {
+          requestRef.current = requestAnimationFrame(animate);
+          return; // skip draw, just request next frame
+        }
+      } else {
+        convergedFramesRef.current = 0;
+      }
 
       // Render
       ctx.clearRect(0, 0, width, height);

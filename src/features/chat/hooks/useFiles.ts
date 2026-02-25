@@ -7,6 +7,7 @@
  */
 
 import { useMutation } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import { apiPost } from '@/shared/api/client';
 import type { FileReadResponse } from '@/shared/api/schemas';
 
@@ -17,6 +18,9 @@ interface FileReadInput {
 export function useFileReadMutation() {
   return useMutation<FileReadResponse, Error, FileReadInput>({
     mutationFn: (input) => apiPost<FileReadResponse>('/api/files/read', input),
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : 'Operation failed');
+    },
   });
 }
 

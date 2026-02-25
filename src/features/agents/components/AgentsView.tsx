@@ -29,6 +29,7 @@ import { type ReactNode, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Badge, Button, Card } from '@/components/atoms';
 import { StatusIndicator, type StatusState } from '@/components/molecules';
+import { ViewSkeleton } from '@/components/molecules/ViewSkeleton';
 import {
   useAgentsQuery,
   useCreateAgentMutation,
@@ -225,10 +226,10 @@ function AgentCard({ agent, onEdit, onDelete }: { agent: Agent; onEdit: () => vo
           <div className="flex items-center justify-between mt-2">
             <PipelineStrip activePhase={phase} agentColor={color} />
             <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-              <button onClick={onEdit} className="p-1 hover:bg-white/10 rounded">
+              <button type="button" aria-label={`Edit agent ${agent.name}`} onClick={onEdit} className="p-1 hover:bg-white/10 rounded">
                 <Edit size={14} className={t.textMuted} />
               </button>
-              <button onClick={onDelete} className="p-1 hover:bg-red-500/20 rounded">
+              <button type="button" aria-label={`Delete agent ${agent.name}`} onClick={onDelete} className="p-1 hover:bg-red-500/20 rounded">
                 <Trash2 size={14} className="text-red-400" />
               </button>
             </div>
@@ -287,7 +288,7 @@ export function AgentsView(): ReactNode {
     }
   };
 
-  if (isLoading) return <div className="p-6">{tr('agents.loading', 'Loading agents...')}</div>;
+  if (isLoading) return <ViewSkeleton />;
 
   return (
     <div className="flex flex-col h-full overflow-hidden">

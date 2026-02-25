@@ -9,9 +9,10 @@
  */
 
 import { toast } from 'sonner';
+import { env } from '../config/env';
 
-const BASE_URL = import.meta.env.VITE_BACKEND_URL ?? (import.meta.env.PROD ? 'https://geminihydra-v15-backend.fly.dev' : '');
-const AUTH_SECRET = import.meta.env.VITE_AUTH_SECRET as string | undefined;
+const BASE_URL = env.VITE_BACKEND_URL ?? (import.meta.env.PROD ? 'https://geminihydra-v15-backend.fly.dev' : '');
+const AUTH_SECRET = env.VITE_AUTH_SECRET;
 
 const MAX_RETRIES = 3;
 const RETRY_BASE_MS = 1000;

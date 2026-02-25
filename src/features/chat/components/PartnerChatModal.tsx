@@ -50,6 +50,9 @@ export function PartnerChatModal({ sessionId, onClose }: Props) {
           />
           {/* Modal */}
           <motion.div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="partner-chat-modal-title"
             initial={{ opacity: 0, scale: 0.95, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 20 }}
@@ -76,7 +79,7 @@ export function PartnerChatModal({ sessionId, onClose }: Props) {
                   CH
                 </div>
                 <div>
-                  <h2 className={cn('text-sm font-semibold', isLight ? 'text-slate-900' : 'text-white')}>
+                  <h2 id="partner-chat-modal-title" className={cn('text-sm font-semibold', isLight ? 'text-slate-900' : 'text-white')}>
                     {session?.title ?? 'Loading...'}
                   </h2>
                   <p className={cn('text-xs', isLight ? 'text-slate-500' : 'text-white/50')}>

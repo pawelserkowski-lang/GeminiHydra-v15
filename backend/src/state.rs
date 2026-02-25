@@ -120,7 +120,11 @@ impl AppState {
             runtime: Arc::new(RwLock::new(RuntimeState { api_keys })),
             model_cache: Arc::new(RwLock::new(ModelCache::new())),
             start_time: Instant::now(),
-            client: Client::new(),
+            client: Client::builder()
+                .timeout(std::time::Duration::from_secs(120))
+                .connect_timeout(std::time::Duration::from_secs(5))
+                .build()
+                .expect("Failed to build HTTP client"),
             oauth_pkce: Arc::new(RwLock::new(None)),
             system_monitor: Arc::new(RwLock::new(SystemSnapshot::default())),
             ready: Arc::new(AtomicBool::new(false)),

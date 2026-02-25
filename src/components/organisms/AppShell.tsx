@@ -114,6 +114,14 @@ function AppShellInner({ children, statusFooterProps }: AppShellProps) {
           : 'text-white selection:bg-white/30 selection:text-white',
       )}
     >
+      {/* Skip to content — accessibility */}
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:p-4 focus:bg-matrix-accent focus:text-white"
+      >
+        Skip to content
+      </a>
+
       {/* Background layers */}
       <ThemedBackground resolvedTheme={resolvedTheme} />
 
@@ -127,6 +135,7 @@ function AppShellInner({ children, statusFooterProps }: AppShellProps) {
 
         {/* Main Content Area */}
         <main
+          id="main-content"
           data-testid="main-content"
           className={cn(
             'flex-1 min-w-0 flex flex-col overflow-hidden relative rounded-2xl',

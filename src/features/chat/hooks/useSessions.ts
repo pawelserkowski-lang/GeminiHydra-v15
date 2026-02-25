@@ -3,6 +3,7 @@
  */
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import { apiDelete, apiGet, apiPatch, apiPost } from '@/shared/api/client';
 import type { Session, SessionSummary, SessionsList } from '@/shared/api/schemas';
 
@@ -22,6 +23,9 @@ export function useCreateSessionMutation() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['sessions'] });
     },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : 'Operation failed');
+    },
   });
 }
 
@@ -33,6 +37,9 @@ export function useUpdateSessionMutation() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['sessions'] });
     },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : 'Operation failed');
+    },
   });
 }
 
@@ -43,6 +50,9 @@ export function useDeleteSessionMutation() {
     mutationFn: (id) => apiDelete<{ success: boolean }>(`/api/sessions/${id}`),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['sessions'] });
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : 'Operation failed');
     },
   });
 }
@@ -60,6 +70,9 @@ export function useAddMessageMutation() {
     onSuccess: (_data, variables) => {
       void queryClient.invalidateQueries({ queryKey: ['session', variables.sessionId] });
       void queryClient.invalidateQueries({ queryKey: ['sessions'] });
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : 'Operation failed');
     },
   });
 }

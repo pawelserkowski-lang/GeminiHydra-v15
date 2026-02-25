@@ -19,6 +19,7 @@ import type {
   WsStartMessage,
 } from '@/shared/api/schemas';
 import { wsServerMessageSchema } from '@/shared/api/schemas';
+import { env } from '@/shared/config/env';
 
 // ============================================================================
 // TYPES
@@ -43,8 +44,8 @@ const HEARTBEAT_INTERVAL_MS = 30_000;
 const HEARTBEAT_TIMEOUT_MS = 10_000;
 
 function getWsUrl(): string {
-  const backendUrl = import.meta.env.VITE_BACKEND_URL;
-  const authSecret = import.meta.env.VITE_AUTH_SECRET as string | undefined;
+  const backendUrl = env.VITE_BACKEND_URL;
+  const authSecret = env.VITE_AUTH_SECRET;
   const tokenParam = authSecret ? `?token=${encodeURIComponent(authSecret)}` : '';
 
   if (backendUrl) {

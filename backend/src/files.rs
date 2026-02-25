@@ -23,6 +23,15 @@ const MAX_TOTAL_SIZE: usize = 500 * 1024;
 /// Max number of files to include in context.
 const MAX_FILES: usize = 10;
 
+/// Path prefixes that are blocked for reading (sensitive system directories).
+const BLOCKED_READ_PREFIXES: &[&str] = &[
+    "/etc/shadow",
+    "/etc/passwd",
+    "/proc",
+    "/sys",
+    "C:\\Windows\\System32\\config",
+];
+
 /// Text file extensions we allow reading.
 const TEXT_EXTENSIONS: &[&str] = &[
     // Code
@@ -137,12 +146,75 @@ fn is_text_extension(ext: &str) -> bool {
     TEXT_EXTENSIONS.contains(&ext.to_lowercase().as_str())
 }
 
+/// Canonicalize a path and check it against a blocklist.
+///
+/// For existing paths, `std::fs::canonicalize` resolves all `..`, symlinks, etc.
+/// For new files (write path), the parent directory is canonicalized and the
+/// filename is re-joined, preventing traversal via `..` segments.
+///
+/// This is modeled after ClaudeHydra's `ToolExecutor::validate_path()`.
+fn validate_and_canonicalize(
+    raw_path: &str,
+    blocked_prefixes: &[&str],
+) -> Result<std::path::PathBuf, FileError> {
+    let p = Path::new(raw_path);
+
+    // Canonicalize: resolve .., symlinks, etc.
+    let canonical = if p.exists() {
+        std::fs::canonicalize(p).map_err(|e| FileError {
+            path: raw_path.to_string(),
+            reason: format!("Cannot resolve path: {}", e),
+        })?
+    } else {
+        // File doesn't exist yet (write case) — canonicalize parent + rejoin filename
+        let parent = p.parent().ok_or_else(|| FileError {
+            path: raw_path.to_string(),
+            reason: "Invalid path: no parent directory".to_string(),
+        })?;
+        let canonical_parent = std::fs::canonicalize(parent).map_err(|e| FileError {
+            path: raw_path.to_string(),
+            reason: format!("Cannot resolve parent directory: {}", e),
+        })?;
+        let file_name = p.file_name().ok_or_else(|| FileError {
+            path: raw_path.to_string(),
+            reason: "Invalid path: no filename".to_string(),
+        })?;
+        canonical_parent.join(file_name)
+    };
+
+    // Check canonical path against blocked prefixes (case-insensitive)
+    let canonical_str = canonical.to_string_lossy();
+    // Normalize to backslash for Windows comparison + keep original for Unix
+    let canonical_win = canonical_str.replace('/', "\\");
+    let canonical_lower = canonical_str.to_lowercase();
+    let canonical_win_lower = canonical_win.to_lowercase();
+
+    for prefix in blocked_prefixes {
+        let prefix_lower = prefix.to_lowercase();
+        if canonical_lower.starts_with(&prefix_lower)
+            || canonical_win_lower.starts_with(&prefix_lower)
+        {
+            return Err(FileError {
+                path: raw_path.to_string(),
+                reason: format!(
+                    "Access denied: path '{}' resolves to blocked location '{}'",
+                    raw_path,
+                    canonical.display()
+                ),
+            });
+        }
+    }
+
+    Ok(canonical)
+}
+
 /// Read a single file for context injection.
 pub async fn read_file_for_context(path: &str) -> Result<FileContext, FileError> {
-    let p = Path::new(path);
+    // Canonicalize path BEFORE any checks to prevent traversal attacks
+    let canonical = validate_and_canonicalize(path, BLOCKED_READ_PREFIXES)?;
 
-    // Check extension whitelist
-    let ext = p
+    // Check extension whitelist on canonical path
+    let ext = canonical
         .extension()
         .and_then(|e| e.to_str())
         .unwrap_or("")
@@ -156,7 +228,7 @@ pub async fn read_file_for_context(path: &str) -> Result<FileContext, FileError>
     }
 
     // Check file exists and size
-    let metadata = tokio::fs::metadata(p).await.map_err(|e| FileError {
+    let metadata = tokio::fs::metadata(&canonical).await.map_err(|e| FileError {
         path: path.to_string(),
         reason: format!("Cannot access file: {}", e),
     })?;
@@ -169,7 +241,7 @@ pub async fn read_file_for_context(path: &str) -> Result<FileContext, FileError>
     }
 
     let file_size = metadata.len();
-    let file = File::open(p).await.map_err(|e| FileError {
+    let file = File::open(&canonical).await.map_err(|e| FileError {
         path: path.to_string(),
         reason: format!("Cannot open file: {}", e),
     })?;
@@ -406,7 +478,8 @@ pub struct FileEntry {
 
 /// List contents of a directory, sorted: directories first, then files alphabetically.
 pub async fn list_directory(path: &str, show_hidden: bool) -> Result<Vec<FileEntry>, FileError> {
-    let dir = Path::new(path);
+    // Canonicalize path to prevent traversal attacks
+    let dir = validate_and_canonicalize(path, BLOCKED_READ_PREFIXES)?;
 
     if !dir.is_dir() {
         return Err(FileError {
@@ -416,7 +489,7 @@ pub async fn list_directory(path: &str, show_hidden: bool) -> Result<Vec<FileEnt
     }
 
     let mut entries = Vec::new();
-    let mut read_dir = tokio::fs::read_dir(dir).await.map_err(|e| FileError {
+    let mut read_dir = tokio::fs::read_dir(&dir).await.map_err(|e| FileError {
         path: path.to_string(),
         reason: format!("Cannot read directory: {}", e),
     })?;
@@ -492,22 +565,7 @@ pub async fn write_file(path: &str, content: &str) -> Result<String, FileError> 
         });
     }
 
-    // Normalize path for prefix checking
-    let check_path = path.replace('/', "\\");
-    let lower_path = check_path.to_lowercase();
-    let lower_unix = path.to_lowercase();
-
-    for prefix in BLOCKED_WRITE_PREFIXES {
-        let lower_prefix = prefix.to_lowercase();
-        if lower_path.starts_with(&lower_prefix) || lower_unix.starts_with(&lower_prefix) {
-            return Err(FileError {
-                path: path.to_string(),
-                reason: format!("Writing to '{}' prefix is blocked for safety", prefix),
-            });
-        }
-    }
-
-    // Ensure parent directory exists
+    // Ensure parent directory exists BEFORE canonicalization (so parent can be resolved)
     if let Some(parent) = Path::new(path).parent().filter(|p| !p.as_os_str().is_empty() && !p.exists()) {
         tokio::fs::create_dir_all(parent).await.map_err(|e| FileError {
             path: path.to_string(),
@@ -515,7 +573,11 @@ pub async fn write_file(path: &str, content: &str) -> Result<String, FileError> 
         })?;
     }
 
-    tokio::fs::write(path, content).await.map_err(|e| FileError {
+    // Canonicalize BEFORE blocklist check — prevents ../ traversal bypass
+    // For new files: canonicalize parent + rejoin filename
+    let canonical = validate_and_canonicalize(path, BLOCKED_WRITE_PREFIXES)?;
+
+    tokio::fs::write(&canonical, content).await.map_err(|e| FileError {
         path: path.to_string(),
         reason: format!("Cannot write file: {}", e),
     })?;
@@ -523,7 +585,7 @@ pub async fn write_file(path: &str, content: &str) -> Result<String, FileError> 
     Ok(format!(
         "Successfully wrote {} bytes to {}",
         content.len(),
-        path
+        canonical.display()
     ))
 }
 

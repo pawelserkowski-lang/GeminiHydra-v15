@@ -1,5 +1,5 @@
 // src/features/agents/components/AgentEditor.tsx
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button, Input } from '@/components/atoms';
 import { Agent } from '@/shared/api/schemas';
@@ -28,6 +28,7 @@ export function AgentEditor({ agent, isOpen, onClose, onSave }: AgentEditorProps
   const { t: tr } = useTranslation();
   const t = useViewTheme();
   const [formData, setFormData] = useState<Agent>(DEFAULT_AGENT);
+  const nameInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (isOpen) {
@@ -36,8 +37,28 @@ export function AgentEditor({ agent, isOpen, onClose, onSave }: AgentEditorProps
       } else {
         setFormData({ ...DEFAULT_AGENT, id: crypto.randomUUID() });
       }
+      // Auto-focus the name input when the modal opens
+      requestAnimationFrame(() => {
+        nameInputRef.current?.focus();
+      });
     }
   }, [isOpen, agent]);
+
+  // Close on Escape key
+  const handleKeyDown = useCallback(
+    (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    },
+    [onClose],
+  );
+
+  useEffect(() => {
+    if (!isOpen) return;
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, handleKeyDown]);
+
+  const isNameValid = formData.name.trim().length > 0;
 
   const handleChange = (field: keyof Agent, value: string | string[]) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
@@ -52,30 +73,38 @@ export function AgentEditor({ agent, isOpen, onClose, onSave }: AgentEditorProps
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="agent-editor-title"
+    >
       <div
         className={cn(
           'w-full max-w-2xl p-6 rounded-xl border shadow-xl',
           t.isLight ? 'bg-white border-slate-200' : 'bg-slate-900 border-white/10',
         )}
       >
-        <h2 className={cn('text-xl font-bold mb-4', t.title)}>
+        <h2 id="agent-editor-title" className={cn('text-xl font-bold mb-4', t.title)}>
           {agent ? tr('agents.editAgent', 'Edit Agent') : tr('agents.createAgent', 'Create New Agent')}
         </h2>
 
         <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-2">
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1">
-              <label className="text-xs font-mono opacity-70">Name</label>
+              <label htmlFor="agent-name" className="text-xs font-mono opacity-70">Name</label>
               <Input
+                ref={nameInputRef}
+                id="agent-name"
                 value={formData.name}
                 onChange={(e) => handleChange('name', e.target.value)}
                 placeholder={tr('agents.agentName', 'Agent Name')}
               />
             </div>
             <div className="space-y-1">
-              <label className="text-xs font-mono opacity-70">Role</label>
+              <label htmlFor="agent-role" className="text-xs font-mono opacity-70">Role</label>
               <Input
+                id="agent-role"
                 value={formData.role}
                 onChange={(e) => handleChange('role', e.target.value)}
                 placeholder={tr('agents.role', 'Role (e.g. Backend)')}
@@ -85,8 +114,9 @@ export function AgentEditor({ agent, isOpen, onClose, onSave }: AgentEditorProps
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1">
-              <label className="text-xs font-mono opacity-70">Tier</label>
+              <label htmlFor="agent-tier" className="text-xs font-mono opacity-70">Tier</label>
               <select
+                id="agent-tier"
                 className={cn(
                   'w-full h-10 px-3 rounded-lg border bg-transparent outline-none font-mono text-sm transition-all',
                   t.input,
@@ -100,8 +130,9 @@ export function AgentEditor({ agent, isOpen, onClose, onSave }: AgentEditorProps
               </select>
             </div>
             <div className="space-y-1">
-              <label className="text-xs font-mono opacity-70">Status</label>
+              <label htmlFor="agent-status" className="text-xs font-mono opacity-70">Status</label>
               <select
+                id="agent-status"
                 className={cn(
                   'w-full h-10 px-3 rounded-lg border bg-transparent outline-none font-mono text-sm transition-all',
                   t.input,
@@ -118,8 +149,9 @@ export function AgentEditor({ agent, isOpen, onClose, onSave }: AgentEditorProps
           </div>
 
           <div className="space-y-1">
-            <label className="text-xs font-mono opacity-70">{tr('agents.description', 'Description')}</label>
+            <label htmlFor="agent-description" className="text-xs font-mono opacity-70">{tr('agents.description', 'Description')}</label>
             <textarea
+              id="agent-description"
               className={cn(
                 'w-full p-3 rounded-lg border bg-transparent outline-none font-mono text-sm transition-all min-h-[80px]',
                 t.input,
@@ -131,8 +163,9 @@ export function AgentEditor({ agent, isOpen, onClose, onSave }: AgentEditorProps
           </div>
 
           <div className="space-y-1">
-            <label className="text-xs font-mono opacity-70">Keywords (comma separated)</label>
+            <label htmlFor="agent-keywords" className="text-xs font-mono opacity-70">Keywords (comma separated)</label>
             <Input
+              id="agent-keywords"
               value={formData.keywords.join(', ')}
               onChange={handleKeywordsChange}
               placeholder={tr('agents.keywords', 'sql, database, query...')}
@@ -140,8 +173,9 @@ export function AgentEditor({ agent, isOpen, onClose, onSave }: AgentEditorProps
           </div>
 
           <div className="space-y-1">
-            <label className="text-xs font-mono opacity-70">System Prompt (Override)</label>
+            <label htmlFor="agent-system-prompt" className="text-xs font-mono opacity-70">System Prompt (Override)</label>
             <textarea
+              id="agent-system-prompt"
               className={cn(
                 'w-full p-3 rounded-lg border bg-transparent outline-none font-mono text-sm transition-all min-h-[120px]',
                 t.input,
@@ -157,7 +191,7 @@ export function AgentEditor({ agent, isOpen, onClose, onSave }: AgentEditorProps
           <Button variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <Button onClick={() => onSave(formData)}>
+          <Button onClick={() => onSave(formData)} disabled={!isNameValid}>
             {agent ? tr('agents.saveChanges', 'Save Changes') : tr('agents.createAgentBtn', 'Create Agent')}
           </Button>
         </div>
