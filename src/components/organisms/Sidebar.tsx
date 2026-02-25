@@ -10,7 +10,6 @@
  */
 
 import {
-  BrainCircuit,
   Check,
   ChevronDown,
   ChevronLeft,
@@ -25,7 +24,6 @@ import {
   Sparkles,
   Swords,
   Trash2,
-  Users,
   WifiOff,
   X,
 } from 'lucide-react';
@@ -308,20 +306,11 @@ export function Sidebar() {
         { id: 'chat', icon: MessageSquare, label: t('nav.chat', 'Chat') },
       ],
     },
-    {
-      id: 'tools',
-      label: t('sidebar.groups.tools', 'TOOLS'),
-      icon: Users,
-      items: [
-        { id: 'agents', icon: Users, label: t('nav.agents', 'Agents') },
-        { id: 'brain', icon: BrainCircuit, label: t('nav.brain', 'Brain') },
-      ],
-    },
   ];
 
   // Track expanded groups
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(() => {
-    const defaults = { main: true, tools: true };
+    const defaults = { main: true };
     try {
       const saved = localStorage.getItem('geminihydra_expanded_groups');
       return saved ? { ...defaults, ...JSON.parse(saved) } : defaults;

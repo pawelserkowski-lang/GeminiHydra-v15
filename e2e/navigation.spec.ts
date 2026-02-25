@@ -14,20 +14,15 @@ test.describe('Navigation', () => {
     await expect(page.getByTestId('chat-textarea')).toBeVisible();
   });
 
-  test('should navigate to agents view via nav-agents', async ({ page }) => {
-    await page.getByTestId('nav-agents').click();
-    await expect(page.getByRole('heading', { name: 'Hydra Agents' })).toBeVisible();
-  });
-
   test('should navigate to history view via nav-history', async ({ page }) => {
     await page.getByTestId('nav-history').click();
     await expect(page.getByRole('heading', { name: 'Session History' })).toBeVisible();
   });
 
   test('should navigate back to home via nav-home', async ({ page }) => {
-    // First go to agents
-    await page.getByTestId('nav-agents').click();
-    await expect(page.getByRole('heading', { name: 'Hydra Agents' })).toBeVisible();
+    // First go to chat
+    await page.getByTestId('nav-chat').click();
+    await expect(page.getByTestId('chat-textarea')).toBeVisible();
     // Then back to home
     await page.getByTestId('nav-home').click();
     await expect(page.getByTestId('welcome-hero')).toBeVisible();

@@ -59,7 +59,7 @@ describe('viewStore - setCurrentView', () => {
   });
 
   it('should accept all valid view values', () => {
-    const views = ['home', 'chat', 'agents', 'brain'] as const;
+    const views = ['home', 'chat'] as const;
     for (const view of views) {
       getState().setCurrentView(view);
       expect(getState().currentView).toBe(view);
