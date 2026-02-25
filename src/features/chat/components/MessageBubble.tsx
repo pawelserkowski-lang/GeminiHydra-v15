@@ -44,7 +44,7 @@ function extractText(node: ReactNode): string {
 // TYPES
 // ============================================================================
 
-export interface MessageBubbleProps {
+interface MessageBubbleProps {
   message: Message;
   /** Whether this is the last message in the list. */
   isLast: boolean;

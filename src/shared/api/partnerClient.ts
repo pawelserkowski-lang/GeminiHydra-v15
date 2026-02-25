@@ -9,7 +9,7 @@ const PARTNER_BASE = import.meta.env.PROD
   : '/partner-api';
 const PARTNER_AUTH_SECRET = import.meta.env.VITE_PARTNER_AUTH_SECRET as string | undefined;
 
-export interface PartnerSessionSummary {
+interface PartnerSessionSummary {
   id: string;
   title: string;
   created_at: string;
@@ -18,7 +18,7 @@ export interface PartnerSessionSummary {
   preview?: string;
 }
 
-export interface PartnerMessage {
+interface PartnerMessage {
   id: string;
   role: string;
   content: string;
@@ -27,7 +27,7 @@ export interface PartnerMessage {
   agent?: string | null;
 }
 
-export interface PartnerSession {
+interface PartnerSession {
   id: string;
   title: string;
   created_at: string;

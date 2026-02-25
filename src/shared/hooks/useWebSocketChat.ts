@@ -24,7 +24,7 @@ import { wsServerMessageSchema } from '@/shared/api/schemas';
 // TYPES
 // ============================================================================
 
-export type WsStatus = 'connecting' | 'connected' | 'disconnected' | 'error';
+type WsStatus = 'connecting' | 'connected' | 'disconnected' | 'error';
 
 export interface WsCallbacks {
   onStart?: (msg: WsStartMessage, sessionId: string | null) => void;

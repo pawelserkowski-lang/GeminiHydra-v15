@@ -61,3 +61,109 @@ pub fn validate_ws_token(query: &str, auth_secret: Option<&str>) -> bool {
         .filter_map(|pair| pair.split_once('='))
         .any(|(key, value)| key == "token" && value == secret)
 }
+
+/// Pure function: extract and validate a Bearer token from an Authorization header value.
+/// Returns true if the token matches the expected secret.
+/// Used internally by `require_auth` middleware.
+pub fn check_bearer_token(header_value: Option<&str>, expected_secret: &str) -> bool {
+    match header_value {
+        Some(header) if header.starts_with("Bearer ") => &header[7..] == expected_secret,
+        _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── validate_ws_token ────────────────────────────────────────────────
+
+    #[test]
+    fn ws_token_valid() {
+        assert!(validate_ws_token("token=mysecret", Some("mysecret")));
+    }
+
+    #[test]
+    fn ws_token_invalid() {
+        assert!(!validate_ws_token("token=wrong", Some("mysecret")));
+    }
+
+    #[test]
+    fn ws_token_none_allows_all() {
+        assert!(validate_ws_token("", None));
+    }
+
+    #[test]
+    fn ws_token_none_allows_any_query() {
+        assert!(validate_ws_token("token=anything&foo=bar", None));
+    }
+
+    #[test]
+    fn ws_token_missing_param() {
+        assert!(!validate_ws_token("foo=bar&baz=qux", Some("mysecret")));
+    }
+
+    #[test]
+    fn ws_token_empty_query_with_secret() {
+        assert!(!validate_ws_token("", Some("mysecret")));
+    }
+
+    #[test]
+    fn ws_token_multiple_params() {
+        assert!(validate_ws_token("session=abc&token=s3cret&lang=en", Some("s3cret")));
+    }
+
+    #[test]
+    fn ws_token_duplicate_token_first_wrong() {
+        // If there are two "token" params, any match should succeed
+        assert!(validate_ws_token("token=wrong&token=correct", Some("correct")));
+    }
+
+    #[test]
+    fn ws_token_case_sensitive() {
+        assert!(!validate_ws_token("token=MySecret", Some("mysecret")));
+    }
+
+    // ── check_bearer_token ───────────────────────────────────────────────
+
+    #[test]
+    fn bearer_valid_token() {
+        assert!(check_bearer_token(Some("Bearer mysecret"), "mysecret"));
+    }
+
+    #[test]
+    fn bearer_wrong_token() {
+        assert!(!check_bearer_token(Some("Bearer wrong"), "mysecret"));
+    }
+
+    #[test]
+    fn bearer_missing_header() {
+        assert!(!check_bearer_token(None, "mysecret"));
+    }
+
+    #[test]
+    fn bearer_malformed_no_prefix() {
+        assert!(!check_bearer_token(Some("mysecret"), "mysecret"));
+    }
+
+    #[test]
+    fn bearer_basic_auth_rejected() {
+        assert!(!check_bearer_token(Some("Basic dXNlcjpwYXNz"), "mysecret"));
+    }
+
+    #[test]
+    fn bearer_empty_token() {
+        assert!(!check_bearer_token(Some("Bearer "), "mysecret"));
+    }
+
+    #[test]
+    fn bearer_extra_spaces_rejected() {
+        // "Bearer  mysecret" (double space) — token starts with space
+        assert!(!check_bearer_token(Some("Bearer  mysecret"), "mysecret"));
+    }
+
+    #[test]
+    fn bearer_case_sensitive() {
+        assert!(!check_bearer_token(Some("bearer mysecret"), "mysecret"));
+    }
+}

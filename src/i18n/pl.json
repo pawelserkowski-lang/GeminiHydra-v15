@@ -41,6 +41,19 @@
       "swarmArch": "Architektura Roju"
     }
   },
+  "health": {
+    "title": "Stan systemu",
+    "backend": "Backend",
+    "online": "Online",
+    "offline": "Offline",
+    "auth": "Uwierzytelnianie",
+    "enabled": "Wlaczone",
+    "devMode": "Tryb dev",
+    "cpu": "Uzycie CPU",
+    "memory": "Pamiec",
+    "models": "Modele w cache",
+    "uptime": "Czas pracy"
+  },
   "time": {
     "justNow": "przed chwilą",
     "minutesAgo": "{{m}} min temu",

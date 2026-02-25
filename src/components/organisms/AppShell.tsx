@@ -33,7 +33,7 @@ function formatModelName(id: string): string {
 // TYPES
 // ============================================================================
 
-export interface AppShellProps {
+interface AppShellProps {
   /** Content to render in the main area */
   children: ReactNode;
   /** Props forwarded to the StatusFooter */

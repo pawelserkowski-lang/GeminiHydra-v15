@@ -1,0 +1,17 @@
+{
+  "name": "GeminiHydra — Jaskier App",
+  "short_name": "GeminiHydra",
+  "description": "Multi-Agent AI Swarm",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a0a0f",
+  "theme_color": "#0a0a0f",
+  "icons": [
+    {
+      "src": "/logodark.webp",
+      "sizes": "512x512",
+      "type": "image/webp",
+      "purpose": "any"
+    }
+  ]
+}

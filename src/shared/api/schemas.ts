@@ -12,7 +12,7 @@ import { z } from 'zod';
 // HEALTH
 // ============================================================================
 
-export const healthSchema = z.object({
+const healthSchema = z.object({
   status: z.string(),
   version: z.string(),
   uptime_seconds: z.number(),
@@ -20,7 +20,7 @@ export const healthSchema = z.object({
 
 export type Health = z.infer<typeof healthSchema>;
 
-export const detailedHealthSchema = healthSchema.extend({
+const detailedHealthSchema = healthSchema.extend({
   system: z.object({
     cpu_usage: z.number(),
     memory_used: z.number(),
@@ -35,7 +35,7 @@ export type DetailedHealth = z.infer<typeof detailedHealthSchema>;
 // AGENTS
 // ============================================================================
 
-export const agentSchema = z.object({
+const agentSchema = z.object({
   id: z.string(),
   name: z.string(),
   role: z.string(),
@@ -48,30 +48,17 @@ export const agentSchema = z.object({
 
 export type Agent = z.infer<typeof agentSchema>;
 
-export const agentsListSchema = z.object({
+const agentsListSchema = z.object({
   agents: z.array(agentSchema),
 });
 
 export type AgentsList = z.infer<typeof agentsListSchema>;
 
 // ============================================================================
-// CLASSIFY
-// ============================================================================
-
-export const classifyResponseSchema = z.object({
-  agent_id: z.string(),
-  agent_name: z.string(),
-  confidence: z.number(),
-  reasoning: z.string(),
-});
-
-export type ClassifyResponse = z.infer<typeof classifyResponseSchema>;
-
-// ============================================================================
 // EXECUTE
 // ============================================================================
 
-export const executeResponseSchema = z.object({
+const executeResponseSchema = z.object({
   id: z.string(),
   result: z.string(),
   mode: z.string(),
@@ -92,7 +79,7 @@ export type ExecuteResponse = z.infer<typeof executeResponseSchema>;
 // FILES
 // ============================================================================
 
-export const fileReadResponseSchema = z.object({
+const fileReadResponseSchema = z.object({
   path: z.string(),
   content: z.string(),
   size_bytes: z.number(),
@@ -102,44 +89,11 @@ export const fileReadResponseSchema = z.object({
 
 export type FileReadResponse = z.infer<typeof fileReadResponseSchema>;
 
-const fileEntrySchema = z.object({
-  name: z.string(),
-  path: z.string(),
-  is_dir: z.boolean(),
-  size_bytes: z.number(),
-  extension: z.string().nullable().optional(),
-});
-
-export const fileListResponseSchema = z.object({
-  path: z.string(),
-  entries: z.array(fileEntrySchema),
-  count: z.number(),
-});
-
-export type FileListResponse = z.infer<typeof fileListResponseSchema>;
-
-// ============================================================================
-// GEMINI MODELS
-// ============================================================================
-
-const geminiModelSchema = z.object({
-  name: z.string(),
-  display_name: z.string(),
-  description: z.string(),
-  supported_methods: z.array(z.string()),
-});
-
-export const geminiModelsSchema = z.object({
-  models: z.array(geminiModelSchema),
-});
-
-export type GeminiModels = z.infer<typeof geminiModelsSchema>;
-
 // ============================================================================
 // SYSTEM STATS
 // ============================================================================
 
-export const systemStatsSchema = z.object({
+const systemStatsSchema = z.object({
   cpu_usage: z.number(),
   memory_used: z.number(),
   memory_total: z.number(),
@@ -151,34 +105,10 @@ export const systemStatsSchema = z.object({
 export type SystemStats = z.infer<typeof systemStatsSchema>;
 
 // ============================================================================
-// HISTORY
-// ============================================================================
-
-const historyMessageSchema = z.object({
-  role: z.string(),
-  content: z.string(),
-  timestamp: z.string(),
-  model: z.string().optional(),
-});
-
-export const historyEntrySchema = z.object({
-  id: z.string(),
-  session_id: z.string(),
-  messages: z.array(historyMessageSchema),
-  created_at: z.string(),
-});
-
-export type HistoryEntry = z.infer<typeof historyEntrySchema>;
-
-export const historyListSchema = z.array(historyEntrySchema);
-
-export type HistoryList = z.infer<typeof historyListSchema>;
-
-// ============================================================================
 // SETTINGS
 // ============================================================================
 
-export const settingsSchema = z
+const settingsSchema = z
   .object({
     temperature: z.number(),
     max_tokens: z.number(),
@@ -195,7 +125,7 @@ export type Settings = z.infer<typeof settingsSchema>;
 // WEBSOCKET PROTOCOL
 // ============================================================================
 
-export const wsStartMessageSchema = z.object({
+const wsStartMessageSchema = z.object({
   type: z.literal('start'),
   id: z.string(),
   agent: z.string(),
@@ -205,14 +135,12 @@ export const wsStartMessageSchema = z.object({
 
 export type WsStartMessage = z.infer<typeof wsStartMessageSchema>;
 
-export const wsTokenMessageSchema = z.object({
+const wsTokenMessageSchema = z.object({
   type: z.literal('token'),
   content: z.string(),
 });
 
-export type WsTokenMessage = z.infer<typeof wsTokenMessageSchema>;
-
-export const wsPlanMessageSchema = z.object({
+const wsPlanMessageSchema = z.object({
   type: z.literal('plan'),
   agent: z.string(),
   confidence: z.number(),
@@ -221,26 +149,22 @@ export const wsPlanMessageSchema = z.object({
 
 export type WsPlanMessage = z.infer<typeof wsPlanMessageSchema>;
 
-export const wsCompleteMessageSchema = z.object({
+const wsCompleteMessageSchema = z.object({
   type: z.literal('complete'),
   duration_ms: z.number(),
 });
 
 export type WsCompleteMessage = z.infer<typeof wsCompleteMessageSchema>;
 
-export const wsErrorMessageSchema = z.object({
+const wsErrorMessageSchema = z.object({
   type: z.literal('error'),
   message: z.string(),
   code: z.string().optional(),
 });
 
-export type WsErrorMessage = z.infer<typeof wsErrorMessageSchema>;
-
-export const wsPongMessageSchema = z.object({
+const wsPongMessageSchema = z.object({
   type: z.literal('pong'),
 });
-
-export type WsPongMessage = z.infer<typeof wsPongMessageSchema>;
 
 export const wsServerMessageSchema = z.discriminatedUnion('type', [
   wsStartMessageSchema,
@@ -253,7 +177,7 @@ export const wsServerMessageSchema = z.discriminatedUnion('type', [
 
 export type WsServerMessage = z.infer<typeof wsServerMessageSchema>;
 
-export interface WsExecuteMessage {
+interface WsExecuteMessage {
   type: 'execute';
   prompt: string;
   mode: string;
@@ -261,11 +185,11 @@ export interface WsExecuteMessage {
   session_id?: string;
 }
 
-export interface WsCancelMessage {
+interface WsCancelMessage {
   type: 'cancel';
 }
 
-export interface WsPingMessage {
+interface WsPingMessage {
   type: 'ping';
 }
 
@@ -275,7 +199,7 @@ export type WsClientMessage = WsExecuteMessage | WsCancelMessage | WsPingMessage
 // SESSIONS
 // ============================================================================
 
-export const sessionSummarySchema = z.object({
+const sessionSummarySchema = z.object({
   id: z.string(),
   title: z.string(),
   created_at: z.string(),
@@ -284,10 +208,10 @@ export const sessionSummarySchema = z.object({
 
 export type SessionSummary = z.infer<typeof sessionSummarySchema>;
 
-export const sessionsListSchema = z.array(sessionSummarySchema);
+const sessionsListSchema = z.array(sessionSummarySchema);
 export type SessionsList = z.infer<typeof sessionsListSchema>;
 
-export const sessionSchema = z.object({
+const sessionSchema = z.object({
   id: z.string(),
   title: z.string(),
   created_at: z.string(),

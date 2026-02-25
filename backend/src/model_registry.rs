@@ -522,3 +522,178 @@ pub async fn list_pins(State(state): State<AppState>) -> Json<Value> {
     let pins = get_pins_map(&state).await;
     Json(json!({ "pins": pins }))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── Helper: make a ModelInfo ──────────────────────────────────────────
+
+    fn model(id: &str, provider: &str) -> ModelInfo {
+        ModelInfo {
+            id: id.to_string(),
+            provider: provider.to_string(),
+            display_name: None,
+            capabilities: vec!["text".to_string()],
+        }
+    }
+
+    // ── version_key ──────────────────────────────────────────────────────
+
+    #[test]
+    fn version_key_gemini_2_5_flash() {
+        // "2.5" → major=2, minor=5 → 2*1000 + 5 = 2005
+        let (v, d) = version_key("gemini-2.5-flash");
+        assert_eq!(v, 2005);
+        assert!(d.is_empty());
+    }
+
+    #[test]
+    fn version_key_gemini_3_1_pro_preview() {
+        let (v, _) = version_key("gemini-3.1-pro-preview");
+        assert_eq!(v, 3001);
+    }
+
+    #[test]
+    fn version_key_gemini_3_pro_image() {
+        let (v, _) = version_key("gemini-3-pro-image-preview");
+        assert_eq!(v, 3000);
+    }
+
+    #[test]
+    fn version_key_claude_opus_4_6() {
+        let (v, _) = version_key("claude-opus-4-6");
+        assert_eq!(v, 6000); // 4 -> 4000, then 6 -> 6000 (takes max)
+    }
+
+    #[test]
+    fn version_key_claude_sonnet_4_6() {
+        let (v, _) = version_key("claude-sonnet-4-6");
+        assert_eq!(v, 6000);
+    }
+
+    #[test]
+    fn version_key_claude_haiku_with_date() {
+        let (v, d) = version_key("claude-haiku-4-5-20251001");
+        assert_eq!(v, 5000); // 4 -> 4000, 5 -> 5000
+        assert_eq!(d, "20251001");
+    }
+
+    #[test]
+    fn version_key_no_version_info() {
+        let (v, d) = version_key("some-model-name");
+        assert_eq!(v, 0);
+        assert!(d.is_empty());
+    }
+
+    #[test]
+    fn version_key_higher_version_wins() {
+        let (v3, _) = version_key("gemini-3.1-pro-preview");
+        let (v2, _) = version_key("gemini-2.5-pro");
+        assert!(v3 > v2, "3.1 ({}) should be > 2.5 ({})", v3, v2);
+    }
+
+    // ── select_best ──────────────────────────────────────────────────────
+
+    #[test]
+    fn select_best_picks_highest_version() {
+        let models = vec![
+            model("gemini-2.5-flash", "google"),
+            model("gemini-3.1-pro-preview", "google"),
+            model("gemini-2.0-flash", "google"),
+        ];
+
+        let best = select_best(&models, &[], &[]);
+        assert_eq!(best.unwrap().id, "gemini-3.1-pro-preview");
+    }
+
+    #[test]
+    fn select_best_must_contain_filter() {
+        let models = vec![
+            model("gemini-3.1-pro-preview", "google"),
+            model("gemini-3-flash-preview", "google"),
+            model("gemini-2.5-flash", "google"),
+        ];
+
+        let best = select_best(&models, &["flash"], &[]);
+        assert_eq!(best.unwrap().id, "gemini-3-flash-preview");
+    }
+
+    #[test]
+    fn select_best_must_not_contain_filter() {
+        let models = vec![
+            model("gemini-3.1-pro-preview", "google"),
+            model("gemini-3-pro-image-preview", "google"),
+            model("gemini-2.5-pro", "google"),
+        ];
+
+        let best = select_best(&models, &["pro"], &["image"]);
+        assert_eq!(best.unwrap().id, "gemini-3.1-pro-preview");
+    }
+
+    #[test]
+    fn select_best_no_match_returns_none() {
+        let models = vec![
+            model("gemini-3.1-pro-preview", "google"),
+        ];
+
+        let best = select_best(&models, &["nonexistent"], &[]);
+        assert!(best.is_none());
+    }
+
+    #[test]
+    fn select_best_empty_list_returns_none() {
+        let best = select_best(&[], &[], &[]);
+        assert!(best.is_none());
+    }
+
+    #[test]
+    fn select_best_excludes_lite_and_latest() {
+        let models = vec![
+            model("gemini-3.1-pro-latest", "google"),
+            model("gemini-3-pro-lite", "google"),
+            model("gemini-2.5-pro", "google"),
+        ];
+
+        let best = select_best(&models, &["pro"], &["lite", "latest"]);
+        assert_eq!(best.unwrap().id, "gemini-2.5-pro");
+    }
+
+    #[test]
+    fn select_best_image_model() {
+        let models = vec![
+            model("gemini-3-pro-image-preview", "google"),
+            model("gemini-2.5-flash-image", "google"),
+        ];
+
+        let best = select_best(&models, &["image"], &[]);
+        assert_eq!(best.unwrap().id, "gemini-3-pro-image-preview");
+    }
+
+    // ── ModelCache ───────────────────────────────────────────────────────
+
+    #[test]
+    fn model_cache_new_is_stale() {
+        let cache = ModelCache::new();
+        assert!(cache.is_stale());
+    }
+
+    #[test]
+    fn model_cache_default_is_stale() {
+        let cache = ModelCache::default();
+        assert!(cache.is_stale());
+    }
+
+    #[test]
+    fn model_cache_fresh_after_set() {
+        let mut cache = ModelCache::new();
+        cache.fetched_at = Some(std::time::Instant::now());
+        assert!(!cache.is_stale());
+    }
+
+    #[test]
+    fn model_cache_empty_models_by_default() {
+        let cache = ModelCache::new();
+        assert!(cache.models.is_empty());
+    }
+}

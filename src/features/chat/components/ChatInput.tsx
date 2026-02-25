@@ -33,7 +33,7 @@ import { cn } from '@/shared/utils/cn';
 // TYPES
 // ============================================================================
 
-export interface ChatInputProps {
+interface ChatInputProps {
   /** Whether the assistant is currently streaming a response. */
   isStreaming: boolean;
   /** Callback fired when the user submits a message. */

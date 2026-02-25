@@ -8,6 +8,8 @@
  * and automatic retry with exponential backoff for network failures.
  */
 
+import { toast } from 'sonner';
+
 const BASE_URL = import.meta.env.VITE_BACKEND_URL ?? (import.meta.env.PROD ? 'https://geminihydra-v15-backend.fly.dev' : '');
 const AUTH_SECRET = import.meta.env.VITE_AUTH_SECRET as string | undefined;
 
@@ -87,6 +89,17 @@ async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> 
     } catch {
       body = await response.text().catch(() => null);
     }
+
+    if (response.status === 401) {
+      toast.error('Authentication required', {
+        description: 'Check your AUTH_SECRET configuration',
+      });
+    } else if (response.status === 403) {
+      toast.error('Access denied', {
+        description: 'Insufficient permissions for this action',
+      });
+    }
+
     throw new ApiError(response.status, response.statusText, body);
   }
 

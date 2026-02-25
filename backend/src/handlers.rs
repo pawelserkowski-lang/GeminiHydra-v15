@@ -921,11 +921,81 @@ pub async fn execute(State(state): State<AppState>, Json(body): Json<ExecuteRequ
 mod tests {
     use super::*;
 
+    /// Build a minimal set of test agents with keywords matching the DB seed.
+    fn test_agents() -> Vec<WitcherAgent> {
+        vec![
+            WitcherAgent {
+                id: "yennefer".to_string(),
+                name: "Yennefer".to_string(),
+                role: "Architecture".to_string(),
+                tier: "Commander".to_string(),
+                status: "active".to_string(),
+                description: "Architecture".to_string(),
+                system_prompt: None,
+                keywords: vec![
+                    "architecture".to_string(),
+                    "design".to_string(),
+                    "pattern".to_string(),
+                    "structur".to_string(),
+                    "refactor".to_string(),
+                ],
+            },
+            WitcherAgent {
+                id: "triss".to_string(),
+                name: "Triss".to_string(),
+                role: "Data".to_string(),
+                tier: "Coordinator".to_string(),
+                status: "active".to_string(),
+                description: "Data".to_string(),
+                system_prompt: None,
+                keywords: vec![
+                    "data".to_string(),
+                    "analytic".to_string(),
+                    "database".to_string(),
+                    "sql".to_string(),
+                    "query".to_string(),
+                ],
+            },
+            WitcherAgent {
+                id: "dijkstra".to_string(),
+                name: "Dijkstra".to_string(),
+                role: "Strategy".to_string(),
+                tier: "Coordinator".to_string(),
+                status: "active".to_string(),
+                description: "Strategy".to_string(),
+                system_prompt: None,
+                keywords: vec![
+                    "plan".to_string(),
+                    "strateg".to_string(),
+                    "roadmap".to_string(),
+                    "priorit".to_string(),
+                ],
+            },
+        ]
+    }
+
     #[test]
     fn test_refactor_routes_to_yennefer() {
-        let (agent, confidence, _) = classify_prompt("refaktoruj ten kod proszę");
+        let agents = test_agents();
+        // "refactor this code" contains the keyword "refactor" (>= 4 chars → substring match)
+        let (agent, confidence, _) = classify_prompt("refactor this code please", &agents);
         assert_eq!(agent, "yennefer");
         assert!(confidence >= 0.8);
+    }
+
+    #[test]
+    fn test_sql_routes_to_triss() {
+        let agents = test_agents();
+        let (agent, confidence, _) = classify_prompt("query sql database", &agents);
+        assert_eq!(agent, "triss");
+        assert!(confidence >= 0.8);
+    }
+
+    #[test]
+    fn test_unknown_prompt_falls_back_to_dijkstra() {
+        let agents = test_agents();
+        let (agent, _, _) = classify_prompt("what is the meaning of life", &agents);
+        assert_eq!(agent, "dijkstra");
     }
 
     #[test]

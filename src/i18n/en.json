@@ -41,6 +41,19 @@
       "swarmArch": "Swarm Architecture"
     }
   },
+  "health": {
+    "title": "System Health",
+    "backend": "Backend",
+    "online": "Online",
+    "offline": "Offline",
+    "auth": "Authentication",
+    "enabled": "Enabled",
+    "devMode": "Dev Mode",
+    "cpu": "CPU Usage",
+    "memory": "Memory",
+    "models": "Cached Models",
+    "uptime": "Uptime"
+  },
   "time": {
     "justNow": "just now",
     "minutesAgo": "{{m}}m ago",

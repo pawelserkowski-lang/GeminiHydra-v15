@@ -231,11 +231,37 @@ function App() {
 // MOUNT
 // ============================================================================
 
+// Jaskier Shared Pattern -- createRoot with HMR safety & documentation
+/**
+ * Application Mount Point
+ * =======================
+ * - React 19.2.4 + Vite 7 with Hot Module Replacement (HMR)
+ * - StrictMode intentionally enabled in DEV for side-effect detection
+ * - Double-renders in StrictMode are EXPECTED and INTENTIONAL (React 18+ behavior)
+ * - This helps catch bugs in component lifecycle (effects, reducers, etc.)
+ *
+ * HMR Safety (Vite + @vitejs/plugin-react):
+ * - import.meta.hot?.dispose() cleans up the root before HMR re-import
+ * - Prevents "createRoot() on container already passed to createRoot()" error
+ * - On code change: dispose() unmounts old tree → module re-imports → new createRoot()
+ * - Production: import.meta.hot is undefined (Vite tree-shaking removes block)
+ *
+ * Reference: https://vitejs.dev/guide/ssr.html#setting-up-the-dev-server
+ */
+
 const root = document.getElementById('root');
 if (root) {
-  createRoot(root).render(
+  const appRoot = createRoot(root);
+  appRoot.render(
     <StrictMode>
       <App />
     </StrictMode>,
   );
+
+  // HMR cleanup: unmount root before hot reload to prevent double-mount
+  if (import.meta.hot) {
+    import.meta.hot.dispose(() => {
+      appRoot.unmount();
+    });
+  }
 }

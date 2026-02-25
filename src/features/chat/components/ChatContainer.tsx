@@ -41,7 +41,7 @@ import { MessageBubble } from './MessageBubble';
 // TYPES
 // ============================================================================
 
-export interface ChatContainerProps {
+interface ChatContainerProps {
   /** Whether the assistant is currently streaming. */
   isStreaming: boolean;
   /** Callback to submit a new message. */

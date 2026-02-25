@@ -13,6 +13,7 @@ import { memo, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Badge, Button } from '@/components/atoms';
+import { HealthDashboard } from '@/features/health/components/HealthDashboard';
 import { useViewTheme } from '@/shared/hooks/useViewTheme';
 import { cn } from '@/shared/utils/cn';
 import { type Session, useViewStore } from '@/stores/viewStore';
@@ -285,6 +286,16 @@ export const WelcomeScreen = memo(() => {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* ====== Health Dashboard ====== */}
+      <motion.div
+        className="w-full max-w-lg mt-8"
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.45, duration: 0.4 }}
+      >
+        <HealthDashboard />
+      </motion.div>
     </div>
   );
 });
