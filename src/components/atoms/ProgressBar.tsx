@@ -7,6 +7,7 @@
  */
 
 import { motion } from 'motion/react';
+import { cn } from '@/shared/utils/cn';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -46,10 +47,10 @@ export function ProgressBar({ value, size = 'md', label = false, className = '' 
   const clamped = isIndeterminate ? 0 : Math.min(100, Math.max(0, value));
 
   return (
-    <div className={`flex items-center gap-3 ${className}`}>
+    <div className={cn('flex items-center gap-3', className)}>
       {/* Track */}
       <div
-        className={`relative w-full overflow-hidden rounded-full bg-[var(--matrix-border)]/50 ${heightMap[size]}`}
+        className={cn('relative w-full overflow-hidden rounded-full bg-[var(--matrix-border)]/50', heightMap[size])}
         role="progressbar"
         aria-valuenow={isIndeterminate ? undefined : clamped}
         aria-valuemin={0}
@@ -58,7 +59,7 @@ export function ProgressBar({ value, size = 'md', label = false, className = '' 
         {isIndeterminate ? (
           /* Indeterminate sweep */
           <motion.div
-            className={`absolute inset-y-0 left-0 w-1/3 rounded-full bg-[var(--matrix-accent)]`}
+            className="absolute inset-y-0 left-0 w-1/3 rounded-full bg-[var(--matrix-accent)]"
             animate={{ x: ['-100%', '400%'] }}
             transition={{
               duration: 1.8,
@@ -69,7 +70,7 @@ export function ProgressBar({ value, size = 'md', label = false, className = '' 
         ) : (
           /* Determinate fill */
           <motion.div
-            className={`${heightMap[size]} rounded-full bg-[var(--matrix-accent)]`}
+            className={cn(heightMap[size], 'rounded-full bg-[var(--matrix-accent)]')}
             initial={{ width: 0 }}
             animate={{ width: `${clamped}%` }}
             transition={{ duration: 0.4, ease: 'easeOut' }}
