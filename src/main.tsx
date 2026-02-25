@@ -12,6 +12,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { lazy, StrictMode, Suspense } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Toaster } from 'sonner';
+import { FeatureErrorFallback } from '@/components/molecules/FeatureErrorFallback';
 import { ViewSkeleton } from '@/components/molecules/ViewSkeleton';
 import { AppShell } from '@/components/organisms/AppShell';
 import { ErrorBoundary } from '@/components/organisms/ErrorBoundary';
@@ -42,11 +43,23 @@ function ViewRouter() {
       case 'home':
         return <LazyWelcomeScreen />;
       case 'chat':
-        return <ChatViewWrapper />;
+        return (
+          <ErrorBoundary fallback={<FeatureErrorFallback feature="Chat" onRetry={() => window.location.reload()} />}>
+            <ChatViewWrapper />
+          </ErrorBoundary>
+        );
       case 'agents':
-        return <LazyAgentsView />;
+        return (
+          <ErrorBoundary fallback={<FeatureErrorFallback feature="Agents" onRetry={() => window.location.reload()} />}>
+            <LazyAgentsView />
+          </ErrorBoundary>
+        );
       case 'brain':
-        return <LazyKnowledgeGraphView />;
+        return (
+          <ErrorBoundary fallback={<FeatureErrorFallback feature="Knowledge Graph" onRetry={() => window.location.reload()} />}>
+            <LazyKnowledgeGraphView />
+          </ErrorBoundary>
+        );
     }
   }
 

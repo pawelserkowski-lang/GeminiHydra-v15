@@ -15,7 +15,7 @@ interface Props {
   onClose: () => void;
 }
 
-export function PartnerChatModal({ sessionId, onClose }: Props) {
+export default function PartnerChatModal({ sessionId, onClose }: Props) {
   const { resolvedTheme } = useTheme();
   const isLight = resolvedTheme === 'light';
   const { data: session, isLoading, error } = usePartnerSession(sessionId);

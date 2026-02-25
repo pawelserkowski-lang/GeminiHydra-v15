@@ -55,3 +55,8 @@ test-helpers = []
 tower = { version = "0.5", features = ["util"] }
 http = "1"
 http-body-util = "0.1"
+
+[profile.release]
+lto = "thin"
+strip = true
+opt-level = 3

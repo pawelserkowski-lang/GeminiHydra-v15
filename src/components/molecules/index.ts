@@ -4,6 +4,7 @@
 export type { CodeBlockProps } from './CodeBlock';
 export { CodeBlock } from './CodeBlock';
 export { EmptyState } from './EmptyState';
+export { FeatureErrorFallback } from './FeatureErrorFallback';
 export type {
   ModelOption,
   ModelSelectorProps,

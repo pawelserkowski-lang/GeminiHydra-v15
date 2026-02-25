@@ -28,10 +28,10 @@ import {
   X,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
-import { type KeyboardEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { type KeyboardEvent, lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/contexts/ThemeContext';
-import { PartnerChatModal } from '@/features/chat/components/PartnerChatModal';
+const PartnerChatModal = lazy(() => import('@/features/chat/components/PartnerChatModal'));
 import { usePartnerSessions } from '@/features/chat/hooks/usePartnerSessions';
 import { useSessionSync } from '@/features/chat/hooks/useSessionSync';
 import { cn } from '@/shared/utils/cn';
@@ -725,8 +725,10 @@ export function Sidebar() {
         )}
       </AnimatePresence>
 
-      {/* Partner session modal */}
-      <PartnerChatModal sessionId={partnerModalSessionId} onClose={() => setPartnerModalSessionId(null)} />
+      {/* Partner session modal (lazy-loaded) */}
+      <Suspense fallback={null}>
+        <PartnerChatModal sessionId={partnerModalSessionId} onClose={() => setPartnerModalSessionId(null)} />
+      </Suspense>
     </>
   );
 }

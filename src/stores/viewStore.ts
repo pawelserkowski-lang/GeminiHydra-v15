@@ -40,7 +40,15 @@ export const useViewStore = create<ViewStoreState>()(
           sidebarCollapsed: state.sidebarCollapsed,
           sessions: state.sessions,
           currentSessionId: state.currentSessionId,
-          chatHistory: state.chatHistory,
+          chatHistory: Object.fromEntries(
+            Object.entries(state.chatHistory)
+              .sort(([, a], [, b]) => {
+                const lastA = a[a.length - 1]?.timestamp ?? 0;
+                const lastB = b[b.length - 1]?.timestamp ?? 0;
+                return lastB - lastA;
+              })
+              .slice(0, 20),
+          ),
           tabs: state.tabs,
           activeTabId: state.activeTabId,
         }),

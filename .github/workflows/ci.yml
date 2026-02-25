@@ -90,7 +90,7 @@ jobs:
       - name: Setup Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
-          components: clippy
+          components: clippy, rustfmt
 
       - name: Cache cargo registry & build
         uses: actions/cache@v4
@@ -105,6 +105,9 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
+      - name: Format check
+        run: cargo fmt -- --check
+
       - name: Clippy
         run: cargo clippy -- -D warnings
 
@@ -113,6 +116,12 @@ jobs:
 
       - name: Test
         run: cargo test --features test-helpers
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
+      - name: Security audit
+        run: cargo audit
 
   deploy:
     name: Deploy to Fly.io
