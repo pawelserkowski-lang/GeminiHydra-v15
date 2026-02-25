@@ -19,6 +19,7 @@ import rehypeHighlight from 'rehype-highlight';
 import remarkGfm from 'remark-gfm';
 
 import { CodeBlock } from '@/components/molecules';
+import { chatLanguages } from '@/shared/utils/highlightLanguages';
 import { useViewTheme } from '@/shared/hooks/useViewTheme';
 import { cn } from '@/shared/utils/cn';
 import type { Message } from '@/stores/viewStore';
@@ -204,7 +205,7 @@ export const MessageBubble = memo<MessageBubbleProps>(({ message, isLast, isStre
         <div className="markdown-body prose prose-sm max-w-none break-words">
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
-            rehypePlugins={[rehypeHighlight]}
+            rehypePlugins={[[rehypeHighlight, { languages: chatLanguages }]]}
             components={{
               code({
                 className,
