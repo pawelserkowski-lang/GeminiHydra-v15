@@ -7,7 +7,7 @@
  * Supports forwardRef for external ref access.
  */
 
-import { forwardRef, type InputHTMLAttributes, type ReactNode, useId } from 'react';
+import { forwardRef, memo, type InputHTMLAttributes, type ReactNode, useId } from 'react';
 import { cn } from '@/shared/utils/cn';
 
 // ---------------------------------------------------------------------------
@@ -63,7 +63,7 @@ const rightElementPaddingClasses: Record<InputSize, string> = {
 // Component
 // ---------------------------------------------------------------------------
 
-export const Input = forwardRef<HTMLInputElement, InputProps>(
+export const Input = memo(forwardRef<HTMLInputElement, InputProps>(
   ({ label, icon, rightElement, error, inputSize = 'md', className = '', disabled, id: externalId, ...rest }, ref) => {
     const autoId = useId();
     const inputId = externalId ?? autoId;
@@ -106,9 +106,10 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
               'glass-input w-full rounded-lg font-mono',
               'text-[var(--matrix-text-primary)] placeholder:text-[var(--matrix-text-secondary)]/60',
               'outline-none transition-all duration-200',
-              'focus:border-[var(--matrix-accent)] focus:ring-2 focus:ring-[var(--matrix-accent)]/30',
+              'focus-visible:border-[var(--matrix-accent)] focus-visible:ring-2 focus-visible:ring-[var(--matrix-accent)]',
+              'focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--matrix-bg-primary)]',
               'disabled:opacity-50 disabled:cursor-not-allowed',
-              hasError && 'border-red-500 focus:border-red-500 focus:ring-red-500/30',
+              hasError && 'border-red-500 focus-visible:border-red-500 focus-visible:ring-red-500/30',
               sizeClasses[inputSize],
               icon && iconPaddingClasses[inputSize],
               rightElement && rightElementPaddingClasses[inputSize],
@@ -131,6 +132,6 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
       </div>
     );
   },
-);
+));
 
 Input.displayName = 'Input';

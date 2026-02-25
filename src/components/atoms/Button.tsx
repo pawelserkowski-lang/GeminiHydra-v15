@@ -1,7 +1,7 @@
 import { cva, type VariantProps } from 'class-variance-authority';
 import { Loader2 } from 'lucide-react';
 import { type HTMLMotionProps, motion } from 'motion/react';
-import { type ButtonHTMLAttributes, forwardRef, type ReactNode } from 'react';
+import { type ButtonHTMLAttributes, forwardRef, memo, type ReactNode } from 'react';
 import { cn } from '@/shared/utils/cn';
 
 // ============================================
@@ -13,8 +13,8 @@ const buttonVariants = cva(
     'inline-flex items-center justify-center gap-2 font-medium',
     'transition-all duration-200',
     'disabled:opacity-50 disabled:cursor-not-allowed',
-    'focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--matrix-focus-ring)]',
-    'focus-visible:ring-offset-2 focus-visible:ring-offset-matrix-bg-primary',
+    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--matrix-accent)]',
+    'focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--matrix-bg-primary)]',
     'rounded-lg font-mono',
   ].join(' '),
   {
@@ -76,7 +76,7 @@ export interface ButtonProps
 // COMPONENT
 // ============================================
 
-export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
+export const Button = memo(forwardRef<HTMLButtonElement, ButtonProps>(
   (
     { className, variant, size, isLoading = false, loadingText, leftIcon, rightIcon, children, disabled, ...props },
     ref,
@@ -106,6 +106,6 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
       </motion.button>
     );
   },
-);
+));
 
 Button.displayName = 'Button';

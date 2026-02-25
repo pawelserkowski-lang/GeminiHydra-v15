@@ -41,6 +41,26 @@ export default defineConfig(({ mode }) => ({
       },
     },
   },
+  preview: {
+    port: 4176,
+    proxy: {
+      '/api': {
+        target: backendUrl,
+        changeOrigin: true,
+        secure: backendUrl.startsWith('https'),
+      },
+      '/ws': {
+        target: backendUrl,
+        changeOrigin: true,
+        ws: true,
+      },
+      '/partner-api': {
+        target: partnerBackendUrl,
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/partner-api/, '/api'),
+      },
+    },
+  },
   build: {
     target: 'esnext',
     sourcemap: true,

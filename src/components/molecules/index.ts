@@ -3,6 +3,7 @@
 
 export type { CodeBlockProps } from './CodeBlock';
 export { CodeBlock } from './CodeBlock';
+export { EmptyState } from './EmptyState';
 export type {
   ModelOption,
   ModelSelectorProps,

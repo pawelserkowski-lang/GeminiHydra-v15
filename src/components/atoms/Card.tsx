@@ -1,5 +1,5 @@
 import { cva, type VariantProps } from 'class-variance-authority';
-import { forwardRef, type HTMLAttributes, type ReactNode } from 'react';
+import { forwardRef, memo, type HTMLAttributes, type ReactNode } from 'react';
 import { cn } from '@/shared/utils/cn';
 
 // ============================================
@@ -23,7 +23,13 @@ const cardVariants = cva('rounded-xl transition-all duration-200', {
       lg: 'p-6',
     },
     interactive: {
-      true: ['cursor-pointer', 'hover:-translate-y-0.5', 'hover:shadow-[0_8px_25px_rgba(0,0,0,0.3)]'].join(' '),
+      true: [
+        'cursor-pointer',
+        'hover:-translate-y-0.5',
+        'hover:shadow-[0_8px_25px_rgba(0,0,0,0.3)]',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--matrix-accent)]',
+        'focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--matrix-bg-primary)]',
+      ].join(' '),
       false: '',
     },
   },
@@ -45,7 +51,7 @@ export interface CardProps extends HTMLAttributes<HTMLDivElement>, VariantProps<
   footer?: ReactNode;
 }
 
-export const Card = forwardRef<HTMLDivElement, CardProps>(
+export const Card = memo(forwardRef<HTMLDivElement, CardProps>(
   ({ className, variant, padding, interactive, header, footer, children, ...props }, ref) => {
     return (
       <div ref={ref} className={cn(cardVariants({ variant, padding, interactive }), className)} {...props}>
@@ -63,6 +69,6 @@ export const Card = forwardRef<HTMLDivElement, CardProps>(
       </div>
     );
   },
-);
+));
 
 Card.displayName = 'Card';

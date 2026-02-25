@@ -12,7 +12,7 @@
  * - motion animations
  */
 
-import { Check, ClipboardList, Copy, FileText, Paperclip, Sparkles, Trash2, X } from 'lucide-react';
+import { Check, ClipboardList, Copy, FileText, MessageSquare, Paperclip, Trash2, X } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
   type DragEvent,
@@ -32,6 +32,8 @@ import { useSettingsQuery } from '@/features/settings/hooks/useSettings';
 import { useViewTheme } from '@/shared/hooks/useViewTheme';
 import { cn } from '@/shared/utils/cn';
 import { type Message, useViewStore } from '@/stores/viewStore';
+
+import { EmptyState } from '@/components/molecules/EmptyState';
 
 import { useFileReadMutation } from '../hooks/useFiles';
 import { ChatInput } from './ChatInput';
@@ -238,23 +240,22 @@ const ChatContextMenu = memo<ChatContextMenuProps>(({ x, y, isUser: _isUser, onC
 ChatContextMenu.displayName = 'ChatContextMenu';
 
 // ============================================================================
-// EMPTY STATE
+// EMPTY STATE (uses shared EmptyState molecule)
 // ============================================================================
 
-const EmptyState = memo(() => {
+const ChatEmptyState = memo(() => {
   const { t } = useTranslation();
-  const theme = useViewTheme();
   return (
-    <div className="h-full flex flex-col items-center justify-center gap-3">
-      <Sparkles size={48} className={cn(theme.iconMuted, 'opacity-30')} />
-      <p className={cn('text-sm font-mono', theme.textMuted)}>
-        {t('chat.emptyState', 'Type a message to start a conversation...')}
-      </p>
-    </div>
+    <EmptyState
+      icon={MessageSquare}
+      title={t('chat.emptyState', 'Start a conversation')}
+      description={t('chat.emptyStateDesc', 'Type a message or drop a file to begin.')}
+      className="h-full"
+    />
   );
 });
 
-EmptyState.displayName = 'EmptyState';
+ChatEmptyState.displayName = 'ChatEmptyState';
 
 // ============================================================================
 // STREAMING INDICATOR
@@ -538,7 +539,7 @@ export const ChatContainer = memo<ChatContainerProps>(({ isStreaming, onSubmit, 
                   onContextMenu={() => {}}
                 />
               ) : (
-                <EmptyState />
+                <ChatEmptyState />
               )
             ) : (
               <>

@@ -1,5 +1,5 @@
 import { cva, type VariantProps } from 'class-variance-authority';
-import { forwardRef, type HTMLAttributes, type ReactNode } from 'react';
+import { forwardRef, memo, type HTMLAttributes, type ReactNode } from 'react';
 import { cn } from '@/shared/utils/cn';
 
 // ============================================
@@ -50,7 +50,7 @@ export interface BadgeProps extends HTMLAttributes<HTMLSpanElement>, VariantProp
   children: ReactNode;
 }
 
-export const Badge = forwardRef<HTMLSpanElement, BadgeProps>(
+export const Badge = memo(forwardRef<HTMLSpanElement, BadgeProps>(
   ({ className, variant, size, dot = false, icon, children, ...props }, ref) => {
     const resolvedVariant = variant ?? 'default';
     const dotColor = dotColorMap[resolvedVariant] ?? dotColorMap.default;
@@ -63,6 +63,6 @@ export const Badge = forwardRef<HTMLSpanElement, BadgeProps>(
       </span>
     );
   },
-);
+));
 
 Badge.displayName = 'Badge';

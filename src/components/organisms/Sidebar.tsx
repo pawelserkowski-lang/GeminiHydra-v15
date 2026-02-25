@@ -158,6 +158,7 @@ function SessionItem({ session, isActive, msgCount, isLight, onSelect, onDelete,
           onSelect();
         }
       }}
+      aria-label={`Select session: ${session.title}`}
       className={cn(
         'relative w-full flex items-center gap-2 px-2 py-1.5 rounded-lg transition-all duration-200 group text-left cursor-pointer',
         isActive
@@ -383,6 +384,11 @@ export function Sidebar() {
             ? t('sidebar.expandSidebar', 'Expand sidebar')
             : t('sidebar.collapseSidebar', 'Collapse sidebar')
         }
+        aria-label={
+          sidebarCollapsed
+            ? t('sidebar.expandSidebar', 'Expand sidebar')
+            : t('sidebar.collapseSidebar', 'Collapse sidebar')
+        }
       >
         {sidebarCollapsed ? (
           <ChevronRight size={18} strokeWidth={2.5} className={collapseIcon} />
@@ -408,6 +414,8 @@ export function Sidebar() {
                 <button
                   type="button"
                   onClick={() => toggleGroup(group.id)}
+                  aria-expanded={isExpanded}
+                  aria-label={`${isExpanded ? 'Collapse' : 'Expand'} ${group.label} group`}
                   className={cn(
                     'w-full flex items-center justify-between px-3 py-2.5 transition-all group',
                     hasActiveItem
@@ -452,6 +460,7 @@ export function Sidebar() {
                         : cn(textMuted, hoverBg, textHover),
                     )}
                     title={sidebarCollapsed ? item.label : undefined}
+                    aria-label={`Navigate to ${item.label}`}
                   >
                     <item.icon
                       size={16}
@@ -493,6 +502,8 @@ export function Sidebar() {
             <button
               type="button"
               onClick={() => setShowSessions(!showSessions)}
+              aria-expanded={showSessions}
+              aria-label={`${showSessions ? 'Collapse' : 'Expand'} chat sessions`}
               className={cn('flex items-center gap-2 transition-colors', textDim, textHover)}
             >
               <MessageSquare size={14} />
@@ -557,6 +568,8 @@ export function Sidebar() {
             <button
               type="button"
               onClick={() => setShowPartnerSessions(!showPartnerSessions)}
+              aria-expanded={showPartnerSessions}
+              aria-label={`${showPartnerSessions ? 'Collapse' : 'Expand'} ClaudeHydra partner sessions`}
               className={cn('flex items-center gap-2 transition-colors', textDim, textHover)}
             >
               <div
@@ -696,6 +709,7 @@ export function Sidebar() {
               transition={{ duration: 0.2 }}
               className="md:hidden fixed inset-0 bg-black/50 backdrop-blur-sm z-40"
               onClick={() => setMobileOpen(false)}
+              role="presentation"
             />
             {/* Drawer */}
             <motion.aside

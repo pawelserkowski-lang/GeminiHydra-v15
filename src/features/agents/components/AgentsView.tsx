@@ -7,6 +7,7 @@
  */
 
 import {
+  Bot,
   ChevronRight,
   Crown,
   Edit,
@@ -28,6 +29,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { type ReactNode, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Badge, Button, Card } from '@/components/atoms';
+import { EmptyState } from '@/components/molecules/EmptyState';
 import { StatusIndicator, type StatusState } from '@/components/molecules';
 import { QueryError } from '@/components/molecules/QueryError';
 import { ViewSkeleton } from '@/components/molecules/ViewSkeleton';
@@ -348,21 +350,42 @@ export function AgentsView(): ReactNode {
 
       {/* Grid */}
       <div className={cn('flex-1 overflow-y-auto p-6', t.scrollbar)}>
-        <AnimatePresence mode="popLayout">
-          <motion.div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4" layout>
-            {filteredAgents.map((agent) => (
-              <AgentCard
-                key={agent.id}
-                agent={agent}
-                onEdit={() => {
-                  setEditingAgent(agent);
+        {filteredAgents.length === 0 ? (
+          <EmptyState
+            icon={Bot}
+            title={tr('agents.empty', 'No agents configured')}
+            description={tr('agents.emptyDesc', 'Create your first agent to start building the swarm.')}
+            action={
+              <Button
+                onClick={() => {
+                  setEditingAgent(null);
                   setEditorOpen(true);
                 }}
-                onDelete={() => handleDelete(agent.id)}
-              />
-            ))}
-          </motion.div>
-        </AnimatePresence>
+                size="sm"
+              >
+                <Plus size={16} className="mr-2" />
+                New Agent
+              </Button>
+            }
+            className="h-full"
+          />
+        ) : (
+          <AnimatePresence mode="popLayout">
+            <motion.div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4" layout>
+              {filteredAgents.map((agent) => (
+                <AgentCard
+                  key={agent.id}
+                  agent={agent}
+                  onEdit={() => {
+                    setEditingAgent(agent);
+                    setEditorOpen(true);
+                  }}
+                  onDelete={() => handleDelete(agent.id)}
+                />
+              ))}
+            </motion.div>
+          </AnimatePresence>
+        )}
       </div>
 
       <AgentEditor isOpen={editorOpen} agent={editingAgent} onClose={() => setEditorOpen(false)} onSave={handleSave} />

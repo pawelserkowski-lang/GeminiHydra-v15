@@ -13,7 +13,7 @@
 
 import { Check, Clipboard, Terminal } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useMemo, useRef, useState } from 'react';
 import { cn } from '@/shared/utils/cn';
 
 // ---------------------------------------------------------------------------
@@ -82,7 +82,7 @@ const LANGUAGE_NAMES: Record<string, string> = {
 // Component
 // ---------------------------------------------------------------------------
 
-export function CodeBlock({ code, language, showLineNumbers = false, maxHeight = '24rem', className }: CodeBlockProps) {
+export const CodeBlock = memo(function CodeBlock({ code, language, showLineNumbers = false, maxHeight = '24rem', className }: CodeBlockProps) {
   const [copied, setCopied] = useState(false);
   const preRef = useRef<HTMLPreElement>(null);
 
@@ -199,4 +199,4 @@ export function CodeBlock({ code, language, showLineNumbers = false, maxHeight =
       </div>
     </div>
   );
-}
+});

@@ -16,6 +16,7 @@ const AUTH_SECRET = env.VITE_AUTH_SECRET;
 
 const MAX_RETRIES = 3;
 const RETRY_BASE_MS = 1000;
+const RETRYABLE_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
 
 // -------------------------------------------------------------------
 // Error class
@@ -39,19 +40,48 @@ export class ApiError extends Error {
 // Retry wrapper
 // -------------------------------------------------------------------
 
-/** Retry on network errors (TypeError = "Failed to fetch") with exponential backoff. */
-async function fetchWithRetry(url: string, init: RequestInit, retries = MAX_RETRIES): Promise<Response> {
+/**
+ * Retry with exponential backoff + jitter.
+ * - Network errors (TypeError): always retried regardless of method.
+ * - Retryable HTTP statuses (408, 429, 500, 502, 503, 504): retried only
+ *   for idempotent methods (GET, HEAD) to avoid duplicating side-effects.
+ */
+async function fetchWithRetry(
+  url: string,
+  init: RequestInit,
+  retries = MAX_RETRIES,
+): Promise<Response> {
+  const method = init.method?.toUpperCase() ?? 'GET';
+  const isIdempotent = method === 'GET' || method === 'HEAD';
+  let lastError: Error | undefined;
+
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
       const response = await fetch(url, init);
-      // Don't retry on HTTP errors (4xx/5xx) — only network failures
-      return response;
-    } catch (err) {
-      // TypeError = network failure ("Failed to fetch")
-      if (attempt < retries && err instanceof TypeError) {
-        const delay = RETRY_BASE_MS * 2 ** attempt;
+
+      // Success or non-retryable client error — return immediately
+      if (response.ok || !RETRYABLE_STATUSES.has(response.status)) {
+        return response;
+      }
+
+      // Retryable HTTP status — only retry idempotent methods
+      if (isIdempotent && attempt < retries) {
+        const delay = RETRY_BASE_MS * 2 ** attempt + Math.random() * 500;
         console.warn(
-          `[api] Network error on ${init.method ?? 'GET'} ${url}, retrying in ${String(delay)}ms (${String(attempt + 1)}/${String(retries)})`,
+          `[api] HTTP ${String(response.status)} on ${method} ${url}, retrying in ${String(Math.round(delay))}ms (${String(attempt + 1)}/${String(retries)})`,
+        );
+        await new Promise((r) => setTimeout(r, delay));
+        continue;
+      }
+
+      return response; // Last attempt or non-idempotent — return as-is
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      // Network failure (TypeError) — retry regardless of method
+      if (attempt < retries && err instanceof TypeError) {
+        const delay = RETRY_BASE_MS * 2 ** attempt + Math.random() * 500;
+        console.warn(
+          `[api] Network error on ${method} ${url}, retrying in ${String(Math.round(delay))}ms (${String(attempt + 1)}/${String(retries)})`,
         );
         await new Promise((r) => setTimeout(r, delay));
         continue;
@@ -59,8 +89,8 @@ async function fetchWithRetry(url: string, init: RequestInit, retries = MAX_RETR
       throw err;
     }
   }
-  // Should never reach here, but TypeScript needs it
-  throw new TypeError('Failed to fetch after retries');
+
+  throw lastError ?? new Error('Request failed after retries');
 }
 
 // -------------------------------------------------------------------

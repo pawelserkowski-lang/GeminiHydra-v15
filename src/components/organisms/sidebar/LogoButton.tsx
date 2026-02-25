@@ -29,6 +29,7 @@ export function LogoButton({ collapsed, onClick, className }: LogoButtonProps) {
         className,
       )}
       title="Home"
+      aria-label="Navigate to home"
     >
       <img
         src={logoSrc}

@@ -1,5 +1,6 @@
 /** Jaskier Shared Pattern -- QueryError */
 import { AlertCircle, RefreshCw } from 'lucide-react';
+import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 
 interface QueryErrorProps {
@@ -7,7 +8,7 @@ interface QueryErrorProps {
   message?: string;
 }
 
-export function QueryError({ onRetry, message }: QueryErrorProps) {
+export const QueryError = memo(function QueryError({ onRetry, message }: QueryErrorProps) {
   const { t } = useTranslation();
   return (
     <div className="flex flex-col items-center justify-center gap-4 p-8 text-center">
@@ -25,4 +26,4 @@ export function QueryError({ onRetry, message }: QueryErrorProps) {
       </button>
     </div>
   );
-}
+});

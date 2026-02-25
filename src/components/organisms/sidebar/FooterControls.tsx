@@ -74,6 +74,7 @@ export function FooterControls({ collapsed, version, tagline }: FooterControlsPr
             isLight ? 'hover:bg-black/5' : 'hover:bg-white/5',
           )}
           title={collapsed ? `Theme: ${resolvedTheme === 'dark' ? 'Dark' : 'Light'}` : undefined}
+          aria-label={`Toggle theme, current: ${resolvedTheme === 'dark' ? 'Dark' : 'Light'}`}
         >
           <div className="relative">
             {resolvedTheme === 'dark' ? (
@@ -107,6 +108,8 @@ export function FooterControls({ collapsed, version, tagline }: FooterControlsPr
               isLight ? 'hover:bg-black/5' : 'hover:bg-white/5',
             )}
             title={collapsed ? `Language: ${currentLang?.name}` : undefined}
+            aria-label={`Select language, current: ${currentLang?.name}`}
+            aria-expanded={showLangDropdown}
           >
             <div className="flex items-center gap-3">
               <div className="relative">
