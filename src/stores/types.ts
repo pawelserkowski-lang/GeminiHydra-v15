@@ -1,8 +1,8 @@
 // src/stores/types.ts
 import type {
+  ChatMessage,
   ChatSession,
   ChatTab as SharedChatTab,
-  ChatMessage,
   MessageRole as SharedMessageRole,
 } from '@/shared/types/store';
 

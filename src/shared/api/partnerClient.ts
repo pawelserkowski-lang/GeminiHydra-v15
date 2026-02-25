@@ -6,9 +6,7 @@
 
 import { env } from '../config/env';
 
-const PARTNER_BASE = import.meta.env.PROD
-  ? 'https://claudehydra-v4-backend.fly.dev/api'
-  : '/partner-api';
+const PARTNER_BASE = import.meta.env.PROD ? 'https://claudehydra-v4-backend.fly.dev/api' : '/partner-api';
 const PARTNER_AUTH_SECRET = env.VITE_PARTNER_AUTH_SECRET;
 
 interface PartnerSessionSummary {

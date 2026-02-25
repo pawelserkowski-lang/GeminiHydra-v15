@@ -7,6 +7,7 @@
  */
 
 import { useCallback, useEffect, useRef } from 'react';
+import type { Session } from '@/stores/viewStore';
 import { useViewStore } from '@/stores/viewStore';
 import {
   useAddMessageMutation,
@@ -15,7 +16,6 @@ import {
   useSessionsQuery,
   useUpdateSessionMutation,
 } from './useSessions';
-import type { Session } from '@/stores/viewStore';
 
 const MIGRATION_FLAG = 'gh-sessions-migrated-to-db';
 
@@ -102,13 +102,7 @@ export function useSessionSync() {
 
   /** Persist a message to the DB for the given session. */
   const addMessageWithSync = useCallback(
-    async (params: {
-      sessionId: string;
-      role: string;
-      content: string;
-      model?: string;
-      agent?: string;
-    }) => {
+    async (params: { sessionId: string; role: string; content: string; model?: string; agent?: string }) => {
       try {
         await addMessageMutation.mutateAsync(params);
       } catch {

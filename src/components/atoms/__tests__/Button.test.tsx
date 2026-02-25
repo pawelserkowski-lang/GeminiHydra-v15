@@ -1,5 +1,5 @@
-import { render, screen, fireEvent } from '@testing-library/react';
-import { describe, it, expect, vi } from 'vitest';
+import { fireEvent, render, screen } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
 import { Button } from '@/components/atoms/Button';
 
 describe('Button', () => {
@@ -74,7 +74,11 @@ describe('Button', () => {
 
   it('does not fire onClick when disabled', () => {
     const onClick = vi.fn();
-    render(<Button disabled onClick={onClick}>Disabled</Button>);
+    render(
+      <Button disabled onClick={onClick}>
+        Disabled
+      </Button>,
+    );
     fireEvent.click(screen.getByRole('button'));
     expect(onClick).not.toHaveBeenCalled();
   });
@@ -89,7 +93,11 @@ describe('Button', () => {
   });
 
   it('shows loadingText when isLoading and loadingText is provided', () => {
-    render(<Button isLoading loadingText="Please wait...">Submit</Button>);
+    render(
+      <Button isLoading loadingText="Please wait...">
+        Submit
+      </Button>,
+    );
     expect(screen.getByText('Please wait...')).toBeInTheDocument();
   });
 

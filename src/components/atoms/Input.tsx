@@ -64,20 +64,7 @@ const rightElementPaddingClasses: Record<InputSize, string> = {
 // ---------------------------------------------------------------------------
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(
-  (
-    {
-      label,
-      icon,
-      rightElement,
-      error,
-      inputSize = 'md',
-      className = '',
-      disabled,
-      id: externalId,
-      ...rest
-    },
-    ref,
-  ) => {
+  ({ label, icon, rightElement, error, inputSize = 'md', className = '', disabled, id: externalId, ...rest }, ref) => {
     const autoId = useId();
     const inputId = externalId ?? autoId;
     const errorId = error ? `${inputId}-error` : undefined;
@@ -131,9 +118,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
 
           {/* Right Element */}
           {rightElement && (
-            <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center">
-              {rightElement}
-            </div>
+            <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center">{rightElement}</div>
           )}
         </div>
 

@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button, Input } from '@/components/atoms';
-import { Agent } from '@/shared/api/schemas';
+import type { Agent } from '@/shared/api/schemas';
 import { useViewTheme } from '@/shared/hooks/useViewTheme';
 import { cn } from '@/shared/utils/cn';
 
@@ -66,7 +66,10 @@ export function AgentEditor({ agent, isOpen, onClose, onSave }: AgentEditorProps
 
   const handleKeywordsChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
-    const keywords = val.split(',').map((k) => k.trim()).filter((k) => k);
+    const keywords = val
+      .split(',')
+      .map((k) => k.trim())
+      .filter((k) => k);
     handleChange('keywords', keywords);
   };
 
@@ -92,7 +95,9 @@ export function AgentEditor({ agent, isOpen, onClose, onSave }: AgentEditorProps
         <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-2">
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1">
-              <label htmlFor="agent-name" className="text-xs font-mono opacity-70">Name</label>
+              <label htmlFor="agent-name" className="text-xs font-mono opacity-70">
+                Name
+              </label>
               <Input
                 ref={nameInputRef}
                 id="agent-name"
@@ -102,7 +107,9 @@ export function AgentEditor({ agent, isOpen, onClose, onSave }: AgentEditorProps
               />
             </div>
             <div className="space-y-1">
-              <label htmlFor="agent-role" className="text-xs font-mono opacity-70">Role</label>
+              <label htmlFor="agent-role" className="text-xs font-mono opacity-70">
+                Role
+              </label>
               <Input
                 id="agent-role"
                 value={formData.role}
@@ -114,7 +121,9 @@ export function AgentEditor({ agent, isOpen, onClose, onSave }: AgentEditorProps
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1">
-              <label htmlFor="agent-tier" className="text-xs font-mono opacity-70">Tier</label>
+              <label htmlFor="agent-tier" className="text-xs font-mono opacity-70">
+                Tier
+              </label>
               <select
                 id="agent-tier"
                 className={cn(
@@ -130,7 +139,9 @@ export function AgentEditor({ agent, isOpen, onClose, onSave }: AgentEditorProps
               </select>
             </div>
             <div className="space-y-1">
-              <label htmlFor="agent-status" className="text-xs font-mono opacity-70">Status</label>
+              <label htmlFor="agent-status" className="text-xs font-mono opacity-70">
+                Status
+              </label>
               <select
                 id="agent-status"
                 className={cn(
@@ -149,7 +160,9 @@ export function AgentEditor({ agent, isOpen, onClose, onSave }: AgentEditorProps
           </div>
 
           <div className="space-y-1">
-            <label htmlFor="agent-description" className="text-xs font-mono opacity-70">{tr('agents.description', 'Description')}</label>
+            <label htmlFor="agent-description" className="text-xs font-mono opacity-70">
+              {tr('agents.description', 'Description')}
+            </label>
             <textarea
               id="agent-description"
               className={cn(
@@ -163,7 +176,9 @@ export function AgentEditor({ agent, isOpen, onClose, onSave }: AgentEditorProps
           </div>
 
           <div className="space-y-1">
-            <label htmlFor="agent-keywords" className="text-xs font-mono opacity-70">Keywords (comma separated)</label>
+            <label htmlFor="agent-keywords" className="text-xs font-mono opacity-70">
+              Keywords (comma separated)
+            </label>
             <Input
               id="agent-keywords"
               value={formData.keywords.join(', ')}
@@ -173,7 +188,9 @@ export function AgentEditor({ agent, isOpen, onClose, onSave }: AgentEditorProps
           </div>
 
           <div className="space-y-1">
-            <label htmlFor="agent-system-prompt" className="text-xs font-mono opacity-70">System Prompt (Override)</label>
+            <label htmlFor="agent-system-prompt" className="text-xs font-mono opacity-70">
+              System Prompt (Override)
+            </label>
             <textarea
               id="agent-system-prompt"
               className={cn(

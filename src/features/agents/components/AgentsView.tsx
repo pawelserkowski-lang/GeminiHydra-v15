@@ -37,7 +37,7 @@ import {
   useDeleteAgentMutation,
   useUpdateAgentMutation,
 } from '@/features/agents/hooks/useAgents';
-import { Agent } from '@/shared/api/schemas';
+import type { Agent } from '@/shared/api/schemas';
 import { useViewTheme } from '@/shared/hooks/useViewTheme';
 import { cn } from '@/shared/utils/cn';
 import { AgentEditor } from './AgentEditor';
@@ -90,7 +90,7 @@ function getAgentColor(name: string): string {
     hash = name.charCodeAt(i) + ((hash << 5) - hash);
   }
   const c = (hash & 0x00ffffff).toString(16).toUpperCase();
-  return '#' + '00000'.substring(0, 6 - c.length) + c;
+  return `#${'00000'.substring(0, 6 - c.length)}${c}`;
 }
 
 function getAgentPhase(role: string): PipelinePhase {
@@ -174,7 +174,7 @@ function AgentCard({ agent, onEdit, onDelete }: { agent: Agent; onEdit: () => vo
   const color = getAgentColor(agent.name);
   const phase = getAgentPhase(agent.role);
   const tierKey = agent.tier.toLowerCase();
-  const tierCfg = TIER_CONFIG[tierKey] ?? TIER_CONFIG['executor'] ?? { label: 'Executor', badgeVariant: 'default' };
+  const tierCfg = TIER_CONFIG[tierKey] ?? TIER_CONFIG.executor ?? { label: 'Executor', badgeVariant: 'default' };
 
   return (
     <motion.div
@@ -227,10 +227,20 @@ function AgentCard({ agent, onEdit, onDelete }: { agent: Agent; onEdit: () => vo
           <div className="flex items-center justify-between mt-2">
             <PipelineStrip activePhase={phase} agentColor={color} />
             <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-              <button type="button" aria-label={`Edit agent ${agent.name}`} onClick={onEdit} className="p-1 hover:bg-white/10 rounded">
+              <button
+                type="button"
+                aria-label={`Edit agent ${agent.name}`}
+                onClick={onEdit}
+                className="p-1 hover:bg-white/10 rounded"
+              >
                 <Edit size={14} className={t.textMuted} />
               </button>
-              <button type="button" aria-label={`Delete agent ${agent.name}`} onClick={onDelete} className="p-1 hover:bg-red-500/20 rounded">
+              <button
+                type="button"
+                aria-label={`Delete agent ${agent.name}`}
+                onClick={onDelete}
+                className="p-1 hover:bg-red-500/20 rounded"
+              >
                 <Trash2 size={14} className="text-red-400" />
               </button>
             </div>
@@ -304,7 +314,13 @@ export function AgentsView(): ReactNode {
               &middot; {tierCounts.executor} Exec
             </p>
           </div>
-          <Button onClick={() => { setEditingAgent(null); setEditorOpen(true); }} size="sm">
+          <Button
+            onClick={() => {
+              setEditingAgent(null);
+              setEditorOpen(true);
+            }}
+            size="sm"
+          >
             <Plus size={16} className="mr-2" />
             New Agent
           </Button>
@@ -338,7 +354,10 @@ export function AgentsView(): ReactNode {
               <AgentCard
                 key={agent.id}
                 agent={agent}
-                onEdit={() => { setEditingAgent(agent); setEditorOpen(true); }}
+                onEdit={() => {
+                  setEditingAgent(agent);
+                  setEditorOpen(true);
+                }}
                 onDelete={() => handleDelete(agent.id)}
               />
             ))}
@@ -346,12 +365,7 @@ export function AgentsView(): ReactNode {
         </AnimatePresence>
       </div>
 
-      <AgentEditor
-        isOpen={editorOpen}
-        agent={editingAgent}
-        onClose={() => setEditorOpen(false)}
-        onSave={handleSave}
-      />
+      <AgentEditor isOpen={editorOpen} agent={editingAgent} onClose={() => setEditorOpen(false)} onSave={handleSave} />
     </div>
   );
 }

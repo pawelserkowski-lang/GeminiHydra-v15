@@ -1,7 +1,7 @@
-import { StateCreator } from 'zustand';
-import { ChatTab, Message } from '../types';
-import { ViewStoreState } from '../viewStore';
+import type { StateCreator } from 'zustand';
+import type { ChatTab, Message } from '../types';
 import { MAX_MESSAGES_PER_SESSION, MAX_TITLE_LENGTH, sanitizeContent, sanitizeTitle } from '../utils';
+import type { ViewStoreState } from '../viewStore';
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -19,14 +19,17 @@ function appendMessage(history: Record<string, Message[]>, sessionId: string, ms
 }
 
 /** Generate an auto-title from the first user message in a session. */
-function autoTitle(msg: Message, existingMessages: Message[], sessionId: string, sessions: ViewStoreState['sessions'], tabs: ChatTab[]): { sessions: ViewStoreState['sessions']; tabs: ChatTab[] } {
+function autoTitle(
+  msg: Message,
+  existingMessages: Message[],
+  sessionId: string,
+  sessions: ViewStoreState['sessions'],
+  tabs: ChatTab[],
+): { sessions: ViewStoreState['sessions']; tabs: ChatTab[] } {
   if (msg.role !== 'user' || existingMessages.length > 0) {
     return { sessions, tabs };
   }
-  const title = sanitizeTitle(
-    msg.content.substring(0, 30) + (msg.content.length > 30 ? '...' : ''),
-    MAX_TITLE_LENGTH,
-  );
+  const title = sanitizeTitle(msg.content.substring(0, 30) + (msg.content.length > 30 ? '...' : ''), MAX_TITLE_LENGTH);
   return {
     sessions: sessions.map((s) => (s.id === sessionId ? { ...s, title } : s)),
     tabs: tabs.map((t) => (t.sessionId === sessionId ? { ...t, title } : t)),
@@ -34,7 +37,11 @@ function autoTitle(msg: Message, existingMessages: Message[], sessionId: string,
 }
 
 /** Append content to the last message of a session. */
-function appendToLastMessage(history: Record<string, Message[]>, sessionId: string, content: string): Record<string, Message[]> | null {
+function appendToLastMessage(
+  history: Record<string, Message[]>,
+  sessionId: string,
+  content: string,
+): Record<string, Message[]> | null {
   const messages = history[sessionId] || [];
   if (messages.length === 0) return null;
   const lastMsg = messages[messages.length - 1];
@@ -71,12 +78,7 @@ export interface ChatSlice {
 
 // ── Slice ───────────────────────────────────────────────────────────────────
 
-export const createChatSlice: StateCreator<
-  ViewStoreState,
-  [],
-  [],
-  ChatSlice
-> = (set) => ({
+export const createChatSlice: StateCreator<ViewStoreState, [], [], ChatSlice> = (set) => ({
   chatHistory: {},
   tabs: [],
   activeTabId: null,
@@ -197,5 +199,4 @@ export const createChatSlice: StateCreator<
       const updated = appendToLastMessage(state.chatHistory, sessionId, content);
       return updated ? { chatHistory: updated } : state;
     }),
-
 });

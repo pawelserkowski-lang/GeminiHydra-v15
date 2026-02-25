@@ -17,8 +17,8 @@ import {
   Edit2,
   ExternalLink,
   Home,
-  type LucideIcon,
   Loader2,
+  type LucideIcon,
   MessageSquare,
   Plus,
   Sparkles,
@@ -31,11 +31,11 @@ import { AnimatePresence, motion } from 'motion/react';
 import { type KeyboardEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/contexts/ThemeContext';
-import { cn } from '@/shared/utils/cn';
-import { useSessionSync } from '@/features/chat/hooks/useSessionSync';
-import { usePartnerSessions } from '@/features/chat/hooks/usePartnerSessions';
 import { PartnerChatModal } from '@/features/chat/components/PartnerChatModal';
-import { useViewStore, type Session, type View } from '@/stores/viewStore';
+import { usePartnerSessions } from '@/features/chat/hooks/usePartnerSessions';
+import { useSessionSync } from '@/features/chat/hooks/useSessionSync';
+import { cn } from '@/shared/utils/cn';
+import { type Session, useViewStore, type View } from '@/stores/viewStore';
 import { FooterControls } from './sidebar/FooterControls';
 import { LogoButton } from './sidebar/LogoButton';
 
@@ -135,7 +135,10 @@ function SessionItem({ session, isActive, msgCount, isLight, onSelect, onDelete,
         <button
           type="button"
           onClick={handleCancel}
-          className={cn('p-1 rounded', isLight ? 'hover:bg-red-500/15 text-red-600' : 'hover:bg-red-500/20 text-red-400')}
+          className={cn(
+            'p-1 rounded',
+            isLight ? 'hover:bg-red-500/15 text-red-600' : 'hover:bg-red-500/20 text-red-400',
+          )}
         >
           <X size={14} />
         </button>
@@ -158,14 +161,19 @@ function SessionItem({ session, isActive, msgCount, isLight, onSelect, onDelete,
       className={cn(
         'relative w-full flex items-center gap-2 px-2 py-1.5 rounded-lg transition-all duration-200 group text-left cursor-pointer',
         isActive
-          ? isLight ? 'bg-emerald-500/15 text-emerald-800' : 'bg-white/10 text-white'
+          ? isLight
+            ? 'bg-emerald-500/15 text-emerald-800'
+            : 'bg-white/10 text-white'
           : cn(textMuted, hoverBg, isLight ? 'hover:text-slate-900' : 'hover:text-white'),
       )}
       title={session.title}
     >
       <MessageSquare
         size={14}
-        className={cn('flex-shrink-0 transition-colors', isActive ? (isLight ? 'text-emerald-700' : 'text-white') : iconMuted)}
+        className={cn(
+          'flex-shrink-0 transition-colors',
+          isActive ? (isLight ? 'text-emerald-700' : 'text-white') : iconMuted,
+        )}
       />
       <div className="flex-1 min-w-0">
         <span className="text-sm truncate block leading-tight">{session.title}</span>
@@ -193,8 +201,12 @@ function SessionItem({ session, isActive, msgCount, isLight, onSelect, onDelete,
           className={cn(
             'p-1 rounded transition-colors',
             confirmDelete
-              ? isLight ? 'bg-red-500/20 text-red-600' : 'bg-red-500/30 text-red-300'
-              : isLight ? 'hover:bg-red-500/15 text-red-600' : 'hover:bg-red-500/20 text-red-400',
+              ? isLight
+                ? 'bg-red-500/20 text-red-600'
+                : 'bg-red-500/30 text-red-300'
+              : isLight
+                ? 'hover:bg-red-500/15 text-red-600'
+                : 'hover:bg-red-500/20 text-red-400',
           )}
           title={confirmDelete ? t('sidebar.confirmDelete', 'Click again to delete') : t('common.delete', 'Delete')}
         >
@@ -205,7 +217,9 @@ function SessionItem({ session, isActive, msgCount, isLight, onSelect, onDelete,
         <div
           className={cn(
             'absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-4 rounded-r-full',
-            isLight ? 'bg-emerald-600 shadow-[0_0_8px_rgba(5,150,105,0.5)]' : 'bg-white shadow-[0_0_8px_rgba(255,255,255,0.5)]',
+            isLight
+              ? 'bg-emerald-600 shadow-[0_0_8px_rgba(5,150,105,0.5)]'
+              : 'bg-white shadow-[0_0_8px_rgba(255,255,255,0.5)]',
           )}
         />
       )}
@@ -246,7 +260,8 @@ export function Sidebar() {
   // Sessions sorted by creation date (newest first)
   const sortedSessions = useMemo(() => [...sessions].sort((a, b) => b.createdAt - a.createdAt), [sessions]);
   const sortedPartnerSessions = useMemo(
-    () => [...(partnerSessions ?? [])].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()),
+    () =>
+      [...(partnerSessions ?? [])].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()),
     [partnerSessions],
   );
 
@@ -363,7 +378,11 @@ export function Sidebar() {
           'absolute -right-4 top-1/2 -translate-y-1/2 z-30 hidden md:flex items-center justify-center w-9 h-9 border rounded-full shadow-lg backdrop-blur-sm transition-all duration-200 hover:scale-110 active:scale-95',
           collapseBtn,
         )}
-        title={sidebarCollapsed ? t('sidebar.expandSidebar', 'Expand sidebar') : t('sidebar.collapseSidebar', 'Collapse sidebar')}
+        title={
+          sidebarCollapsed
+            ? t('sidebar.expandSidebar', 'Expand sidebar')
+            : t('sidebar.collapseSidebar', 'Collapse sidebar')
+        }
       >
         {sidebarCollapsed ? (
           <ChevronRight size={18} strokeWidth={2.5} className={collapseIcon} />
@@ -445,7 +464,9 @@ export function Sidebar() {
                           : cn(iconMuted, iconHover),
                       )}
                     />
-                    {!sidebarCollapsed && <span className="font-medium text-base tracking-wide truncate">{item.label}</span>}
+                    {!sidebarCollapsed && (
+                      <span className="font-medium text-base tracking-wide truncate">{item.label}</span>
+                    )}
                     {currentView === item.id && (
                       <div
                         className={cn(
@@ -472,15 +493,10 @@ export function Sidebar() {
             <button
               type="button"
               onClick={() => setShowSessions(!showSessions)}
-              className={cn(
-                'flex items-center gap-2 transition-colors',
-                textDim, textHover,
-              )}
+              className={cn('flex items-center gap-2 transition-colors', textDim, textHover)}
             >
               <MessageSquare size={14} />
-              <span className="text-sm font-bold tracking-[0.12em] uppercase">
-                {t('sidebar.chats', 'CHATS')}
-              </span>
+              <span className="text-sm font-bold tracking-[0.12em] uppercase">{t('sidebar.chats', 'CHATS')}</span>
               <ChevronDown
                 size={14}
                 className={cn('transition-transform duration-200', showSessions ? '' : '-rotate-90')}
@@ -496,7 +512,11 @@ export function Sidebar() {
               >
                 <Plus
                   size={14}
-                  className={cn(iconMuted, 'transition-colors', isLight ? 'hover:text-emerald-700' : 'hover:text-white')}
+                  className={cn(
+                    iconMuted,
+                    'transition-colors',
+                    isLight ? 'hover:text-emerald-700' : 'hover:text-white',
+                  )}
                 />
               </button>
             </div>
@@ -539,13 +559,17 @@ export function Sidebar() {
               onClick={() => setShowPartnerSessions(!showPartnerSessions)}
               className={cn('flex items-center gap-2 transition-colors', textDim, textHover)}
             >
-              <div className={cn(
-                'w-5 h-5 rounded flex items-center justify-center text-[9px] font-bold flex-shrink-0',
-                isLight ? 'bg-orange-100 text-orange-700' : 'bg-orange-500/20 text-orange-400',
-              )}>
+              <div
+                className={cn(
+                  'w-5 h-5 rounded flex items-center justify-center text-[9px] font-bold flex-shrink-0',
+                  isLight ? 'bg-orange-100 text-orange-700' : 'bg-orange-500/20 text-orange-400',
+                )}
+              >
                 CH
               </div>
-              <span className="text-sm font-bold tracking-[0.12em] uppercase">{t('sidebar.partner', 'ClaudeHydra')}</span>
+              <span className="text-sm font-bold tracking-[0.12em] uppercase">
+                {t('sidebar.partner', 'ClaudeHydra')}
+              </span>
               <ChevronDown
                 size={14}
                 className={cn('transition-transform duration-200', showPartnerSessions ? '' : '-rotate-90')}
@@ -569,11 +593,11 @@ export function Sidebar() {
                 transition={{ duration: 0.2, ease: 'easeInOut' }}
                 className="flex-1 overflow-y-auto scrollbar-hide hover:scrollbar-thin hover:scrollbar-thumb-current space-y-0.5 mt-1"
               >
-                {partnerError && (
-                  <p className={cn('text-[10px] text-center py-2', textDim)}>Offline</p>
-                )}
+                {partnerError && <p className={cn('text-[10px] text-center py-2', textDim)}>Offline</p>}
                 {!partnerError && sortedPartnerSessions.length === 0 && !partnerLoading && (
-                  <p className={cn('text-[10px] text-center py-2', textDim)}>{t('sidebar.noSessions', 'No sessions')}</p>
+                  <p className={cn('text-[10px] text-center py-2', textDim)}>
+                    {t('sidebar.noSessions', 'No sessions')}
+                  </p>
                 )}
                 {sortedPartnerSessions.map((ps) => (
                   <button
@@ -582,18 +606,29 @@ export function Sidebar() {
                     onClick={() => setPartnerModalSessionId(ps.id)}
                     className={cn(
                       'relative w-full flex items-center gap-2 px-2 py-1.5 rounded-lg transition-all duration-200 group text-left',
-                      textMuted, hoverBg, textHover,
+                      textMuted,
+                      hoverBg,
+                      textHover,
                     )}
                     title={ps.title}
                   >
-                    <MessageSquare size={14} className={cn('flex-shrink-0 transition-colors', isLight ? 'text-orange-500' : 'text-orange-400/60')} />
+                    <MessageSquare
+                      size={14}
+                      className={cn(
+                        'flex-shrink-0 transition-colors',
+                        isLight ? 'text-orange-500' : 'text-orange-400/60',
+                      )}
+                    />
                     <div className="flex-1 min-w-0">
                       <span className="text-sm truncate block leading-tight">{ps.title}</span>
                       <span className={cn('text-[10px] font-mono', textDim)}>
                         {ps.message_count} {ps.message_count === 1 ? 'msg' : 'msgs'}
                       </span>
                     </div>
-                    <ExternalLink size={10} className={cn('opacity-0 group-hover:opacity-60 transition-opacity flex-shrink-0', iconMuted)} />
+                    <ExternalLink
+                      size={10}
+                      className={cn('opacity-0 group-hover:opacity-60 transition-opacity flex-shrink-0', iconMuted)}
+                    />
                   </button>
                 ))}
               </motion.div>
@@ -611,7 +646,10 @@ export function Sidebar() {
             className={cn('p-2 rounded-lg transition-all', hoverBg)}
             title={t('sidebar.newChat', 'New chat')}
           >
-            <Plus size={18} className={cn(iconMuted, isLight ? 'hover:text-emerald-700' : 'hover:text-white', 'transition-colors')} />
+            <Plus
+              size={18}
+              className={cn(iconMuted, isLight ? 'hover:text-emerald-700' : 'hover:text-white', 'transition-colors')}
+            />
           </button>
         </div>
       )}
@@ -674,10 +712,7 @@ export function Sidebar() {
       </AnimatePresence>
 
       {/* Partner session modal */}
-      <PartnerChatModal
-        sessionId={partnerModalSessionId}
-        onClose={() => setPartnerModalSessionId(null)}
-      />
+      <PartnerChatModal sessionId={partnerModalSessionId} onClose={() => setPartnerModalSessionId(null)} />
     </>
   );
 }

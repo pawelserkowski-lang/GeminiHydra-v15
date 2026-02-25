@@ -35,10 +35,7 @@ export function LogoButton({ collapsed, onClick, className }: LogoButtonProps) {
         alt="Logo"
         width={512}
         height={425}
-        className={cn(
-          'object-contain transition-all duration-300',
-          collapsed ? 'w-16 h-16' : 'h-36',
-        )}
+        className={cn('object-contain transition-all duration-300', collapsed ? 'w-16 h-16' : 'h-36')}
       />
     </button>
   );

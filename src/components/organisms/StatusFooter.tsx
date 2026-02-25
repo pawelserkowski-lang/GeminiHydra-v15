@@ -53,7 +53,14 @@ const TIME_FORMAT: Intl.DateTimeFormatOptions = {
   second: '2-digit',
 };
 
-function getUsageColor(usage: number, thresholdHigh: number, thresholdMid: number, normalLight: string, normalDark: string, isLight: boolean): string {
+function getUsageColor(
+  usage: number,
+  thresholdHigh: number,
+  thresholdMid: number,
+  normalLight: string,
+  normalDark: string,
+  isLight: boolean,
+): string {
   if (usage > thresholdHigh) return 'text-red-400';
   if (usage > thresholdMid) return 'text-yellow-400';
   return isLight ? normalLight : normalDark;
@@ -88,9 +95,7 @@ const StatusFooterComponent = ({
   const { resolvedTheme } = useTheme();
   const isLight = resolvedTheme === 'light';
 
-  const [currentTime, setCurrentTime] = useState(() =>
-    new Date().toLocaleTimeString('pl-PL', TIME_FORMAT),
-  );
+  const [currentTime, setCurrentTime] = useState(() => new Date().toLocaleTimeString('pl-PL', TIME_FORMAT));
 
   useEffect(() => {
     const timer = setInterval(() => {

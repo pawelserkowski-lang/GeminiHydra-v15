@@ -1,6 +1,6 @@
-import { StateCreator } from 'zustand';
-import { View } from '../types';
-import { ViewStoreState } from '../viewStore';
+import type { StateCreator } from 'zustand';
+import type { View } from '../types';
+import type { ViewStoreState } from '../viewStore';
 
 export interface ViewSlice {
   currentView: View;
@@ -23,12 +23,7 @@ function persistSidebarState(collapsed: boolean): void {
   }
 }
 
-export const createViewSlice: StateCreator<
-  ViewStoreState,
-  [],
-  [],
-  ViewSlice
-> = (set) => ({
+export const createViewSlice: StateCreator<ViewStoreState, [], [], ViewSlice> = (set) => ({
   currentView: 'home',
   sidebarCollapsed: false,
   activeModel: null,

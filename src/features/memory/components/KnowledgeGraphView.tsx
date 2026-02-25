@@ -1,10 +1,11 @@
 // src/features/memory/components/KnowledgeGraphView.tsx
+
+import { useQuery } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useQuery } from '@tanstack/react-query';
+import { QueryError } from '@/components/molecules/QueryError';
 import { apiGet } from '@/shared/api/client';
 import { useViewTheme } from '@/shared/hooks/useViewTheme';
-import { QueryError } from '@/components/molecules/QueryError';
 import { cn } from '@/shared/utils/cn';
 
 // ============================================================================
@@ -41,8 +42,8 @@ function useKnowledgeGraph() {
     queryKey: ['knowledge-graph'],
     queryFn: async () => {
       // Fetch from backend
-      const res = await apiGet<{ nodes: any[]; edges: any[] }>('/api/memory/graph');
-      
+      const res = await apiGet<{ nodes: Node[]; edges: Edge[] }>('/api/memory/graph');
+
       // Initialize with random positions
       const nodes = res.nodes.map((n) => ({
         ...n,
@@ -85,7 +86,7 @@ function runSimulation(nodes: Node[], edges: Edge[]): number {
       const dy = n1.y - n2.y;
       const distSq = dx * dx + dy * dy || 1;
       const dist = Math.sqrt(distSq);
-      
+
       const force = REPULSION / distSq;
       const fx = (dx / dist) * force;
       const fy = (dy / dist) * force;
@@ -98,14 +99,14 @@ function runSimulation(nodes: Node[], edges: Edge[]): number {
   }
 
   // Springs
-  edges.forEach(edge => {
-    const source = nodes.find(n => n.id === edge.source);
-    const target = nodes.find(n => n.id === edge.target);
+  edges.forEach((edge) => {
+    const source = nodes.find((n) => n.id === edge.source);
+    const target = nodes.find((n) => n.id === edge.target);
     if (source && target) {
       const dx = target.x - source.x;
       const dy = target.y - source.y;
       const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-      
+
       const stretch = dist - SPRING_LENGTH;
       const force = stretch * SPRING_STRENGTH;
       const fx = (dx / dist) * force;
@@ -119,7 +120,7 @@ function runSimulation(nodes: Node[], edges: Edge[]): number {
   });
 
   // Update positions
-  nodes.forEach(n => {
+  nodes.forEach((n) => {
     n.vx *= DAMPING;
     n.vy *= DAMPING;
     n.x += n.vx;
@@ -161,7 +162,7 @@ export function KnowledgeGraphView() {
     const animate = () => {
       const canvas = canvasRef.current;
       if (!canvas) return;
-      
+
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
 
@@ -195,9 +196,9 @@ export function KnowledgeGraphView() {
       // Draw Edges
       ctx.strokeStyle = t.isLight ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.1)';
       ctx.lineWidth = 1;
-      data.edges.forEach(edge => {
-        const s = nodes.find(n => n.id === edge.source);
-        const tg = nodes.find(n => n.id === edge.target);
+      data.edges.forEach((edge) => {
+        const s = nodes.find((n) => n.id === edge.source);
+        const tg = nodes.find((n) => n.id === edge.target);
         if (s && tg) {
           ctx.beginPath();
           ctx.moveTo(s.x, s.y);
@@ -207,17 +208,17 @@ export function KnowledgeGraphView() {
       });
 
       // Draw Nodes
-      nodes.forEach(node => {
+      nodes.forEach((node) => {
         ctx.beginPath();
         ctx.arc(node.x, node.y, 6, 0, Math.PI * 2);
-        
+
         // Color by type
         if (node.node_type === 'agent') ctx.fillStyle = '#FFD700';
         else if (node.node_type === 'concept') ctx.fillStyle = '#00CED1';
         else ctx.fillStyle = '#9370DB';
-        
+
         ctx.fill();
-        
+
         // Label
         ctx.fillStyle = t.isLight ? '#333' : '#ccc';
         ctx.font = '10px monospace';
@@ -242,10 +243,11 @@ export function KnowledgeGraphView() {
           </p>
         </div>
         <button
+          type="button"
           onClick={() => refetch()}
           className={cn(
             'px-3 py-1.5 rounded border text-xs font-mono transition-colors',
-            t.isLight ? 'bg-white hover:bg-slate-50' : 'bg-white/10 hover:bg-white/20'
+            t.isLight ? 'bg-white hover:bg-slate-50' : 'bg-white/10 hover:bg-white/20',
           )}
         >
           Refresh
@@ -271,10 +273,7 @@ export function KnowledgeGraphView() {
           </div>
         )}
 
-        <canvas 
-          ref={canvasRef} 
-          className="absolute inset-0 w-full h-full block"
-        />
+        <canvas ref={canvasRef} className="absolute inset-0 w-full h-full block" />
       </div>
     </div>
   );

@@ -92,9 +92,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
               </div>
 
               <div>
-                <h2 className="text-lg font-bold font-mono text-[var(--matrix-text-primary)]">
-                  Something went wrong
-                </h2>
+                <h2 className="text-lg font-bold font-mono text-[var(--matrix-text-primary)]">Something went wrong</h2>
                 <p className="text-sm text-[var(--matrix-text-dim)] mt-1">
                   An unexpected error occurred. You can try again or refresh the page.
                 </p>

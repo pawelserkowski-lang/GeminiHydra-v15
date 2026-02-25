@@ -9,8 +9,8 @@
 
 import { lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useChatExecuteMutation } from '@/features/chat/hooks/useChat';
-import { useWebSocketChat, MAX_RECONNECT_ATTEMPTS } from '@/shared/hooks/useWebSocketChat';
 import type { WsCallbacks } from '@/shared/hooks/useWebSocketChat';
+import { MAX_RECONNECT_ATTEMPTS, useWebSocketChat } from '@/shared/hooks/useWebSocketChat';
 import { useViewStore } from '@/stores/viewStore';
 
 const LazyChatContainer = lazy(() => import('@/features/chat/components/ChatContainer'));
@@ -148,6 +148,7 @@ export function ChatViewWrapper() {
         <div className="flex items-center justify-center gap-2 p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-sm mx-4 mt-2">
           <span className="text-red-400">Connection lost after {MAX_RECONNECT_ATTEMPTS} attempts</span>
           <button
+            type="button"
             onClick={manualReconnect}
             className="px-3 py-1 rounded bg-red-500/20 hover:bg-red-500/30 transition-colors text-red-300"
           >

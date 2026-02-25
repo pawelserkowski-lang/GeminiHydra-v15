@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
+import type { Session } from '@/stores/types';
 import type { Message } from '@/stores/viewStore';
 import { useViewStore } from '@/stores/viewStore';
 
@@ -114,7 +115,7 @@ describe('viewStore - createSession', () => {
 
   it('should initialize empty chat history for new session', () => {
     getState().createSession();
-    const id = getState().currentSessionId!;
+    const id = getState().currentSessionId as string;
     expect(getState().chatHistory[id]).toEqual([]);
   });
 });
@@ -122,7 +123,7 @@ describe('viewStore - createSession', () => {
 describe('viewStore - deleteSession', () => {
   it('should remove the session and its chat history', () => {
     getState().createSession();
-    const id = getState().currentSessionId!;
+    const id = getState().currentSessionId as string;
     getState().deleteSession(id);
     expect(getState().sessions).toHaveLength(0);
     expect(getState().chatHistory[id]).toBeUndefined();
@@ -130,9 +131,9 @@ describe('viewStore - deleteSession', () => {
 
   it('should select the first remaining session when deleting current', () => {
     getState().createSession();
-    const firstId = getState().currentSessionId!;
+    const firstId = getState().currentSessionId as string;
     getState().createSession();
-    const secondId = getState().currentSessionId!;
+    const secondId = getState().currentSessionId as string;
 
     getState().deleteSession(secondId);
     expect(getState().currentSessionId).toBe(firstId);
@@ -140,14 +141,14 @@ describe('viewStore - deleteSession', () => {
 
   it('should set currentSessionId to null when deleting the last session', () => {
     getState().createSession();
-    const id = getState().currentSessionId!;
+    const id = getState().currentSessionId as string;
     getState().deleteSession(id);
     expect(getState().currentSessionId).toBeNull();
   });
 
   it('should also close tabs linked to the deleted session', () => {
     getState().createSession();
-    const id = getState().currentSessionId!;
+    const id = getState().currentSessionId as string;
     getState().openTab(id);
     expect(getState().tabs).toHaveLength(1);
 
@@ -159,7 +160,7 @@ describe('viewStore - deleteSession', () => {
 describe('viewStore - selectSession', () => {
   it('should select an existing session', () => {
     getState().createSession();
-    const firstId = getState().currentSessionId!;
+    const firstId = getState().currentSessionId as string;
     getState().createSession();
     expect(getState().currentSessionId).not.toBe(firstId);
 
@@ -169,7 +170,7 @@ describe('viewStore - selectSession', () => {
 
   it('should not change state when selecting non-existent session', () => {
     getState().createSession();
-    const currentId = getState().currentSessionId!;
+    const currentId = getState().currentSessionId as string;
     getState().selectSession('non-existent-id');
     expect(getState().currentSessionId).toBe(currentId);
   });
@@ -178,14 +179,14 @@ describe('viewStore - selectSession', () => {
 describe('viewStore - updateSessionTitle', () => {
   it('should update the session title', () => {
     getState().createSession();
-    const id = getState().currentSessionId!;
+    const id = getState().currentSessionId as string;
     getState().updateSessionTitle(id, 'My Custom Title');
     expect(getState().sessions[0]?.title).toBe('My Custom Title');
   });
 
   it('should truncate titles exceeding MAX_TITLE_LENGTH (100)', () => {
     getState().createSession();
-    const id = getState().currentSessionId!;
+    const id = getState().currentSessionId as string;
     const longTitle = 'A'.repeat(150);
     getState().updateSessionTitle(id, longTitle);
     expect(getState().sessions[0]?.title).toHaveLength(100);
@@ -193,14 +194,14 @@ describe('viewStore - updateSessionTitle', () => {
 
   it('should default to "New Chat" for empty/whitespace-only titles', () => {
     getState().createSession();
-    const id = getState().currentSessionId!;
+    const id = getState().currentSessionId as string;
     getState().updateSessionTitle(id, '   ');
     expect(getState().sessions[0]?.title).toBe('New Chat');
   });
 
   it('should also update matching tab titles', () => {
     getState().createSession();
-    const id = getState().currentSessionId!;
+    const id = getState().currentSessionId as string;
     getState().openTab(id);
     getState().updateSessionTitle(id, 'Updated Title');
     expect(getState().tabs[0]?.title).toBe('Updated Title');
@@ -239,7 +240,7 @@ describe('viewStore - MAX_SESSIONS limit (50)', () => {
 describe('viewStore - openTab', () => {
   it('should create a new tab for a session', () => {
     getState().createSession();
-    const sessionId = getState().currentSessionId!;
+    const sessionId = getState().currentSessionId as string;
     getState().openTab(sessionId);
 
     const state = getState();
@@ -250,7 +251,7 @@ describe('viewStore - openTab', () => {
 
   it('should reuse existing tab for same session', () => {
     getState().createSession();
-    const sessionId = getState().currentSessionId!;
+    const sessionId = getState().currentSessionId as string;
     getState().openTab(sessionId);
     const tabId = getState().activeTabId;
 
@@ -261,9 +262,9 @@ describe('viewStore - openTab', () => {
 
   it('should set currentSessionId when opening a tab', () => {
     getState().createSession();
-    const firstSession = getState().currentSessionId!;
+    const firstSession = getState().currentSessionId as string;
     getState().createSession();
-    const secondSession = getState().currentSessionId!;
+    const secondSession = getState().currentSessionId as string;
 
     getState().openTab(firstSession);
     expect(getState().currentSessionId).toBe(firstSession);
@@ -276,9 +277,9 @@ describe('viewStore - openTab', () => {
 describe('viewStore - closeTab', () => {
   it('should close an unpinned tab', () => {
     getState().createSession();
-    const sessionId = getState().currentSessionId!;
+    const sessionId = getState().currentSessionId as string;
     getState().openTab(sessionId);
-    const tabId = getState().activeTabId!;
+    const tabId = getState().activeTabId as string;
 
     getState().closeTab(tabId);
     expect(getState().tabs).toHaveLength(0);
@@ -286,9 +287,9 @@ describe('viewStore - closeTab', () => {
 
   it('should NOT close a pinned tab', () => {
     getState().createSession();
-    const sessionId = getState().currentSessionId!;
+    const sessionId = getState().currentSessionId as string;
     getState().openTab(sessionId);
-    const tabId = getState().activeTabId!;
+    const tabId = getState().activeTabId as string;
     getState().togglePinTab(tabId);
 
     getState().closeTab(tabId);
@@ -297,13 +298,13 @@ describe('viewStore - closeTab', () => {
 
   it('should activate the next tab when closing the active tab', () => {
     getState().createSession();
-    const s1 = getState().currentSessionId!;
+    const s1 = getState().currentSessionId as string;
     getState().createSession();
-    const s2 = getState().currentSessionId!;
+    const s2 = getState().currentSessionId as string;
 
     getState().openTab(s1);
     getState().openTab(s2);
-    const tabToClose = getState().activeTabId!;
+    const tabToClose = getState().activeTabId as string;
 
     getState().closeTab(tabToClose);
     expect(getState().activeTabId).toBe(getState().tabs[0]?.id);
@@ -311,7 +312,7 @@ describe('viewStore - closeTab', () => {
 
   it('should do nothing if tabId does not exist', () => {
     getState().createSession();
-    const sessionId = getState().currentSessionId!;
+    const sessionId = getState().currentSessionId as string;
     getState().openTab(sessionId);
     const before = getState().tabs.length;
 
@@ -323,9 +324,9 @@ describe('viewStore - closeTab', () => {
 describe('viewStore - switchTab', () => {
   it('should set activeTabId and currentSessionId', () => {
     getState().createSession();
-    const s1 = getState().currentSessionId!;
+    const s1 = getState().currentSessionId as string;
     getState().createSession();
-    const s2 = getState().currentSessionId!;
+    const s2 = getState().currentSessionId as string;
 
     getState().openTab(s1);
     const tab1Id = getState().tabs.find((t) => t.sessionId === s1)?.id ?? '';
@@ -339,9 +340,9 @@ describe('viewStore - switchTab', () => {
   it('should set currentView to chat', () => {
     getState().setCurrentView('home');
     getState().createSession();
-    const sessionId = getState().currentSessionId!;
+    const sessionId = getState().currentSessionId as string;
     getState().openTab(sessionId);
-    const tabId = getState().activeTabId!;
+    const tabId = getState().activeTabId as string;
 
     getState().switchTab(tabId);
     expect(getState().currentView).toBe('chat');
@@ -349,7 +350,7 @@ describe('viewStore - switchTab', () => {
 
   it('should not change state for non-existent tab', () => {
     getState().createSession();
-    const sessionId = getState().currentSessionId!;
+    const sessionId = getState().currentSessionId as string;
     getState().openTab(sessionId);
     const before = getState().activeTabId;
 
@@ -361,11 +362,11 @@ describe('viewStore - switchTab', () => {
 describe('viewStore - reorderTabs', () => {
   it('should swap tab positions', () => {
     getState().createSession();
-    const s1 = getState().currentSessionId!;
+    const s1 = getState().currentSessionId as string;
     getState().createSession();
-    const s2 = getState().currentSessionId!;
+    const s2 = getState().currentSessionId as string;
     getState().createSession();
-    const s3 = getState().currentSessionId!;
+    const s3 = getState().currentSessionId as string;
 
     getState().openTab(s1);
     getState().openTab(s2);
@@ -381,7 +382,7 @@ describe('viewStore - reorderTabs', () => {
 
   it('should ignore out-of-bounds indices', () => {
     getState().createSession();
-    const sessionId = getState().currentSessionId!;
+    const sessionId = getState().currentSessionId as string;
     getState().openTab(sessionId);
 
     const before = [...getState().tabs];
@@ -393,7 +394,7 @@ describe('viewStore - reorderTabs', () => {
 describe('viewStore - togglePinTab', () => {
   it('should toggle pin state on a tab', () => {
     getState().createSession();
-    const sessionId = getState().currentSessionId!;
+    const sessionId = getState().currentSessionId as string;
     getState().openTab(sessionId);
     const tabId = getState().tabs[0]?.id ?? '';
 
@@ -414,8 +415,8 @@ describe('viewStore - addMessage', () => {
     getState().createSession();
     getState().addMessage(makeMsg('user', 'Hello'));
 
-    const id = getState().currentSessionId!;
-    const messages = getState().chatHistory[id]!;
+    const id = getState().currentSessionId as string;
+    const messages = getState().chatHistory[id] as Message[];
     expect(messages).toHaveLength(1);
     expect(messages[0]?.content).toBe('Hello');
     expect(messages[0]?.role).toBe('user');
@@ -429,7 +430,7 @@ describe('viewStore - addMessage', () => {
   it('should preserve message model field', () => {
     getState().createSession();
     getState().addMessage(makeMsg('assistant', 'Hi!', 'gemini-2.0'));
-    const id = getState().currentSessionId!;
+    const id = getState().currentSessionId as string;
     expect(getState().chatHistory[id]?.[0]?.model).toBe('gemini-2.0');
   });
 });
@@ -440,14 +441,14 @@ describe('viewStore - updateLastMessage', () => {
     getState().addMessage(makeMsg('assistant', 'Hello'));
     getState().updateLastMessage(' World');
 
-    const id = getState().currentSessionId!;
+    const id = getState().currentSessionId as string;
     expect(getState().chatHistory[id]?.[0]?.content).toBe('Hello World');
   });
 
   it('should do nothing if no messages exist', () => {
     getState().createSession();
     getState().updateLastMessage('test');
-    const id = getState().currentSessionId!;
+    const id = getState().currentSessionId as string;
     expect(getState().chatHistory[id]).toEqual([]);
   });
 
@@ -465,7 +466,7 @@ describe('viewStore - auto-titling', () => {
   it('should set session title from first user message', () => {
     getState().createSession();
     getState().addMessage(makeMsg('user', 'What is quantum computing?'));
-    const session = getState().sessions[0]!;
+    const session = getState().sessions[0] as Session;
     // Message is <= 30 chars so no ellipsis is appended
     expect(session.title).toBe('What is quantum computing?');
   });
@@ -474,7 +475,7 @@ describe('viewStore - auto-titling', () => {
     getState().createSession();
     const longMsg = 'A'.repeat(50);
     getState().addMessage(makeMsg('user', longMsg));
-    const session = getState().sessions[0]!;
+    const session = getState().sessions[0] as Session;
     expect(session.title).toBe(`${'A'.repeat(30)}...`);
   });
 
@@ -498,7 +499,7 @@ describe('viewStore - auto-titling', () => {
 
   it('should also update matching tab title on auto-title', () => {
     getState().createSession();
-    const sessionId = getState().currentSessionId!;
+    const sessionId = getState().currentSessionId as string;
     getState().openTab(sessionId);
     getState().addMessage(makeMsg('user', 'Hello world'));
     expect(getState().tabs[0]?.title).toBe('Hello world');
@@ -512,13 +513,13 @@ describe('viewStore - auto-titling', () => {
 describe('viewStore - MAX_MESSAGES_PER_SESSION (500)', () => {
   it('should cap messages at 500, keeping the most recent', () => {
     getState().createSession();
-    const id = getState().currentSessionId!;
+    const id = getState().currentSessionId as string;
 
     for (let i = 0; i < 510; i++) {
       getState().addMessage(makeMsg('user', `Message ${i}`));
     }
 
-    const messages = getState().chatHistory[id]!;
+    const messages = getState().chatHistory[id] as Message[];
     expect(messages).toHaveLength(500);
     // Oldest should be trimmed, most recent kept
     expect(messages[messages.length - 1]?.content).toBe('Message 509');

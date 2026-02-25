@@ -14,15 +14,14 @@
 import { Bot, Check, Copy, Cpu, Terminal, User } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { isValidElement, memo, type MouseEvent as ReactMouseEvent, type ReactNode, useCallback, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import ReactMarkdown from 'react-markdown';
 import rehypeHighlight from 'rehype-highlight';
 import remarkGfm from 'remark-gfm';
-
-import { useTranslation } from 'react-i18next';
 import { CodeBlock } from '@/components/molecules';
-import { chatLanguages } from '@/shared/utils/highlightLanguages';
 import { useViewTheme } from '@/shared/hooks/useViewTheme';
 import { cn } from '@/shared/utils/cn';
+import { chatLanguages } from '@/shared/utils/highlightLanguages';
 import type { Message } from '@/stores/viewStore';
 
 // ---------------------------------------------------------------------------
@@ -191,7 +190,9 @@ export const MessageBubble = memo<MessageBubbleProps>(({ message, isLast, isStre
         {isSystem && (
           <div className="flex items-center gap-2 mb-1.5 border-b border-matrix-accent/15 pb-1.5 text-matrix-accent/70">
             <Terminal size={14} />
-            <span className="font-bold text-sm uppercase tracking-wider">{t('chat.systemOutput', 'System Output')}</span>
+            <span className="font-bold text-sm uppercase tracking-wider">
+              {t('chat.systemOutput', 'System Output')}
+            </span>
           </div>
         )}
 
@@ -223,11 +224,7 @@ export const MessageBubble = memo<MessageBubbleProps>(({ message, isLast, isStre
                 const codeContent = extractText(children).replace(/\n$/, '');
 
                 if (isInline) {
-                  return (
-                    <code className={cn(className, 'bg-black/20 px-1.5 py-0.5 rounded text-sm')}>
-                      {children}
-                    </code>
-                  );
+                  return <code className={cn(className, 'bg-black/20 px-1.5 py-0.5 rounded text-sm')}>{children}</code>;
                 }
 
                 return <CodeBlock {...(match?.[1] != null && { language: match[1] })} code={codeContent} />;

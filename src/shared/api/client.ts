@@ -40,11 +40,7 @@ export class ApiError extends Error {
 // -------------------------------------------------------------------
 
 /** Retry on network errors (TypeError = "Failed to fetch") with exponential backoff. */
-async function fetchWithRetry(
-  url: string,
-  init: RequestInit,
-  retries = MAX_RETRIES,
-): Promise<Response> {
+async function fetchWithRetry(url: string, init: RequestInit, retries = MAX_RETRIES): Promise<Response> {
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
       const response = await fetch(url, init);

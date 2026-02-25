@@ -21,17 +21,12 @@ function validateEnv(): Env {
   const raw = {
     VITE_BACKEND_URL: import.meta.env.VITE_BACKEND_URL as string | undefined,
     VITE_AUTH_SECRET: import.meta.env.VITE_AUTH_SECRET as string | undefined,
-    VITE_PARTNER_AUTH_SECRET: import.meta.env.VITE_PARTNER_AUTH_SECRET as
-      | string
-      | undefined,
+    VITE_PARTNER_AUTH_SECRET: import.meta.env.VITE_PARTNER_AUTH_SECRET as string | undefined,
   };
 
   const result = envSchema.safeParse(raw);
   if (!result.success) {
-    console.warn(
-      '[env] Invalid environment variables:',
-      result.error.flatten().fieldErrors,
-    );
+    console.warn('[env] Invalid environment variables:', result.error.flatten().fieldErrors);
     // Don't throw — allow dev mode with defaults
     return raw as Env;
   }

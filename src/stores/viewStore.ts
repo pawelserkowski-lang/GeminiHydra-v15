@@ -8,9 +8,9 @@
 
 import { create } from 'zustand';
 import { devtools, persist } from 'zustand/middleware';
-import { ChatSlice, createChatSlice } from './slices/chatSlice';
-import { createSessionSlice, SessionSlice } from './slices/sessionSlice';
-import { createViewSlice, ViewSlice } from './slices/viewSlice';
+import { type ChatSlice, createChatSlice } from './slices/chatSlice';
+import { createSessionSlice, type SessionSlice } from './slices/sessionSlice';
+import { createViewSlice, type ViewSlice } from './slices/viewSlice';
 // ============================================================================
 // TYPES
 // ============================================================================
@@ -59,4 +59,3 @@ export const useViewStore = create<ViewStoreState>()(
     { name: 'GeminiHydra/ViewStore', enabled: import.meta.env.DEV },
   ),
 );
-

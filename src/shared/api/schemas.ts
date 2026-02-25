@@ -215,14 +215,16 @@ const sessionSchema = z.object({
   id: z.string(),
   title: z.string(),
   created_at: z.string(),
-  messages: z.array(z.object({
-    id: z.string(),
-    role: z.string(),
-    content: z.string(),
-    model: z.string().optional().nullable(),
-    timestamp: z.string(),
-    agent: z.string().optional().nullable(),
-  })),
+  messages: z.array(
+    z.object({
+      id: z.string(),
+      role: z.string(),
+      content: z.string(),
+      model: z.string().optional().nullable(),
+      timestamp: z.string(),
+      agent: z.string().optional().nullable(),
+    }),
+  ),
 });
 
 export type Session = z.infer<typeof sessionSchema>;

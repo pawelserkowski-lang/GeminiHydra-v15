@@ -245,91 +245,97 @@ export const TabBar = memo(() => {
 
       {/* Context Menu Popup */}
       <AnimatePresence>
-        {contextMenu && (() => {
-          const targetTab = tabs.find((t) => t.id === contextMenu.tabId);
-          if (!targetTab) return null;
-          return (
-            <>
-              {/* Backdrop */}
-              <div
-                className="fixed inset-0 z-50"
-                onClick={() => setContextMenu(null)}
-              />
-              {/* Menu */}
-              <motion.div
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.95 }}
-                transition={{ duration: 0.1 }}
-                className={cn(
-                  'fixed z-50 min-w-[180px] rounded-xl border backdrop-blur-xl shadow-2xl overflow-hidden py-1',
-                  theme.isLight
-                    ? 'bg-white/95 border-slate-200/50'
-                    : 'bg-black/90 border-white/15',
-                )}
-                style={{ left: contextMenu.x, top: contextMenu.y }}
-              >
-                {/* Pin/Unpin */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    togglePinTab(contextMenu.tabId);
-                    setContextMenu(null);
+        {contextMenu &&
+          (() => {
+            const targetTab = tabs.find((t) => t.id === contextMenu.tabId);
+            if (!targetTab) return null;
+            return (
+              <>
+                {/* Backdrop — intentionally a non-interactive overlay */}
+                {/* biome-ignore lint/a11y/noStaticElementInteractions: backdrop overlay dismiss */}
+                <div
+                  role="presentation"
+                  className="fixed inset-0 z-50"
+                  onClick={() => setContextMenu(null)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') setContextMenu(null);
                   }}
+                />
+                {/* Menu */}
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.95 }}
+                  transition={{ duration: 0.1 }}
                   className={cn(
-                    'w-full flex items-center gap-2 px-3 py-2 text-sm font-mono transition-colors',
-                    theme.isLight
-                      ? 'text-slate-700 hover:bg-emerald-500/10 hover:text-emerald-800'
-                      : 'text-white/80 hover:bg-white/10 hover:text-white',
+                    'fixed z-50 min-w-[180px] rounded-xl border backdrop-blur-xl shadow-2xl overflow-hidden py-1',
+                    theme.isLight ? 'bg-white/95 border-slate-200/50' : 'bg-black/90 border-white/15',
                   )}
+                  style={{ left: contextMenu.x, top: contextMenu.y }}
                 >
-                  <Pin size={14} />
-                  {targetTab.isPinned ? 'Unpin tab' : 'Pin tab'}
-                </button>
-
-                {/* Close tab (if not pinned) */}
-                {!targetTab.isPinned && (
+                  {/* Pin/Unpin */}
                   <button
                     type="button"
                     onClick={() => {
-                      closeTab(contextMenu.tabId);
+                      togglePinTab(contextMenu.tabId);
                       setContextMenu(null);
                     }}
                     className={cn(
                       'w-full flex items-center gap-2 px-3 py-2 text-sm font-mono transition-colors',
                       theme.isLight
-                        ? 'text-slate-700 hover:bg-red-500/10 hover:text-red-600'
-                        : 'text-white/80 hover:bg-red-500/15 hover:text-red-400',
+                        ? 'text-slate-700 hover:bg-emerald-500/10 hover:text-emerald-800'
+                        : 'text-white/80 hover:bg-white/10 hover:text-white',
                     )}
                   >
-                    <X size={14} />
-                    Close tab
+                    <Pin size={14} />
+                    {targetTab.isPinned ? 'Unpin tab' : 'Pin tab'}
                   </button>
-                )}
 
-                {/* Close other tabs */}
-                {tabs.filter((t) => t.id !== contextMenu.tabId && !t.isPinned).length > 0 && (
-                  <>
-                    <div className={cn('mx-2 my-1 border-t', theme.isLight ? 'border-slate-200/50' : 'border-white/10')} />
+                  {/* Close tab (if not pinned) */}
+                  {!targetTab.isPinned && (
                     <button
                       type="button"
-                      onClick={() => handleCloseOtherTabs(contextMenu.tabId)}
+                      onClick={() => {
+                        closeTab(contextMenu.tabId);
+                        setContextMenu(null);
+                      }}
                       className={cn(
                         'w-full flex items-center gap-2 px-3 py-2 text-sm font-mono transition-colors',
                         theme.isLight
-                          ? 'text-slate-700 hover:bg-slate-500/10 hover:text-slate-900'
-                          : 'text-white/80 hover:bg-white/10 hover:text-white',
+                          ? 'text-slate-700 hover:bg-red-500/10 hover:text-red-600'
+                          : 'text-white/80 hover:bg-red-500/15 hover:text-red-400',
                       )}
                     >
                       <X size={14} />
-                      Close other tabs
+                      Close tab
                     </button>
-                  </>
-                )}
-              </motion.div>
-            </>
-          );
-        })()}
+                  )}
+
+                  {/* Close other tabs */}
+                  {tabs.filter((t) => t.id !== contextMenu.tabId && !t.isPinned).length > 0 && (
+                    <>
+                      <div
+                        className={cn('mx-2 my-1 border-t', theme.isLight ? 'border-slate-200/50' : 'border-white/10')}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleCloseOtherTabs(contextMenu.tabId)}
+                        className={cn(
+                          'w-full flex items-center gap-2 px-3 py-2 text-sm font-mono transition-colors',
+                          theme.isLight
+                            ? 'text-slate-700 hover:bg-slate-500/10 hover:text-slate-900'
+                            : 'text-white/80 hover:bg-white/10 hover:text-white',
+                        )}
+                      >
+                        <X size={14} />
+                        Close other tabs
+                      </button>
+                    </>
+                  )}
+                </motion.div>
+              </>
+            );
+          })()}
       </AnimatePresence>
     </div>
   );

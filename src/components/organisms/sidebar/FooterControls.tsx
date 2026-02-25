@@ -28,8 +28,7 @@ const THEME_LABELS: Record<string, string> = {
   light: 'TRYB JASNY',
 };
 
-const getThemeLabel = (theme: string): string =>
-  THEME_LABELS[theme] ?? 'TRYB CIEMNY';
+const getThemeLabel = (theme: string): string => THEME_LABELS[theme] ?? 'TRYB CIEMNY';
 
 export function FooterControls({ collapsed, version, tagline }: FooterControlsProps) {
   const { i18n } = useTranslation();
@@ -113,12 +112,21 @@ export function FooterControls({ collapsed, version, tagline }: FooterControlsPr
               <div className="relative">
                 <Globe
                   size={18}
-                  className={cn(theme.iconMuted, isLight ? 'group-hover:text-emerald-600' : 'group-hover:text-white', 'transition-colors')}
+                  className={cn(
+                    theme.iconMuted,
+                    isLight ? 'group-hover:text-emerald-600' : 'group-hover:text-white',
+                    'transition-colors',
+                  )}
                 />
               </div>
               {!collapsed && (
                 <span
-                  className={cn('text-base font-mono', theme.textMuted, isLight ? 'group-hover:text-black' : 'group-hover:text-white', 'truncate')}
+                  className={cn(
+                    'text-base font-mono',
+                    theme.textMuted,
+                    isLight ? 'group-hover:text-black' : 'group-hover:text-white',
+                    'truncate',
+                  )}
                 >
                   <span className="mr-1.5">{currentLang?.flag}</span>
                   <span className={cn('font-bold', theme.textAccent)}>{currentLang?.code.toUpperCase()}</span>
@@ -128,7 +136,11 @@ export function FooterControls({ collapsed, version, tagline }: FooterControlsPr
             {!collapsed && (
               <ChevronDown
                 size={14}
-                className={cn(theme.iconMuted, 'transition-transform duration-200', showLangDropdown ? 'rotate-180' : '')}
+                className={cn(
+                  theme.iconMuted,
+                  'transition-transform duration-200',
+                  showLangDropdown ? 'rotate-180' : '',
+                )}
               />
             )}
           </button>
@@ -157,8 +169,13 @@ export function FooterControls({ collapsed, version, tagline }: FooterControlsPr
                     className={cn(
                       'w-full flex items-center gap-3 px-3 py-2.5 text-sm transition-all',
                       i18n.language === lang.code
-                        ? isLight ? 'bg-emerald-500/20 text-emerald-600' : 'bg-white/15 text-white'
-                        : cn(theme.textMuted, isLight ? 'hover:bg-black/5 hover:text-black' : 'hover:bg-white/5 hover:text-white'),
+                        ? isLight
+                          ? 'bg-emerald-500/20 text-emerald-600'
+                          : 'bg-white/15 text-white'
+                        : cn(
+                            theme.textMuted,
+                            isLight ? 'hover:bg-black/5 hover:text-black' : 'hover:bg-white/5 hover:text-white',
+                          ),
                     )}
                   >
                     <span className="text-base">{lang.flag}</span>
@@ -183,10 +200,7 @@ export function FooterControls({ collapsed, version, tagline }: FooterControlsPr
 
       {/* Version */}
       {!collapsed && (
-        <p
-          data-testid="sidebar-version"
-          className={cn('text-center text-xs py-2', theme.textMuted)}
-        >
+        <p data-testid="sidebar-version" className={cn('text-center text-xs py-2', theme.textMuted)}>
           <span className={theme.textAccent}>{version.split(' ')[0]}</span>{' '}
           {version.includes(' ') ? version.slice(version.indexOf(' ') + 1) : ''}
           {tagline && <> | {tagline}</>}

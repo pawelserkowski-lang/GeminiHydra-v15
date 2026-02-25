@@ -25,8 +25,8 @@ import {
   useRef,
   useState,
 } from 'react';
-import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
+import { toast } from 'sonner';
 
 import { useSettingsQuery } from '@/features/settings/hooks/useSettings';
 import { useViewTheme } from '@/shared/hooks/useViewTheme';
@@ -247,7 +247,9 @@ const EmptyState = memo(() => {
   return (
     <div className="h-full flex flex-col items-center justify-center gap-3">
       <Sparkles size={48} className={cn(theme.iconMuted, 'opacity-30')} />
-      <p className={cn('text-sm font-mono', theme.textMuted)}>{t('chat.emptyState', 'Type a message to start a conversation...')}</p>
+      <p className={cn('text-sm font-mono', theme.textMuted)}>
+        {t('chat.emptyState', 'Type a message to start a conversation...')}
+      </p>
     </div>
   );
 });
@@ -439,10 +441,7 @@ export const ChatContainer = memo<ChatContainerProps>(({ isStreaming, onSubmit, 
 
   // ----- Prompt history for arrow-key navigation ----------------------
 
-  const promptHistory = useMemo(
-    () => messages.filter((m) => m.role === 'user').map((m) => m.content),
-    [messages],
-  );
+  const promptHistory = useMemo(() => messages.filter((m) => m.role === 'user').map((m) => m.content), [messages]);
 
   // ----- Context menu handlers ----------------------------------------
 

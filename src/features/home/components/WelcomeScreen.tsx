@@ -128,7 +128,11 @@ const SessionRow = memo<SessionRowProps>(({ session, messageCount, onOpen, theme
       </div>
       <div className="flex flex-col items-end flex-shrink-0">
         <span className={cn('text-[10px] font-mono', theme.textMuted)}>{timeAgo(session.createdAt, t)}</span>
-        {messageCount > 0 && <span className={cn('text-[10px] font-mono', theme.textMuted)}>{messageCount} {t('home.msg', 'msg')}</span>}
+        {messageCount > 0 && (
+          <span className={cn('text-[10px] font-mono', theme.textMuted)}>
+            {messageCount} {t('home.msg', 'msg')}
+          </span>
+        )}
       </div>
     </motion.button>
   );
@@ -199,7 +203,9 @@ export const WelcomeScreen = memo(() => {
 
         {/* Title */}
         <div className="text-center">
-          <h1 className={cn('text-3xl font-bold font-mono tracking-tight', theme.title)}>{t('home.title', 'GeminiHydra')}</h1>
+          <h1 className={cn('text-3xl font-bold font-mono tracking-tight', theme.title)}>
+            {t('home.title', 'GeminiHydra')}
+          </h1>
           <p className={cn('text-sm mt-1.5 max-w-xs', theme.textMuted)}>
             {t('home.subtitle', 'AI Swarm Control Center — start a new chat or continue a previous conversation.')}
           </p>
@@ -222,12 +228,7 @@ export const WelcomeScreen = memo(() => {
         </motion.div>
 
         {/* CTA Button */}
-        <motion.div
-          className="w-full mt-2"
-          variants={ctaVariants}
-          initial="hidden"
-          animate="visible"
-        >
+        <motion.div className="w-full mt-2" variants={ctaVariants} initial="hidden" animate="visible">
           <Button
             variant="primary"
             size="md"
@@ -253,7 +254,9 @@ export const WelcomeScreen = memo(() => {
           >
             <div className="flex items-center gap-2 mb-3">
               <Clock size={14} className={theme.iconMuted} />
-              <span className={cn('text-xs uppercase tracking-wider font-mono', theme.textMuted)}>{t('home.recentChats', 'Recent Chats')}</span>
+              <span className={cn('text-xs uppercase tracking-wider font-mono', theme.textMuted)}>
+                {t('home.recentChats', 'Recent Chats')}
+              </span>
             </div>
 
             <div className="space-y-2">
@@ -282,7 +285,9 @@ export const WelcomeScreen = memo(() => {
             transition={{ delay: 0.35 }}
           >
             <Sparkles size={32} className={cn(theme.iconMuted, 'opacity-40')} />
-            <p className={cn('text-sm', theme.textMuted)}>{t('home.noChats', 'No chats yet. Start a new conversation!')}</p>
+            <p className={cn('text-sm', theme.textMuted)}>
+              {t('home.noChats', 'No chats yet. Start a new conversation!')}
+            </p>
           </motion.div>
         )}
       </AnimatePresence>

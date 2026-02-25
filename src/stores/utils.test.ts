@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { sanitizeTitle, sanitizeContent, MAX_SESSIONS, MAX_MESSAGES_PER_SESSION, MAX_TITLE_LENGTH } from './utils';
+import { describe, expect, it } from 'vitest';
+import { MAX_MESSAGES_PER_SESSION, MAX_SESSIONS, MAX_TITLE_LENGTH, sanitizeContent, sanitizeTitle } from './utils';
 
 describe('store utils', () => {
   describe('constants', () => {

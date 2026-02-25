@@ -2,13 +2,13 @@
  * PartnerChatModal — read-only overlay showing a ClaudeHydra conversation.
  */
 
-import { X, Bot, User, Loader2 } from 'lucide-react';
+import { Bot, Loader2, User, X } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useTheme } from '@/contexts/ThemeContext';
-import { cn } from '@/shared/utils/cn';
 import { usePartnerSession } from '@/features/chat/hooks/usePartnerSessions';
+import { cn } from '@/shared/utils/cn';
 
 interface Props {
   sessionId: string | null;
@@ -72,14 +72,19 @@ export function PartnerChatModal({ sessionId, onClose }: Props) {
               )}
             >
               <div className="flex items-center gap-3">
-                <div className={cn(
-                  'w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold',
-                  isLight ? 'bg-orange-100 text-orange-700' : 'bg-orange-500/20 text-orange-400',
-                )}>
+                <div
+                  className={cn(
+                    'w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold',
+                    isLight ? 'bg-orange-100 text-orange-700' : 'bg-orange-500/20 text-orange-400',
+                  )}
+                >
                   CH
                 </div>
                 <div>
-                  <h2 id="partner-chat-modal-title" className={cn('text-sm font-semibold', isLight ? 'text-slate-900' : 'text-white')}>
+                  <h2
+                    id="partner-chat-modal-title"
+                    className={cn('text-sm font-semibold', isLight ? 'text-slate-900' : 'text-white')}
+                  >
                     {session?.title ?? 'Loading...'}
                   </h2>
                   <p className={cn('text-xs', isLight ? 'text-slate-500' : 'text-white/50')}>
@@ -90,10 +95,7 @@ export function PartnerChatModal({ sessionId, onClose }: Props) {
               <button
                 type="button"
                 onClick={onClose}
-                className={cn(
-                  'p-2 rounded-lg transition-colors',
-                  isLight ? 'hover:bg-slate-200' : 'hover:bg-white/10',
-                )}
+                className={cn('p-2 rounded-lg transition-colors', isLight ? 'hover:bg-slate-200' : 'hover:bg-white/10')}
               >
                 <X size={18} className={isLight ? 'text-slate-600' : 'text-white/60'} />
               </button>
@@ -114,17 +116,18 @@ export function PartnerChatModal({ sessionId, onClose }: Props) {
               {session?.messages.map((msg) => (
                 <div
                   key={msg.id}
-                  className={cn(
-                    'flex gap-3 max-w-3xl',
-                    msg.role === 'user' ? 'ml-auto flex-row-reverse' : '',
-                  )}
+                  className={cn('flex gap-3 max-w-3xl', msg.role === 'user' ? 'ml-auto flex-row-reverse' : '')}
                 >
                   <div
                     className={cn(
                       'w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0',
                       msg.role === 'user'
-                        ? isLight ? 'bg-emerald-100 text-emerald-700' : 'bg-emerald-500/20 text-emerald-400'
-                        : isLight ? 'bg-orange-100 text-orange-700' : 'bg-orange-500/20 text-orange-400',
+                        ? isLight
+                          ? 'bg-emerald-100 text-emerald-700'
+                          : 'bg-emerald-500/20 text-emerald-400'
+                        : isLight
+                          ? 'bg-orange-100 text-orange-700'
+                          : 'bg-orange-500/20 text-orange-400',
                     )}
                   >
                     {msg.role === 'user' ? <User size={14} /> : <Bot size={14} />}
@@ -133,8 +136,12 @@ export function PartnerChatModal({ sessionId, onClose }: Props) {
                     className={cn(
                       'flex-1 min-w-0 rounded-xl px-4 py-2.5',
                       msg.role === 'user'
-                        ? isLight ? 'bg-emerald-50 text-slate-800' : 'bg-emerald-500/10 text-white/90'
-                        : isLight ? 'bg-slate-100 text-slate-800' : 'bg-white/5 text-white/90',
+                        ? isLight
+                          ? 'bg-emerald-50 text-slate-800'
+                          : 'bg-emerald-500/10 text-white/90'
+                        : isLight
+                          ? 'bg-slate-100 text-slate-800'
+                          : 'bg-white/5 text-white/90',
                     )}
                   >
                     <p className="text-sm whitespace-pre-wrap break-words">{msg.content}</p>

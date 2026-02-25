@@ -50,7 +50,7 @@ function getWsUrl(): string {
   const tokenParam = authSecret ? `?token=${encodeURIComponent(authSecret)}` : '';
 
   if (backendUrl) {
-    return backendUrl.replace(/^http/, 'ws') + '/ws/execute' + tokenParam;
+    return `${backendUrl.replace(/^http/, 'ws')}/ws/execute${tokenParam}`;
   }
 
   const loc = window.location;
@@ -202,10 +202,7 @@ export function useWebSocketChat(callbacks: WsCallbacks) {
           setConnectionGaveUp(true);
           return;
         }
-        const delay = Math.min(
-          1000 * 2 ** reconnectAttemptRef.current,
-          MAX_BACKOFF_MS,
-        );
+        const delay = Math.min(1000 * 2 ** reconnectAttemptRef.current, MAX_BACKOFF_MS);
         reconnectAttemptRef.current++;
         reconnectTimerRef.current = setTimeout(connect, delay);
       }
@@ -235,19 +232,22 @@ export function useWebSocketChat(callbacks: WsCallbacks) {
     return disconnect;
   }, [connect, disconnect]);
 
-  const sendExecute = useCallback(
-    (prompt: string, mode: string, model?: string, session_id?: string) => {
-      const ws = wsRef.current;
-      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  const sendExecute = useCallback((prompt: string, mode: string, model?: string, session_id?: string) => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
 
-      // Track which session this stream belongs to
-      streamingSessionIdRef.current = session_id ?? null;
+    // Track which session this stream belongs to
+    streamingSessionIdRef.current = session_id ?? null;
 
-      const msg: WsClientMessage = { type: 'execute', prompt, mode, ...(model !== undefined && { model }), ...(session_id !== undefined && { session_id }) };
-      ws.send(JSON.stringify(msg));
-    },
-    [],
-  );
+    const msg: WsClientMessage = {
+      type: 'execute',
+      prompt,
+      mode,
+      ...(model !== undefined && { model }),
+      ...(session_id !== undefined && { session_id }),
+    };
+    ws.send(JSON.stringify(msg));
+  }, []);
 
   const cancelStream = useCallback(() => {
     const ws = wsRef.current;

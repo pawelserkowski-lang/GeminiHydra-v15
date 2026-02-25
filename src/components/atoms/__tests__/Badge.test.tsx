@@ -1,5 +1,5 @@
 import { render, screen } from '@testing-library/react';
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { Badge } from '@/components/atoms/Badge';
 
 describe('Badge', () => {
@@ -97,7 +97,11 @@ describe('Badge', () => {
   });
 
   it('does not render icon when dot is true (dot takes precedence)', () => {
-    render(<Badge dot icon={<span data-testid="badge-icon">*</span>}>Dot + Icon</Badge>);
+    render(
+      <Badge dot icon={<span data-testid="badge-icon">*</span>}>
+        Dot + Icon
+      </Badge>,
+    );
     expect(screen.queryByTestId('badge-icon')).not.toBeInTheDocument();
   });
 

@@ -65,8 +65,7 @@ export function useAddMessageMutation() {
     Error,
     { sessionId: string; role: string; content: string; model?: string; agent?: string }
   >({
-    mutationFn: ({ sessionId, ...body }) =>
-      apiPost<{ success: boolean }>(`/api/sessions/${sessionId}/messages`, body),
+    mutationFn: ({ sessionId, ...body }) => apiPost<{ success: boolean }>(`/api/sessions/${sessionId}/messages`, body),
     onSuccess: (_data, variables) => {
       void queryClient.invalidateQueries({ queryKey: ['session', variables.sessionId] });
       void queryClient.invalidateQueries({ queryKey: ['sessions'] });

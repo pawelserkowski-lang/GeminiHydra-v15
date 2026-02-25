@@ -14,8 +14,8 @@ import type { ConnectionHealth, StatusFooterProps } from '@/components/organisms
 import { StatusFooter } from '@/components/organisms/StatusFooter';
 import { TabBar } from '@/components/organisms/TabBar';
 import { ThemeProvider, useTheme } from '@/contexts/ThemeContext';
-import { useSettingsQuery } from '@/features/settings/hooks/useSettings';
 import { useHealthStatus, useSystemStatsQuery } from '@/features/health/hooks/useHealth';
+import { useSettingsQuery } from '@/features/settings/hooks/useSettings';
 import { cn } from '@/shared/utils/cn';
 import { useViewStore } from '@/stores/viewStore';
 
@@ -23,10 +23,11 @@ import { useViewStore } from '@/stores/viewStore';
 function formatModelName(id: string): string {
   if (id.startsWith('ollama:')) return `Ollama: ${id.slice(7)}`;
   // Strip common suffixes; split into parts: "gemini-3.1-pro" → ["gemini", "3.1", "pro"]
-  const parts = id.replace(/-preview$/, '').replace(/-latest$/, '').split('-');
-  return parts
-    .map((p) => (/^\d/.test(p) ? p : p.charAt(0).toUpperCase() + p.slice(1)))
-    .join(' ');
+  const parts = id
+    .replace(/-preview$/, '')
+    .replace(/-latest$/, '')
+    .split('-');
+  return parts.map((p) => (/^\d/.test(p) ? p : p.charAt(0).toUpperCase() + p.slice(1))).join(' ');
 }
 
 // ============================================================================
@@ -72,20 +73,21 @@ function AppShellInner({ children, statusFooterProps }: AppShellProps) {
   // Build live footer props
   // Backend returns cpu_usage_percent / memory_used_mb / memory_total_mb (not matching TS schema)
   const raw = stats as Record<string, number> | undefined;
-  const resolvedFooterProps = useMemo<StatusFooterProps>(() => ({
-    ...statusFooterProps,
-    connectionHealth,
-    ...(displayModel && { selectedModel: displayModel }),
-    ...(raw && {
-      cpuUsage: Math.round(raw.cpu_usage_percent ?? raw.cpu_usage ?? 0),
-      ramUsage: Math.round(
-        ((raw.memory_used_mb ?? raw.memory_used ?? 0) /
-          (raw.memory_total_mb ?? raw.memory_total ?? 1)) *
-          100,
-      ),
-      statsLoaded: true,
+  const resolvedFooterProps = useMemo<StatusFooterProps>(
+    () => ({
+      ...statusFooterProps,
+      connectionHealth,
+      ...(displayModel && { selectedModel: displayModel }),
+      ...(raw && {
+        cpuUsage: Math.round(raw.cpu_usage_percent ?? raw.cpu_usage ?? 0),
+        ramUsage: Math.round(
+          ((raw.memory_used_mb ?? raw.memory_used ?? 0) / (raw.memory_total_mb ?? raw.memory_total ?? 1)) * 100,
+        ),
+        statsLoaded: true,
+      }),
     }),
-  }), [statusFooterProps, connectionHealth, displayModel, raw]);
+    [statusFooterProps, connectionHealth, displayModel, raw],
+  );
 
   // Global Ctrl+T shortcut — creates a new chat tab when in chat view
   const handleKeyDown = useCallback(
@@ -148,9 +150,7 @@ function AppShellInner({ children, statusFooterProps }: AppShellProps) {
           {currentView === 'chat' && <TabBar />}
 
           {/* View Content — animations handled by ViewRouter */}
-          <div className="flex-1 min-h-0 overflow-hidden">
-            {children}
-          </div>
+          <div className="flex-1 min-h-0 overflow-hidden">{children}</div>
 
           {/* Status Footer */}
           <StatusFooter {...resolvedFooterProps} />

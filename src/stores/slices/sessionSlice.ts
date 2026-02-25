@@ -1,7 +1,7 @@
-import { StateCreator } from 'zustand';
-import { Session } from '../types';
-import { ViewStoreState } from '../viewStore';
+import type { StateCreator } from 'zustand';
+import type { Session } from '../types';
 import { MAX_SESSIONS, MAX_TITLE_LENGTH, sanitizeTitle } from '../utils';
+import type { ViewStoreState } from '../viewStore';
 
 export interface SessionSlice {
   sessions: Session[];
@@ -33,17 +33,12 @@ const addSessionToState = (state: ViewStoreState, newSession: Session) => {
   } else {
     changes.chatHistory = { ...state.chatHistory, [newSession.id]: [] };
   }
-  
+
   changes.sessions = sessions;
   return changes;
 };
 
-export const createSessionSlice: StateCreator<
-  ViewStoreState,
-  [],
-  [],
-  SessionSlice
-> = (set) => ({
+export const createSessionSlice: StateCreator<ViewStoreState, [], [], SessionSlice> = (set) => ({
   sessions: [],
   currentSessionId: null,
 
@@ -118,10 +113,7 @@ export const createSessionSlice: StateCreator<
   hydrateSessions: (dbSessions) =>
     set((state) => {
       const dbIds = new Set(dbSessions.map((s) => s.id));
-      const merged = [
-        ...dbSessions,
-        ...state.sessions.filter((s) => !dbIds.has(s.id)),
-      ];
+      const merged = [...dbSessions, ...state.sessions.filter((s) => !dbIds.has(s.id))];
 
       const mergedIds = new Set(merged.map((s) => s.id));
       const currentSessionId =

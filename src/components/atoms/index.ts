@@ -11,9 +11,7 @@ export { Card } from './Card';
 export { Input } from './Input';
 
 export { ProgressBar } from './ProgressBar';
-
-export { Skeleton } from './Skeleton';
-
 export { RuneRain } from './RuneRain';
+export { Skeleton } from './Skeleton';
 
 export { ThemedBackground } from './ThemedBackground';

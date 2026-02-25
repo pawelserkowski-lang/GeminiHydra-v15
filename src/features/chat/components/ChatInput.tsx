@@ -185,7 +185,7 @@ export const ChatInput = memo<ChatInputProps>(
           e.preventDefault();
           const el = e.currentTarget;
           const { selectionStart, selectionEnd } = el;
-          const newValue = value.substring(0, selectionStart) + '\n' + value.substring(selectionEnd);
+          const newValue = `${value.substring(0, selectionStart)}\n${value.substring(selectionEnd)}`;
           setValue(newValue);
           requestAnimationFrame(() => {
             el.selectionStart = el.selectionEnd = selectionStart + 1;

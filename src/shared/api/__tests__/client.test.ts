@@ -7,10 +7,7 @@ import { ApiError, apiDelete, apiGet, apiPatch, apiPost } from '../client';
 const BASE = '';
 
 /** Helper -- create a minimal Response-like object for the fetch mock. */
-function mockResponse(
-  body: unknown,
-  init: { status?: number; statusText?: string; ok?: boolean } = {},
-) {
+function mockResponse(body: unknown, init: { status?: number; statusText?: string; ok?: boolean } = {}) {
   const { status = 200, ok = status >= 200 && status < 300 } = init;
   const statusText =
     init.statusText ??
@@ -81,10 +78,7 @@ describe('apiGet', () => {
 
     const result = await apiGet('/items/1');
 
-    expect(fetchMock).toHaveBeenCalledWith(
-      `${BASE}/items/1`,
-      expect.objectContaining({ method: 'GET' }),
-    );
+    expect(fetchMock).toHaveBeenCalledWith(`${BASE}/items/1`, expect.objectContaining({ method: 'GET' }));
     expect(result).toEqual(data);
   });
 
@@ -96,9 +90,7 @@ describe('apiGet', () => {
   });
 
   it('throws ApiError on 500', async () => {
-    fetchMock.mockResolvedValueOnce(
-      mockResponse('Internal Server Error', { status: 500 }),
-    );
+    fetchMock.mockResolvedValueOnce(mockResponse('Internal Server Error', { status: 500 }));
 
     try {
       await apiGet('/crash');
@@ -133,9 +125,7 @@ describe('apiPost', () => {
 
   it('throws ApiError on 422', async () => {
     const validationErr = { errors: [{ field: 'title', message: 'required' }] };
-    fetchMock.mockResolvedValueOnce(
-      mockResponse(validationErr, { status: 422 }),
-    );
+    fetchMock.mockResolvedValueOnce(mockResponse(validationErr, { status: 422 }));
 
     await expect(apiPost('/items', {})).rejects.toThrow(ApiError);
   });
@@ -163,9 +153,7 @@ describe('apiPatch', () => {
   });
 
   it('throws ApiError on 401', async () => {
-    fetchMock.mockResolvedValueOnce(
-      mockResponse('Unauthorized', { status: 401 }),
-    );
+    fetchMock.mockResolvedValueOnce(mockResponse('Unauthorized', { status: 401 }));
 
     await expect(apiPatch('/items/1', { name: 'x' })).rejects.toThrow(ApiError);
   });
@@ -181,10 +169,7 @@ describe('apiDelete', () => {
 
     const result = await apiDelete('/items/1');
 
-    expect(fetchMock).toHaveBeenCalledWith(
-      `${BASE}/items/1`,
-      expect.objectContaining({ method: 'DELETE' }),
-    );
+    expect(fetchMock).toHaveBeenCalledWith(`${BASE}/items/1`, expect.objectContaining({ method: 'DELETE' }));
     expect(result).toEqual(response);
   });
 
