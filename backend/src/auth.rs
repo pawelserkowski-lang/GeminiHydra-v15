@@ -69,7 +69,7 @@ pub fn validate_ws_token(query: &str, auth_secret: Option<&str>) -> bool {
 pub fn check_bearer_token(header_value: Option<&str>, expected_secret: &str) -> bool {
     match header_value {
         Some(header) if header.starts_with("Bearer ") => {
-            bool::from(header[7..].as_bytes().ct_eq(expected_secret.as_bytes()))
+            bool::from(header.as_bytes()[7..].ct_eq(expected_secret.as_bytes()))
         }
         _ => false,
     }
