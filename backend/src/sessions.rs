@@ -18,6 +18,11 @@ use crate::models::{
 };
 use crate::state::AppState;
 
+// ── Input length limits — Jaskier Shared Pattern ────────────────────────────
+
+const MAX_TITLE_LENGTH: usize = 200;
+const MAX_MESSAGE_LENGTH: usize = 50_000; // 50KB
+
 // ============================================================================
 // Response models
 // ============================================================================
@@ -283,6 +288,11 @@ pub async fn add_message(
     State(state): State<AppState>,
     Json(body): Json<AddMessageRequest>,
 ) -> Result<Json<Value>, StatusCode> {
+    if body.content.len() > MAX_MESSAGE_LENGTH {
+        tracing::warn!("add_message: content exceeds {} chars (got {})", MAX_MESSAGE_LENGTH, body.content.len());
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
     let row = sqlx::query_as::<_, ChatMessageRow>(
         "INSERT INTO gh_chat_messages (role, content, model, agent) \
          VALUES ($1, $2, $3, $4) \
@@ -368,6 +378,11 @@ pub async fn create_session(
     State(state): State<AppState>,
     Json(req): Json<CreateSessionRequest>,
 ) -> Result<(StatusCode, Json<Value>), StatusCode> {
+    if req.title.len() > MAX_TITLE_LENGTH {
+        tracing::warn!("create_session: title exceeds {} chars (got {})", MAX_TITLE_LENGTH, req.title.len());
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
     let row = sqlx::query_as::<_, SessionRow>(
         "INSERT INTO gh_sessions (title) VALUES ($1) \
          RETURNING id, title, created_at, updated_at",
@@ -458,6 +473,11 @@ pub async fn update_session(
     Path(id): Path<String>,
     Json(req): Json<UpdateSessionRequest>,
 ) -> Result<Json<Value>, StatusCode> {
+    if req.title.len() > MAX_TITLE_LENGTH {
+        tracing::warn!("update_session: title exceeds {} chars (got {})", MAX_TITLE_LENGTH, req.title.len());
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
     let session_id: uuid::Uuid = id.parse().map_err(|_| StatusCode::BAD_REQUEST)?;
 
     let row = sqlx::query_as::<_, SessionRow>(
@@ -522,12 +542,12 @@ pub async fn add_session_message(
     Path(id): Path<String>,
     Json(body): Json<AddMessageRequest>,
 ) -> Result<(StatusCode, Json<Value>), StatusCode> {
-    let session_id: uuid::Uuid = id.parse().map_err(|_| StatusCode::BAD_REQUEST)?;
-
-    // Limit message content to 1 MB to prevent uncontrolled memory allocation
-    if body.content.len() > 1_048_576 {
-        return Err(StatusCode::PAYLOAD_TOO_LARGE);
+    if body.content.len() > MAX_MESSAGE_LENGTH {
+        tracing::warn!("add_session_message: content exceeds {} chars (got {})", MAX_MESSAGE_LENGTH, body.content.len());
+        return Err(StatusCode::BAD_REQUEST);
     }
+
+    let session_id: uuid::Uuid = id.parse().map_err(|_| StatusCode::BAD_REQUEST)?;
 
     // Verify session exists
     sqlx::query("SELECT 1 FROM gh_sessions WHERE id = $1")
@@ -835,4 +855,247 @@ pub async fn add_graph_edge(
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(Json(json!(edge)))
+}
+
+// ============================================================================
+// Unit tests — pure functions only (no DB required)
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::{
+        ChatMessageRow, KnowledgeEdgeRow, KnowledgeNodeRow, MemoryRow, SettingsRow,
+    };
+    use chrono::Utc;
+
+    // ── row_to_message ──────────────────────────────────────────────────
+
+    #[test]
+    fn row_to_message_maps_all_fields() {
+        let now = Utc::now();
+        let row = ChatMessageRow {
+            id: uuid::Uuid::nil(),
+            role: "user".to_string(),
+            content: "Hello".to_string(),
+            model: Some("gemini-pro".to_string()),
+            agent: Some("Geralt".to_string()),
+            created_at: now,
+        };
+        let msg = row_to_message(row);
+        assert_eq!(msg.id, uuid::Uuid::nil().to_string());
+        assert_eq!(msg.role, "user");
+        assert_eq!(msg.content, "Hello");
+        assert_eq!(msg.model, Some("gemini-pro".to_string()));
+        assert_eq!(msg.agent, Some("Geralt".to_string()));
+        assert_eq!(msg.timestamp, now.to_rfc3339());
+    }
+
+    #[test]
+    fn row_to_message_handles_none_optional_fields() {
+        let row = ChatMessageRow {
+            id: uuid::Uuid::new_v4(),
+            role: "assistant".to_string(),
+            content: "Hi there".to_string(),
+            model: None,
+            agent: None,
+            created_at: Utc::now(),
+        };
+        let msg = row_to_message(row);
+        assert!(msg.model.is_none());
+        assert!(msg.agent.is_none());
+    }
+
+    // ── row_to_settings ─────────────────────────────────────────────────
+
+    #[test]
+    fn row_to_settings_maps_all_fields() {
+        let row = SettingsRow {
+            temperature: 0.7,
+            max_tokens: 4096,
+            default_model: "gemini-pro".to_string(),
+            language: "pl".to_string(),
+            theme: "light".to_string(),
+            welcome_message: "Witaj!".to_string(),
+            ollama_url: Some("http://custom:11434".to_string()),
+            use_docker_sandbox: true,
+        };
+        let settings = row_to_settings(row);
+        assert!((settings.temperature - 0.7).abs() < f64::EPSILON);
+        assert_eq!(settings.max_tokens, 4096);
+        assert_eq!(settings.default_model, "gemini-pro");
+        assert_eq!(settings.language, "pl");
+        assert_eq!(settings.theme, "light");
+        assert_eq!(settings.welcome_message, "Witaj!");
+        assert_eq!(settings.ollama_url, "http://custom:11434");
+        assert!(settings.use_docker_sandbox);
+    }
+
+    #[test]
+    fn row_to_settings_defaults_ollama_url_when_none() {
+        let row = SettingsRow {
+            temperature: 1.0,
+            max_tokens: 8192,
+            default_model: "test".to_string(),
+            language: "en".to_string(),
+            theme: "dark".to_string(),
+            welcome_message: String::new(),
+            ollama_url: None,
+            use_docker_sandbox: false,
+        };
+        let settings = row_to_settings(row);
+        assert_eq!(settings.ollama_url, "http://localhost:11434");
+    }
+
+    // ── row_to_memory ───────────────────────────────────────────────────
+
+    #[test]
+    fn row_to_memory_maps_all_fields() {
+        let now = Utc::now();
+        let row = MemoryRow {
+            id: uuid::Uuid::nil(),
+            agent: "Yennefer".to_string(),
+            content: "Important fact".to_string(),
+            importance: 0.95,
+            created_at: now,
+        };
+        let entry = row_to_memory(row);
+        assert_eq!(entry.id, uuid::Uuid::nil().to_string());
+        assert_eq!(entry.agent, "Yennefer");
+        assert_eq!(entry.content, "Important fact");
+        assert!((entry.importance - 0.95).abs() < f64::EPSILON);
+        assert_eq!(entry.timestamp, now.to_rfc3339());
+    }
+
+    // ── row_to_node / row_to_edge ───────────────────────────────────────
+
+    #[test]
+    fn row_to_node_maps_all_fields() {
+        let row = KnowledgeNodeRow {
+            id: "n1".to_string(),
+            node_type: "concept".to_string(),
+            label: "Witcher Signs".to_string(),
+        };
+        let node = row_to_node(row);
+        assert_eq!(node.id, "n1");
+        assert_eq!(node.node_type, "concept");
+        assert_eq!(node.label, "Witcher Signs");
+    }
+
+    #[test]
+    fn row_to_edge_maps_all_fields() {
+        let row = KnowledgeEdgeRow {
+            source: "n1".to_string(),
+            target: "n2".to_string(),
+            label: "uses".to_string(),
+        };
+        let edge = row_to_edge(row);
+        assert_eq!(edge.source, "n1");
+        assert_eq!(edge.target, "n2");
+        assert_eq!(edge.label, "uses");
+    }
+
+    // ── Serialization / Deserialization ─────────────────────────────────
+
+    #[test]
+    fn add_message_request_deserializes_with_defaults() {
+        let json = r#"{"role":"user","content":"hello"}"#;
+        let req: AddMessageRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.role, "user");
+        assert_eq!(req.content, "hello");
+        assert!(req.model.is_none());
+        assert!(req.agent.is_none());
+    }
+
+    #[test]
+    fn add_message_request_deserializes_with_all_fields() {
+        let json = r#"{"role":"assistant","content":"hi","model":"gemini-pro","agent":"Geralt"}"#;
+        let req: AddMessageRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.role, "assistant");
+        assert_eq!(req.content, "hi");
+        assert_eq!(req.model, Some("gemini-pro".to_string()));
+        assert_eq!(req.agent, Some("Geralt".to_string()));
+    }
+
+    #[test]
+    fn partial_settings_all_none_by_default() {
+        let json = r#"{}"#;
+        let patch: PartialSettings = serde_json::from_str(json).unwrap();
+        assert!(patch.temperature.is_none());
+        assert!(patch.max_tokens.is_none());
+        assert!(patch.default_model.is_none());
+        assert!(patch.language.is_none());
+        assert!(patch.theme.is_none());
+        assert!(patch.welcome_message.is_none());
+        assert!(patch.ollama_url.is_none());
+        assert!(patch.use_docker_sandbox.is_none());
+    }
+
+    #[test]
+    fn partial_settings_picks_up_subset() {
+        let json = r#"{"temperature":0.5,"theme":"light"}"#;
+        let patch: PartialSettings = serde_json::from_str(json).unwrap();
+        assert!((patch.temperature.unwrap() - 0.5).abs() < f64::EPSILON);
+        assert_eq!(patch.theme, Some("light".to_string()));
+        assert!(patch.max_tokens.is_none());
+    }
+
+    #[test]
+    fn knowledge_node_roundtrip() {
+        let node = KnowledgeNode {
+            id: "abc".to_string(),
+            node_type: "entity".to_string(),
+            label: "Test <special> & chars".to_string(),
+        };
+        let serialized = serde_json::to_string(&node).unwrap();
+        let deserialized: KnowledgeNode = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(deserialized.id, node.id);
+        assert_eq!(deserialized.node_type, node.node_type);
+        assert_eq!(deserialized.label, node.label);
+    }
+
+    #[test]
+    fn knowledge_edge_roundtrip() {
+        let edge = KnowledgeEdge {
+            source: "src".to_string(),
+            target: "tgt".to_string(),
+            label: "edge with unicode: \u{1F5E1}".to_string(),
+        };
+        let serialized = serde_json::to_string(&edge).unwrap();
+        let deserialized: KnowledgeEdge = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(deserialized.source, edge.source);
+        assert_eq!(deserialized.target, edge.target);
+        assert_eq!(deserialized.label, edge.label);
+    }
+
+    #[test]
+    fn memory_entry_serialization() {
+        let entry = MemoryEntry {
+            id: "550e8400-e29b-41d4-a716-446655440000".to_string(),
+            agent: "Triss".to_string(),
+            content: "Spell components list".to_string(),
+            importance: 0.8,
+            timestamp: "2026-01-15T10:30:00+00:00".to_string(),
+        };
+        let json = serde_json::to_value(&entry).unwrap();
+        assert_eq!(json["agent"], "Triss");
+        assert_eq!(json["importance"], 0.8);
+    }
+
+    #[test]
+    fn pagination_params_defaults() {
+        let json = r#"{}"#;
+        let params: PaginationParams = serde_json::from_str(json).unwrap();
+        assert!(params.limit.is_none());
+        assert!(params.offset.is_none());
+    }
+
+    #[test]
+    fn add_memory_request_importance_preserved() {
+        let json = r#"{"agent":"Ciri","content":"Portal magic","importance":0.42}"#;
+        let req: AddMemoryRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.agent, "Ciri");
+        assert_eq!(req.content, "Portal magic");
+        assert!((req.importance - 0.42).abs() < f64::EPSILON);
+    }
 }

@@ -13,6 +13,7 @@ import { Check, ChevronDown, Search } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { type KeyboardEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useDebounce } from '@/shared/hooks/useDebounce';
 import { cn } from '@/shared/utils/cn';
 
 // ---------------------------------------------------------------------------
@@ -72,18 +73,20 @@ export function ModelSelector<T extends ModelOption = ModelOption>({
 
   // ----- Derived data --------------------------------------------------
 
+  const debouncedSearch = useDebounce(search, 300);
+
   const selectedModel = useMemo(() => models.find((m) => m.id === selectedId) ?? null, [models, selectedId]);
 
   const filtered = useMemo(() => {
-    if (!search.trim()) return models;
-    const q = search.toLowerCase();
+    if (!debouncedSearch.trim()) return models;
+    const q = debouncedSearch.toLowerCase();
     return models.filter(
       (m) =>
         m.name.toLowerCase().includes(q) ||
         m.provider?.toLowerCase().includes(q) ||
         m.description?.toLowerCase().includes(q),
     );
-  }, [models, search]);
+  }, [models, debouncedSearch]);
 
   // ----- Outside click -------------------------------------------------
 

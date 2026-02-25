@@ -95,7 +95,16 @@ async fn build_app() -> (axum::Router, AppState) {
         .layer(referrer)
         .layer(csp)
         .layer(hsts)
-        .layer(TraceLayer::new_for_http())
+        .layer(
+            TraceLayer::new_for_http()
+                .make_span_with(|request: &axum::http::Request<_>| {
+                    tracing::info_span!(
+                        "http_request",
+                        method = %request.method(),
+                        uri = %request.uri(),
+                    )
+                })
+        )
         .layer(CompressionLayer::new());
 
     (app, state)

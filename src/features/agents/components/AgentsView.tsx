@@ -26,7 +26,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
-import { type ReactNode, useMemo, useState } from 'react';
+import { type ReactNode, memo, useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Badge, Button, Card } from '@/components/atoms';
 import { EmptyState } from '@/components/molecules/EmptyState';
@@ -170,13 +170,24 @@ function PipelineStrip({ activePhase, agentColor }: { activePhase: PipelinePhase
   );
 }
 
-function AgentCard({ agent, onEdit, onDelete }: { agent: Agent; onEdit: () => void; onDelete: () => void }) {
+const AgentCard = memo(function AgentCard({
+  agent,
+  onEdit,
+  onDelete,
+}: {
+  agent: Agent;
+  onEdit: (agent: Agent) => void;
+  onDelete: (id: string) => void;
+}) {
   const t = useViewTheme();
   const Icon = getAgentIcon(agent.role);
   const color = getAgentColor(agent.name);
   const phase = getAgentPhase(agent.role);
   const tierKey = agent.tier.toLowerCase();
   const tierCfg = TIER_CONFIG[tierKey] ?? TIER_CONFIG.executor ?? { label: 'Executor', badgeVariant: 'default' };
+
+  const handleEdit = useCallback(() => onEdit(agent), [agent, onEdit]);
+  const handleDelete = useCallback(() => onDelete(agent.id), [agent.id, onDelete]);
 
   return (
     <motion.div
@@ -232,7 +243,7 @@ function AgentCard({ agent, onEdit, onDelete }: { agent: Agent; onEdit: () => vo
               <button
                 type="button"
                 aria-label={`Edit agent ${agent.name}`}
-                onClick={onEdit}
+                onClick={handleEdit}
                 className="p-1 hover:bg-white/10 rounded"
               >
                 <Edit size={14} className={t.textMuted} />
@@ -240,7 +251,7 @@ function AgentCard({ agent, onEdit, onDelete }: { agent: Agent; onEdit: () => vo
               <button
                 type="button"
                 aria-label={`Delete agent ${agent.name}`}
-                onClick={onDelete}
+                onClick={handleDelete}
                 className="p-1 hover:bg-red-500/20 rounded"
               >
                 <Trash2 size={14} className="text-red-400" />
@@ -251,7 +262,7 @@ function AgentCard({ agent, onEdit, onDelete }: { agent: Agent; onEdit: () => vo
       </Card>
     </motion.div>
   );
-}
+});
 
 // ============================================================================
 // MAIN COMPONENT
@@ -285,21 +296,35 @@ export function AgentsView(): ReactNode {
     return counts;
   }, [agents]);
 
-  const handleSave = (agent: Agent) => {
-    if (editingAgent) {
-      updateMutation.mutate({ id: agent.id, agent });
-    } else {
-      createMutation.mutate(agent);
-    }
-    setEditorOpen(false);
-    setEditingAgent(null);
-  };
+  const handleSave = useCallback(
+    (agent: Agent) => {
+      if (editingAgent) {
+        updateMutation.mutate({ id: agent.id, agent });
+      } else {
+        createMutation.mutate(agent);
+      }
+      setEditorOpen(false);
+      setEditingAgent(null);
+    },
+    [editingAgent, updateMutation, createMutation],
+  );
 
-  const handleDelete = (id: string) => {
-    if (confirm('Are you sure you want to retire this agent?')) {
-      deleteMutation.mutate(id);
-    }
-  };
+  const handleDelete = useCallback(
+    (id: string) => {
+      if (confirm('Are you sure you want to retire this agent?')) {
+        deleteMutation.mutate(id);
+      }
+    },
+    [deleteMutation],
+  );
+
+  const handleEdit = useCallback(
+    (agent: Agent) => {
+      setEditingAgent(agent);
+      setEditorOpen(true);
+    },
+    [],
+  );
 
   if (isLoading) return <ViewSkeleton />;
   if (isError) return <QueryError onRetry={() => refetch()} />;
@@ -376,11 +401,8 @@ export function AgentsView(): ReactNode {
                 <AgentCard
                   key={agent.id}
                   agent={agent}
-                  onEdit={() => {
-                    setEditingAgent(agent);
-                    setEditorOpen(true);
-                  }}
-                  onDelete={() => handleDelete(agent.id)}
+                  onEdit={handleEdit}
+                  onDelete={handleDelete}
                 />
               ))}
             </motion.div>

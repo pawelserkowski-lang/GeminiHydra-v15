@@ -16,6 +16,7 @@ const AUTH_SECRET = env.VITE_AUTH_SECRET;
 
 const MAX_RETRIES = 3;
 const RETRY_BASE_MS = 1000;
+const REQUEST_TIMEOUT_MS = 45_000; // 45 seconds per attempt
 const RETRYABLE_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
 
 // -------------------------------------------------------------------
@@ -56,8 +57,18 @@ async function fetchWithRetry(
   let lastError: Error | undefined;
 
   for (let attempt = 0; attempt <= retries; attempt++) {
+    // Per-attempt timeout via AbortController
+    const timeoutController = new AbortController();
+    const timeoutId = setTimeout(() => timeoutController.abort(), REQUEST_TIMEOUT_MS);
+
+    // Combine with caller-provided signal (if any) so both can abort
+    const signal = init.signal
+      ? AbortSignal.any([init.signal, timeoutController.signal])
+      : timeoutController.signal;
+
     try {
-      const response = await fetch(url, init);
+      const response = await fetch(url, { ...init, signal });
+      clearTimeout(timeoutId);
 
       // Success or non-retryable client error — return immediately
       if (response.ok || !RETRYABLE_STATUSES.has(response.status)) {
@@ -76,6 +87,19 @@ async function fetchWithRetry(
 
       return response; // Last attempt or non-idempotent — return as-is
     } catch (err) {
+      clearTimeout(timeoutId);
+
+      // Timeout abort — show toast and throw immediately (no retry)
+      if (timeoutController.signal.aborted) {
+        toast.error('Request timed out. Please try again.');
+        throw new Error('Request timed out');
+      }
+
+      // Caller-provided signal aborted — propagate without retry
+      if (init.signal?.aborted) {
+        throw err;
+      }
+
       lastError = err instanceof Error ? err : new Error(String(err));
       // Network failure (TypeError) — retry regardless of method
       if (attempt < retries && err instanceof TypeError) {
