@@ -28,6 +28,8 @@ import './styles/globals.css';
 
 const LazyWelcomeScreen = lazy(() => import('@/features/home/components/WelcomeScreen'));
 const LazyChatContainer = lazy(() => import('@/features/chat/components/ChatContainer'));
+const LazyAgentsView = lazy(() => import('@/features/agents/components/AgentsView'));
+const LazyKnowledgeGraphView = lazy(() => import('@/features/memory/components/KnowledgeGraphView'));
 
 // ============================================================================
 // CHAT VIEW WRAPPER
@@ -181,6 +183,10 @@ function ViewRouter() {
         return <LazyWelcomeScreen />;
       case 'chat':
         return <ChatViewWrapper />;
+      case 'agents':
+        return <LazyAgentsView />;
+      case 'brain':
+        return <LazyKnowledgeGraphView />;
     }
   }
 
