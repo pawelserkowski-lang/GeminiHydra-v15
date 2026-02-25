@@ -16,9 +16,11 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock,
+  ExternalLink,
   Globe,
   Home,
   type LucideIcon,
+  Loader2,
   MessageSquare,
   Moon,
   Plus,
@@ -27,6 +29,7 @@ import {
   Sun,
   Swords,
   Users,
+  WifiOff,
   X,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
@@ -35,6 +38,8 @@ import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/contexts/ThemeContext';
 import { cn } from '@/shared/utils/cn';
 import { useSessionSync } from '@/features/chat/hooks/useSessionSync';
+import { usePartnerSessions } from '@/features/chat/hooks/usePartnerSessions';
+import { PartnerChatModal } from '@/features/chat/components/PartnerChatModal';
 import { useViewStore, type View } from '@/stores/viewStore';
 
 // ============================================
@@ -78,8 +83,17 @@ export function Sidebar() {
     deleteSessionWithSync,
   } = useSessionSync();
 
+  // Partner sessions (ClaudeHydra)
+  const { data: partnerSessions, isLoading: partnerLoading, isError: partnerError } = usePartnerSessions();
+  const [showPartnerSessions, setShowPartnerSessions] = useState(true);
+  const [partnerModalSessionId, setPartnerModalSessionId] = useState<string | null>(null);
+
   // Sessions sorted by creation date (newest first)
   const sortedSessions = useMemo(() => [...sessions].sort((a, b) => b.createdAt - a.createdAt), [sessions]);
+  const sortedPartnerSessions = useMemo(
+    () => [...(partnerSessions ?? [])].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()),
+    [partnerSessions],
+  );
 
   const isCollapsed = sidebarCollapsed;
 
@@ -460,6 +474,78 @@ export function Sidebar() {
         </div>
       )}
 
+      {/* Partner Sessions — ClaudeHydra (glass panel + collapsible) */}
+      {!isCollapsed && (
+        <div className={cn(glassPanel, 'flex flex-col min-h-0 p-2 overflow-hidden')}>
+          <div className="flex items-center justify-between px-1 py-1.5">
+            <button
+              type="button"
+              onClick={() => setShowPartnerSessions(!showPartnerSessions)}
+              className={cn('flex items-center gap-2 transition-colors', textDim, textHover)}
+            >
+              <div className={cn(
+                'w-5 h-5 rounded flex items-center justify-center text-[9px] font-bold flex-shrink-0',
+                isLight ? 'bg-orange-100 text-orange-700' : 'bg-orange-500/20 text-orange-400',
+              )}>
+                CH
+              </div>
+              <span className="text-sm font-bold tracking-[0.12em] uppercase">ClaudeHydra</span>
+              <ChevronDown
+                size={14}
+                className={cn('transition-transform duration-200', showPartnerSessions ? '' : '-rotate-90')}
+              />
+            </button>
+            <div className="flex items-center gap-1">
+              {partnerLoading && <Loader2 size={12} className="animate-spin text-orange-400" />}
+              {partnerError && <WifiOff size={12} className={isLight ? 'text-slate-400' : 'text-white/30'} />}
+              {!partnerLoading && !partnerError && (
+                <span className={cn('text-xs', textDim)}>{sortedPartnerSessions.length}</span>
+              )}
+            </div>
+          </div>
+
+          <AnimatePresence>
+            {showPartnerSessions && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: 'auto', opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.2, ease: 'easeInOut' }}
+                className="flex-1 overflow-y-auto scrollbar-hide hover:scrollbar-thin hover:scrollbar-thumb-current space-y-0.5 mt-1"
+              >
+                {partnerError && (
+                  <p className={cn('text-[10px] text-center py-2', textDim)}>Offline</p>
+                )}
+                {!partnerError && sortedPartnerSessions.length === 0 && !partnerLoading && (
+                  <p className={cn('text-[10px] text-center py-2', textDim)}>No sessions</p>
+                )}
+                {sortedPartnerSessions.map((ps) => (
+                  <button
+                    type="button"
+                    key={ps.id}
+                    onClick={() => setPartnerModalSessionId(ps.id)}
+                    className={cn(
+                      'relative w-full flex items-center gap-2 px-2 py-1.5 rounded-lg transition-all duration-200 group text-left',
+                      textMuted, hoverBg, textHover,
+                    )}
+                    title={ps.title}
+                  >
+                    <MessageSquare size={14} className={cn('flex-shrink-0 transition-colors', isLight ? 'text-orange-500' : 'text-orange-400/60')} />
+                    <div className="flex-1 min-w-0">
+                      <span className="text-sm truncate block leading-tight">{ps.title}</span>
+                      <span className={cn('text-[10px] font-mono', textDim)}>
+                        {ps.message_count} {ps.message_count === 1 ? 'msg' : 'msgs'}
+                      </span>
+                    </div>
+                    <ExternalLink size={10} className={cn('opacity-0 group-hover:opacity-60 transition-opacity flex-shrink-0', iconMuted)} />
+                  </button>
+                ))}
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+      )}
+
       {/* Collapsed: New Chat icon */}
       {isCollapsed && (
         <div className="flex flex-col items-center gap-1 flex-1">
@@ -497,13 +583,7 @@ export function Sidebar() {
           </div>
           {!isCollapsed && (
             <span className={cn('text-base font-mono tracking-tight truncate', textMuted, textHover)}>
-              {resolvedTheme === 'dark'
-                ? i18n.language === 'pl'
-                  ? 'TRYB CIEMNY'
-                  : 'DARK MODE'
-                : i18n.language === 'pl'
-                  ? 'TRYB JASNY'
-                  : 'LIGHT MODE'}
+              {resolvedTheme === 'dark' ? 'TRYB CIEMNY' : 'TRYB JASNY'}
             </span>
           )}
         </button>
@@ -646,6 +726,12 @@ export function Sidebar() {
           </>
         )}
       </AnimatePresence>
+
+      {/* Partner session modal */}
+      <PartnerChatModal
+        sessionId={partnerModalSessionId}
+        onClose={() => setPartnerModalSessionId(null)}
+      />
     </>
   );
 }
