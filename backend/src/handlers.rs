@@ -7,7 +7,6 @@ use axum::response::IntoResponse;
 use axum::Json;
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{json, Value};
-use sysinfo::System;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
@@ -197,10 +196,7 @@ pub async fn health_detailed(State(state): State<AppState>) -> Json<DetailedHeal
     let cache = state.model_cache.read().await;
     let google = cache.models.get("google").cloned().unwrap_or_default();
     drop(cache);
-    let mut sys = System::new_all();
-    sys.refresh_all();
-
-    let cpu_usage: f32 = sys.cpus().iter().map(|c| c.cpu_usage()).sum::<f32>() / sys.cpus().len().max(1) as f32;
+    let snap = state.system_monitor.read().await;
 
     Json(DetailedHealthResponse {
         status: "ok".to_string(),
@@ -208,9 +204,9 @@ pub async fn health_detailed(State(state): State<AppState>) -> Json<DetailedHeal
         app: "GeminiHydra".to_string(),
         uptime_seconds: state.start_time.elapsed().as_secs(),
         providers: build_providers(&rt.api_keys, &google),
-        memory_usage_mb: sys.used_memory() as f64 / 1_048_576.0,
-        cpu_usage_percent: cpu_usage,
-        platform: std::env::consts::OS.to_string(),
+        memory_usage_mb: snap.memory_used_mb,
+        cpu_usage_percent: snap.cpu_usage_percent,
+        platform: snap.platform.clone(),
     })
 }
 
@@ -826,14 +822,13 @@ pub async fn gemini_models(State(state): State<AppState>) -> Json<Value> {
     Json(json!(GeminiModelsResponse { models }))
 }
 
-pub async fn system_stats() -> Json<SystemStats> {
-    let mut sys = System::new_all();
-    sys.refresh_all();
+pub async fn system_stats(State(state): State<AppState>) -> Json<SystemStats> {
+    let snap = state.system_monitor.read().await;
     Json(SystemStats {
-        cpu_usage_percent: sys.cpus().iter().map(|c| c.cpu_usage()).sum::<f32>() / sys.cpus().len().max(1) as f32,
-        memory_used_mb: sys.used_memory() as f64 / 1_048_576.0,
-        memory_total_mb: sys.total_memory() as f64 / 1_048_576.0,
-        platform: std::env::consts::OS.to_string(),
+        cpu_usage_percent: snap.cpu_usage_percent,
+        memory_used_mb: snap.memory_used_mb,
+        memory_total_mb: snap.memory_total_mb,
+        platform: snap.platform.clone(),
     })
 }
 

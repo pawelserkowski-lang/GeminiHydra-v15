@@ -10,6 +10,26 @@ use tokio::sync::RwLock;
 use crate::model_registry::ModelCache;
 use crate::models::WitcherAgent;
 
+/// Cached system statistics snapshot, refreshed by background task every 5s.
+#[derive(Clone)]
+pub struct SystemSnapshot {
+    pub cpu_usage_percent: f32,
+    pub memory_used_mb: f64,
+    pub memory_total_mb: f64,
+    pub platform: String,
+}
+
+impl Default for SystemSnapshot {
+    fn default() -> Self {
+        Self {
+            cpu_usage_percent: 0.0,
+            memory_used_mb: 0.0,
+            memory_total_mb: 0.0,
+            platform: std::env::consts::OS.to_string(),
+        }
+    }
+}
+
 /// Mutable runtime state (not persisted — lost on restart).
 pub struct RuntimeState {
     pub api_keys: HashMap<String, String>,
@@ -31,6 +51,8 @@ pub struct AppState {
     pub start_time: Instant,
     pub client: Client,
     pub oauth_pkce: Arc<RwLock<Option<OAuthPkceState>>>,
+    /// Cached system stats (CPU, memory) refreshed every 5s by background task.
+    pub system_monitor: Arc<RwLock<SystemSnapshot>>,
     /// `true` once startup_sync completes (or times out).
     pub ready: Arc<AtomicBool>,
 }
@@ -84,6 +106,7 @@ impl AppState {
             start_time: Instant::now(),
             client: Client::new(),
             oauth_pkce: Arc::new(RwLock::new(None)),
+            system_monitor: Arc::new(RwLock::new(SystemSnapshot::default())),
             ready: Arc::new(AtomicBool::new(false)),
         }
     }

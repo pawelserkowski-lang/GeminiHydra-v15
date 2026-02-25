@@ -11,6 +11,7 @@ pub mod watchdog;
 
 use axum::routing::{delete, get, post};
 use axum::Router;
+use sysinfo::System;
 
 use state::AppState;
 
@@ -18,6 +19,38 @@ use state::AppState;
 /// Extracted from `main()` so integration tests can construct the app
 /// without binding to a network port.
 pub fn create_router(state: AppState) -> Router {
+    // ── Background system monitor (CPU / memory) ────────────────────────
+    // Refreshes every 5 s so handlers always read a pre-computed snapshot
+    // instead of creating a throw-away `System` (which always reports 0 / 100 %).
+    {
+        let monitor = state.system_monitor.clone();
+        tokio::spawn(async move {
+            let mut sys = System::new_all();
+            // First measurement — gives the baseline for delta-based CPU %.
+            sys.refresh_all();
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                sys.refresh_all();
+
+                let cpu = if sys.cpus().is_empty() {
+                    0.0
+                } else {
+                    sys.cpus().iter().map(|c| c.cpu_usage()).sum::<f32>()
+                        / sys.cpus().len() as f32
+                };
+
+                let snap = state::SystemSnapshot {
+                    cpu_usage_percent: cpu,
+                    memory_used_mb: sys.used_memory() as f64 / 1_048_576.0,
+                    memory_total_mb: sys.total_memory() as f64 / 1_048_576.0,
+                    platform: std::env::consts::OS.to_string(),
+                };
+
+                *monitor.write().await = snap;
+            }
+        });
+    }
+
     Router::new()
         // Health
         .route("/api/health", get(handlers::health))
