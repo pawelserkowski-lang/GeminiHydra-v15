@@ -1,5 +1,5 @@
-/* GeminiHydra v15 - Matrix Glass Theme (Tissaia Design System) */
-/* Ported pixel-perfect from GeminiHydra legacy */
+/* Jaskier Design System — Matrix Glass Theme */
+/* Shared across GeminiHydra, ClaudeHydra, Tissaia */
 
 @import "tailwindcss";
 
@@ -149,6 +149,12 @@ body {
   width: 100%;
 }
 
+code,
+pre,
+.font-mono {
+  font-family: "JetBrains Mono", "Fira Code", "Consolas", monospace;
+}
+
 /* ============================================
    SCROLLBAR
    ============================================ */
@@ -293,12 +299,9 @@ body {
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
   border: 1px solid rgba(255, 255, 255, 0.2);
-  transition: all 0.2s ease;
-  cursor: pointer;
   color: var(--matrix-accent);
-  font-family: var(--font-mono);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  cursor: pointer;
+  transition: all 0.2s ease;
 }
 
 .glass-button:hover {

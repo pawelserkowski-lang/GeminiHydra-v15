@@ -3,7 +3,7 @@ import { forwardRef, type HTMLAttributes, type ReactNode } from 'react';
 import { cn } from '@/shared/utils/cn';
 
 // ============================================
-// BADGE VARIANTS (GeminiHydra — White/Neutral Accent)
+// BADGE VARIANTS (Jaskier Design System)
 // ============================================
 
 const badgeVariants = cva('inline-flex items-center gap-1 font-medium rounded-full transition-colors font-mono', {

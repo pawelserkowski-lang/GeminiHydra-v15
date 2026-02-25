@@ -2,7 +2,7 @@
 /**
  * AppShell - Main layout composition
  * ====================================
- * Composes: LayeredBackground + WitcherRunes + Sidebar + TabBar + Content + StatusFooter.
+ * Composes: LayeredBackground + RuneRain + Sidebar + TabBar + Content + StatusFooter.
  * Wrapped in ThemeProvider.
  * Ported pixel-perfect from GeminiHydra legacy App.tsx layout.
  *
@@ -10,8 +10,8 @@
  */
 
 import { AnimatePresence, motion } from 'motion/react';
-import { type ReactNode, Suspense, useCallback, useEffect, useMemo } from 'react';
-import { LayeredBackground, WitcherRunes } from '@/components/atoms';
+import { type ReactNode, useCallback, useEffect, useMemo } from 'react';
+import { LayeredBackground, RuneRain } from '@/components/atoms';
 import { Sidebar } from '@/components/organisms/Sidebar';
 import type { StatusFooterProps } from '@/components/organisms/StatusFooter';
 import { StatusFooter } from '@/components/organisms/StatusFooter';
@@ -51,7 +51,6 @@ export interface AppShellProps {
 
 function AppShellInner({ children, statusFooterProps }: AppShellProps) {
   const { resolvedTheme } = useTheme();
-  const isDark = resolvedTheme === 'dark';
   const isLight = resolvedTheme === 'light';
 
   const currentView = useViewStore((s) => s.currentView);
@@ -107,12 +106,8 @@ function AppShellInner({ children, statusFooterProps }: AppShellProps) {
       {/* Background layers */}
       <LayeredBackground resolvedTheme={resolvedTheme} />
 
-      {/* WitcherRunes overlay */}
-      {import.meta.env.VITE_WITCHER_MODE !== 'disabled' && (
-        <Suspense fallback={null}>
-          <WitcherRunes isDark={isDark} />
-        </Suspense>
-      )}
+      {/* RuneRain overlay */}
+      <RuneRain opacity={0.12} />
 
       {/* Main Content */}
       <div className="relative z-10 flex h-full w-full backdrop-blur-[1px] gap-4 p-4 overflow-hidden">

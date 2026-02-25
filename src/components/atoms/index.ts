@@ -16,4 +16,4 @@ export { ProgressBar } from './ProgressBar';
 
 export { Skeleton } from './Skeleton';
 
-export { WitcherRunes } from './WitcherRunes';
+export { RuneRain } from './RuneRain';
