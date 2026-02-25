@@ -26,6 +26,7 @@ import {
   useState,
 } from 'react';
 import { toast } from 'sonner';
+import { useTranslation } from 'react-i18next';
 
 import { useSettingsQuery } from '@/features/settings/hooks/useSettings';
 import { useViewTheme } from '@/shared/hooks/useViewTheme';
@@ -70,6 +71,7 @@ interface DragDropZoneProps {
 }
 
 const DragDropZone = memo<DragDropZoneProps>(({ children, onImageDrop, onTextDrop }) => {
+  const { t } = useTranslation();
   const [isDragActive, setIsDragActive] = useState(false);
 
   const handleDrag = useCallback((e: DragEvent) => {
@@ -119,7 +121,7 @@ const DragDropZone = memo<DragDropZoneProps>(({ children, onImageDrop, onTextDro
 
   return (
     <section
-      aria-label="File drop zone"
+      aria-label={t('chat.fileDropZone', 'File drop zone')}
       className="flex flex-col w-full h-full min-h-0 relative"
       onDragEnter={handleDrag}
       onDragLeave={handleDrag}
@@ -143,7 +145,7 @@ const DragDropZone = memo<DragDropZoneProps>(({ children, onImageDrop, onTextDro
           >
             <div className="text-[var(--matrix-accent)] text-2xl font-mono animate-pulse flex flex-col items-center gap-4">
               <Paperclip size={64} />
-              <span>DROP FILE TO ADD CONTEXT</span>
+              <span>{t('chat.dropFileToAddContext', 'DROP FILE TO ADD CONTEXT')}</span>
             </div>
           </motion.div>
         )}
@@ -240,11 +242,12 @@ ChatContextMenu.displayName = 'ChatContextMenu';
 // ============================================================================
 
 const EmptyState = memo(() => {
+  const { t } = useTranslation();
   const theme = useViewTheme();
   return (
     <div className="h-full flex flex-col items-center justify-center gap-3">
       <Sparkles size={48} className={cn(theme.iconMuted, 'opacity-30')} />
-      <p className={cn('text-sm font-mono', theme.textMuted)}>Type a message to start a conversation...</p>
+      <p className={cn('text-sm font-mono', theme.textMuted)}>{t('chat.emptyState', 'Type a message to start a conversation...')}</p>
     </div>
   );
 });
@@ -256,6 +259,7 @@ EmptyState.displayName = 'EmptyState';
 // ============================================================================
 
 const StreamingIndicator = memo(() => {
+  const { t } = useTranslation();
   const theme = useViewTheme();
   return (
     <motion.div
@@ -278,7 +282,7 @@ const StreamingIndicator = memo(() => {
           />
         ))}
       </div>
-      <span className={cn('text-xs font-mono', theme.textMuted)}>Generating...</span>
+      <span className={cn('text-xs font-mono', theme.textMuted)}>{t('chat.generating', 'Generating...')}</span>
     </motion.div>
   );
 });
@@ -290,6 +294,7 @@ StreamingIndicator.displayName = 'StreamingIndicator';
 // ============================================================================
 
 export const ChatContainer = memo<ChatContainerProps>(({ isStreaming, onSubmit, onStop }) => {
+  const { t } = useTranslation();
   const theme = useViewTheme();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -509,7 +514,7 @@ export const ChatContainer = memo<ChatContainerProps>(({ isStreaming, onSubmit, 
             <button
               type="button"
               onClick={handleCopySession}
-              title="Copy entire session"
+              title={t('chat.copySession', 'Copy entire session')}
               className={cn(
                 'absolute top-2 right-3 z-10 p-1.5 rounded-lg transition-all',
                 'opacity-40 hover:opacity-100',
@@ -592,7 +597,7 @@ export const ChatContainer = memo<ChatContainerProps>(({ isStreaming, onSubmit, 
                 type="button"
                 onClick={() => setTextContext('')}
                 className="p-1 rounded hover:bg-red-500/20 hover:text-red-400 transition-colors"
-                title="Remove context"
+                title={t('chat.removeContext', 'Remove context')}
               >
                 <X size={12} />
               </button>

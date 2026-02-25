@@ -1,5 +1,6 @@
 // src/features/agents/components/AgentEditor.tsx
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Button, Input } from '@/components/atoms';
 import { Agent } from '@/shared/api/schemas';
 import { useViewTheme } from '@/shared/hooks/useViewTheme';
@@ -24,6 +25,7 @@ const DEFAULT_AGENT: Agent = {
 };
 
 export function AgentEditor({ agent, isOpen, onClose, onSave }: AgentEditorProps) {
+  const { t: tr } = useTranslation();
   const t = useViewTheme();
   const [formData, setFormData] = useState<Agent>(DEFAULT_AGENT);
 
@@ -58,7 +60,7 @@ export function AgentEditor({ agent, isOpen, onClose, onSave }: AgentEditorProps
         )}
       >
         <h2 className={cn('text-xl font-bold mb-4', t.title)}>
-          {agent ? 'Edit Agent' : 'Create New Agent'}
+          {agent ? tr('agents.editAgent', 'Edit Agent') : tr('agents.createAgent', 'Create New Agent')}
         </h2>
 
         <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-2">
@@ -68,7 +70,7 @@ export function AgentEditor({ agent, isOpen, onClose, onSave }: AgentEditorProps
               <Input
                 value={formData.name}
                 onChange={(e) => handleChange('name', e.target.value)}
-                placeholder="Agent Name"
+                placeholder={tr('agents.agentName', 'Agent Name')}
               />
             </div>
             <div className="space-y-1">
@@ -76,7 +78,7 @@ export function AgentEditor({ agent, isOpen, onClose, onSave }: AgentEditorProps
               <Input
                 value={formData.role}
                 onChange={(e) => handleChange('role', e.target.value)}
-                placeholder="Role (e.g. Backend)"
+                placeholder={tr('agents.role', 'Role (e.g. Backend)')}
               />
             </div>
           </div>
@@ -93,7 +95,7 @@ export function AgentEditor({ agent, isOpen, onClose, onSave }: AgentEditorProps
                 onChange={(e) => handleChange('tier', e.target.value)}
               >
                 <option value="executor">Executor</option>
-                <option value="coordinator">Coordinator</option>
+                <option value="coordinator">{tr('agents.coordinator', 'Coordinator')}</option>
                 <option value="commander">Commander</option>
               </select>
             </div>
@@ -116,7 +118,7 @@ export function AgentEditor({ agent, isOpen, onClose, onSave }: AgentEditorProps
           </div>
 
           <div className="space-y-1">
-            <label className="text-xs font-mono opacity-70">Description</label>
+            <label className="text-xs font-mono opacity-70">{tr('agents.description', 'Description')}</label>
             <textarea
               className={cn(
                 'w-full p-3 rounded-lg border bg-transparent outline-none font-mono text-sm transition-all min-h-[80px]',
@@ -124,7 +126,7 @@ export function AgentEditor({ agent, isOpen, onClose, onSave }: AgentEditorProps
               )}
               value={formData.description}
               onChange={(e) => handleChange('description', e.target.value)}
-              placeholder="Agent description..."
+              placeholder={tr('agents.agentDescription', 'Agent description...')}
             />
           </div>
 
@@ -133,7 +135,7 @@ export function AgentEditor({ agent, isOpen, onClose, onSave }: AgentEditorProps
             <Input
               value={formData.keywords.join(', ')}
               onChange={handleKeywordsChange}
-              placeholder="sql, database, query..."
+              placeholder={tr('agents.keywords', 'sql, database, query...')}
             />
           </div>
 
@@ -146,7 +148,7 @@ export function AgentEditor({ agent, isOpen, onClose, onSave }: AgentEditorProps
               )}
               value={formData.system_prompt || ''}
               onChange={(e) => handleChange('system_prompt', e.target.value)}
-              placeholder="Custom system instructions..."
+              placeholder={tr('agents.systemPrompt', 'Custom system instructions...')}
             />
           </div>
         </div>
@@ -156,7 +158,7 @@ export function AgentEditor({ agent, isOpen, onClose, onSave }: AgentEditorProps
             Cancel
           </Button>
           <Button onClick={() => onSave(formData)}>
-            {agent ? 'Save Changes' : 'Create Agent'}
+            {agent ? tr('agents.saveChanges', 'Save Changes') : tr('agents.createAgentBtn', 'Create Agent')}
           </Button>
         </div>
       </div>

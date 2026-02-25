@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { type ReactNode, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Badge, Button, Card } from '@/components/atoms';
 import { StatusIndicator, type StatusState } from '@/components/molecules';
 import {
@@ -243,6 +244,7 @@ function AgentCard({ agent, onEdit, onDelete }: { agent: Agent; onEdit: () => vo
 // ============================================================================
 
 export function AgentsView(): ReactNode {
+  const { t: tr } = useTranslation();
   const t = useViewTheme();
   const { data, isLoading } = useAgentsQuery();
   const createMutation = useCreateAgentMutation();
@@ -285,7 +287,7 @@ export function AgentsView(): ReactNode {
     }
   };
 
-  if (isLoading) return <div className="p-6">Loading agents...</div>;
+  if (isLoading) return <div className="p-6">{tr('agents.loading', 'Loading agents...')}</div>;
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -293,7 +295,7 @@ export function AgentsView(): ReactNode {
       <div className={cn('px-6 py-4 border-b', t.border)}>
         <div className="flex items-center justify-between">
           <div>
-            <h2 className={cn('text-xl font-bold font-mono', t.title)}>Hydra Agents</h2>
+            <h2 className={cn('text-xl font-bold font-mono', t.title)}>{tr('agents.title', 'Hydra Agents')}</h2>
             <p className={cn('text-sm mt-1 font-mono', t.textMuted)}>
               {agents.length} agents active &middot; {tierCounts.commander} Cmd &middot; {tierCounts.coordinator} Coord
               &middot; {tierCounts.executor} Exec

@@ -189,14 +189,16 @@ export const WelcomeScreen = memo(() => {
           />
           <img
             src={theme.isLight ? '/logolight.webp' : '/logodark.webp'}
-            alt="GeminiHydra Logo"
+            alt={t('home.logoAlt', 'GeminiHydra Logo')}
+            width={512}
+            height={425}
             className="relative w-56 h-56 object-contain drop-shadow-lg"
           />
         </div>
 
         {/* Title */}
         <div className="text-center">
-          <h1 className={cn('text-3xl font-bold font-mono tracking-tight', theme.title)}>GeminiHydra</h1>
+          <h1 className={cn('text-3xl font-bold font-mono tracking-tight', theme.title)}>{t('home.title', 'GeminiHydra')}</h1>
           <p className={cn('text-sm mt-1.5 max-w-xs', theme.textMuted)}>
             {t('home.subtitle', 'AI Swarm Control Center — start a new chat or continue a previous conversation.')}
           </p>

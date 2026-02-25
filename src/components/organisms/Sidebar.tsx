@@ -545,7 +545,7 @@ export function Sidebar() {
               )}>
                 CH
               </div>
-              <span className="text-sm font-bold tracking-[0.12em] uppercase">ClaudeHydra</span>
+              <span className="text-sm font-bold tracking-[0.12em] uppercase">{t('sidebar.partner', 'ClaudeHydra')}</span>
               <ChevronDown
                 size={14}
                 className={cn('transition-transform duration-200', showPartnerSessions ? '' : '-rotate-90')}
@@ -573,7 +573,7 @@ export function Sidebar() {
                   <p className={cn('text-[10px] text-center py-2', textDim)}>Offline</p>
                 )}
                 {!partnerError && sortedPartnerSessions.length === 0 && !partnerLoading && (
-                  <p className={cn('text-[10px] text-center py-2', textDim)}>No sessions</p>
+                  <p className={cn('text-[10px] text-center py-2', textDim)}>{t('sidebar.noSessions', 'No sessions')}</p>
                 )}
                 {sortedPartnerSessions.map((ps) => (
                   <button
@@ -641,7 +641,7 @@ export function Sidebar() {
         type="button"
         onClick={() => setMobileOpen(true)}
         className={cn('md:hidden fixed top-3 left-3 z-50 p-2 rounded-lg', glassPanel)}
-        aria-label="Open sidebar"
+        aria-label={t('sidebar.openSidebar', 'Open sidebar')}
       >
         <Swords size={20} className={isLight ? 'text-emerald-700' : 'text-white'} />
       </button>

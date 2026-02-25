@@ -9,50 +9,22 @@
     },
     "chats": "CZATY",
     "newChat": "Nowy czat",
-    "deleteChat": "Usuń czat",
+    "rename": "Zmień nazwę",
+    "confirmDelete": "Kliknij ponownie, aby usunąć",
     "message": "wiad.",
     "messages": "wiad.",
     "expandSidebar": "Rozwiń pasek boczny",
-    "collapseSidebar": "Zwiń pasek boczny"
+    "collapseSidebar": "Zwiń pasek boczny",
+    "partner": "ClaudeHydra",
+    "noSessions": "Brak sesji",
+    "openSidebar": "Otwórz pasek boczny"
   },
   "footer": {
     "tagline": "Wilczy Rój"
   },
   "common": {
-    "save": "Zapisz",
-    "cancel": "Anuluj",
     "delete": "Usuń",
-    "confirm": "Potwierdź",
-    "retry": "Ponów",
-    "loading": "Ładowanie...",
-    "error": "Błąd",
-    "send": "Wyślij",
-    "clear": "Wyczyść",
-    "search": "Szukaj",
-    "close": "Zamknij",
-    "back": "Wstecz",
-    "next": "Dalej",
-    "reset": "Resetuj"
-  },
-  "features": {
-    "welcome_title": "GeminiHydra",
-    "welcome_subtitle": "Centrum Sterowania Rojem AI",
-    "new_chat": "Nowy Czat",
-    "no_sessions": "Brak sesji",
-    "start_conversation": "Rozpocznij nową rozmowę",
-    "recent_chats": "Ostatnie Czaty",
-    "session_history": "Historia Sesji",
-    "system_status": "Status Systemu",
-    "settings_title": "Ustawienia",
-    "coming_soon": "Wkrótce",
-    "type_message": "Wpisz wiadomość...",
-    "generating": "Generowanie...",
-    "empty_chat": "Wpisz wiadomość, aby rozpocząć rozmowę...",
-    "delete_session": "Usuń Sesję",
-    "delete_confirm": "Czy na pewno chcesz usunąć tę sesję? Tej operacji nie można cofnąć.",
-    "sort_newest": "Najnowsze",
-    "sort_oldest": "Najstarsze",
-    "search_sessions": "Szukaj sesji..."
+    "copy": "Kopiuj"
   },
   "home": {
     "subtitle": "Centrum Sterowania Rojem AI — rozpocznij nowy czat lub kontynuuj rozmowę.",
@@ -60,6 +32,8 @@
     "recentChats": "Ostatnie Czaty",
     "noChats": "Brak czatów. Rozpocznij nową rozmowę!",
     "msg": "wiad.",
+    "logoAlt": "Logo GeminiHydra",
+    "title": "GeminiHydra",
     "badges": {
       "agents": "12 Agentów",
       "pipeline": "5-fazowy Pipeline",
@@ -73,5 +47,39 @@
     "hoursAgo": "{{h}} godz. temu",
     "yesterday": "wczoraj",
     "daysAgo": "{{d}} dn. temu"
+  },
+  "chat": {
+    "fileDropZone": "Strefa upuszczania plików",
+    "dropFileToAddContext": "UPUŚĆ PLIK, ABY DODAĆ KONTEKST",
+    "emptyState": "Wpisz wiadomość, aby rozpocząć rozmowę...",
+    "generating": "Generowanie...",
+    "copySession": "Kopiuj całą sesję",
+    "removeContext": "Usuń kontekst",
+    "attachLocalFile": "Dołącz lokalny plik",
+    "stopGeneration": "Zatrzymaj generowanie",
+    "send": "Wyślij (Enter)",
+    "copyMessage": "Kopiuj wiadomość",
+    "systemOutput": "Wyjście systemowe",
+    "searchModels": "Szukaj modeli...",
+    "closeTab": "Zamknij kartę",
+    "newTab": "Nowa karta (Ctrl+T)"
+  },
+  "agents": {
+    "loading": "Ładowanie agentów...",
+    "title": "Agenci Hydra",
+    "agentName": "Nazwa agenta",
+    "role": "Rola (np. Backend)",
+    "coordinator": "Koordynator",
+    "description": "Opis",
+    "agentDescription": "Opis agenta...",
+    "keywords": "sql, baza danych, zapytanie...",
+    "systemPrompt": "Niestandardowe instrukcje systemowe...",
+    "editAgent": "Edytuj Agenta",
+    "createAgent": "Utwórz Nowego Agenta",
+    "saveChanges": "Zapisz Zmiany",
+    "createAgentBtn": "Utwórz Agenta"
+  },
+  "memory": {
+    "neuralNetwork": "Sieć neuronowa"
   }
 }

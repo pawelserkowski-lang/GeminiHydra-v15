@@ -1,5 +1,6 @@
 // src/features/memory/components/KnowledgeGraphView.tsx
 import { useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import { apiGet } from '@/shared/api/client';
 import { useViewTheme } from '@/shared/hooks/useViewTheme';
@@ -130,6 +131,7 @@ function runSimulation(nodes: Node[], edges: Edge[]) {
 // ============================================================================
 
 export function KnowledgeGraphView() {
+  const { t: tr } = useTranslation();
   const t = useViewTheme();
   const { data, isLoading, refetch } = useKnowledgeGraph();
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -214,7 +216,7 @@ export function KnowledgeGraphView() {
     <div className="flex flex-col h-full overflow-hidden relative">
       <div className={cn('px-6 py-4 border-b flex justify-between items-center', t.border)}>
         <div>
-          <h2 className={cn('text-xl font-bold font-mono', t.title)}>Neural Network</h2>
+          <h2 className={cn('text-xl font-bold font-mono', t.title)}>{tr('memory.neuralNetwork', 'Neural Network')}</h2>
           <p className={cn('text-sm mt-1 font-mono', t.textMuted)}>
             Knowledge Graph Visualization &middot; {nodes.length} nodes
           </p>

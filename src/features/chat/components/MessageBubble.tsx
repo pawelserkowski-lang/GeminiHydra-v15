@@ -18,6 +18,7 @@ import ReactMarkdown from 'react-markdown';
 import rehypeHighlight from 'rehype-highlight';
 import remarkGfm from 'remark-gfm';
 
+import { useTranslation } from 'react-i18next';
 import { CodeBlock } from '@/components/molecules';
 import { chatLanguages } from '@/shared/utils/highlightLanguages';
 import { useViewTheme } from '@/shared/hooks/useViewTheme';
@@ -71,6 +72,7 @@ const bubbleVariants = {
 // ============================================================================
 
 export const MessageBubble = memo<MessageBubbleProps>(({ message, isLast, isStreaming, onContextMenu }) => {
+  const { t } = useTranslation();
   const theme = useViewTheme();
   const [copied, setCopied] = useState(false);
 
@@ -158,7 +160,7 @@ export const MessageBubble = memo<MessageBubbleProps>(({ message, isLast, isStre
             'opacity-0 group-hover:opacity-100 transition-all duration-200',
             'transform hover:scale-110',
           )}
-          title="Copy message"
+          title={t('chat.copyMessage', 'Copy message')}
         >
           <AnimatePresence mode="wait" initial={false}>
             {copied ? (
@@ -189,7 +191,7 @@ export const MessageBubble = memo<MessageBubbleProps>(({ message, isLast, isStre
         {isSystem && (
           <div className="flex items-center gap-2 mb-1.5 border-b border-matrix-accent/15 pb-1.5 text-matrix-accent/70">
             <Terminal size={14} />
-            <span className="font-bold text-sm uppercase tracking-wider">System Output</span>
+            <span className="font-bold text-sm uppercase tracking-wider">{t('chat.systemOutput', 'System Output')}</span>
           </div>
         )}
 

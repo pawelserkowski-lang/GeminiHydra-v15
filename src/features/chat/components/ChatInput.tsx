@@ -24,6 +24,7 @@ import {
   useState,
 } from 'react';
 
+import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/atoms';
 import { useViewTheme } from '@/shared/hooks/useViewTheme';
 import { cn } from '@/shared/utils/cn';
@@ -110,6 +111,7 @@ ImagePreview.displayName = 'ImagePreview';
 
 export const ChatInput = memo<ChatInputProps>(
   ({ isStreaming, onSubmit, onStop, pendingImage, onClearImage, onPasteImage, onPasteFile, promptHistory = [] }) => {
+    const { t } = useTranslation();
     const theme = useViewTheme();
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -404,7 +406,7 @@ export const ChatInput = memo<ChatInputProps>(
                 size="md"
                 onClick={() => fileInputRef.current?.click()}
                 className="mb-[1px]"
-                title="Attach local file"
+                title={t('chat.attachLocalFile', 'Attach local file')}
                 data-testid="btn-attach-file"
               >
                 <FolderOpen size={20} />
@@ -420,7 +422,7 @@ export const ChatInput = memo<ChatInputProps>(
               size="md"
               onClick={onStop}
               className="mb-[1px]"
-              title="Stop generation"
+              title={t('chat.stopGeneration', 'Stop generation')}
               data-testid="btn-stop"
             >
               <StopCircle size={20} className="animate-pulse" />
@@ -432,7 +434,7 @@ export const ChatInput = memo<ChatInputProps>(
               size="md"
               disabled={!canSubmit}
               className="mb-[1px]"
-              title="Send (Enter)"
+              title={t('chat.send', 'Send (Enter)')}
               data-testid="btn-send"
             >
               <Send size={20} strokeWidth={2.5} className="ml-0.5" />

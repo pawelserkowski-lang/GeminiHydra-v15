@@ -12,6 +12,7 @@
 import { Check, ChevronDown, Search } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { type KeyboardEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { cn } from '@/shared/utils/cn';
 
 // ---------------------------------------------------------------------------
@@ -60,6 +61,7 @@ export function ModelSelector<T extends ModelOption = ModelOption>({
   disabled = false,
   className,
 }: ModelSelectorProps<T>) {
+  const { t } = useTranslation();
   const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [focusIndex, setFocusIndex] = useState(-1);
@@ -226,7 +228,7 @@ export function ModelSelector<T extends ModelOption = ModelOption>({
                     setSearch(e.target.value);
                     setFocusIndex(-1);
                   }}
-                  placeholder="Search models..."
+                  placeholder={t('chat.searchModels', 'Search models...')}
                   className="bg-transparent text-sm text-[var(--matrix-text)] placeholder:text-[var(--matrix-text-dim)] outline-none w-full font-mono"
                 />
               </div>

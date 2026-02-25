@@ -147,24 +147,27 @@ pub async fn auth_callback(
         .send()
         .await
         .map_err(|e| {
+            tracing::error!("Token exchange request failed: {}", e);
             (
                 StatusCode::BAD_GATEWAY,
-                Json(json!({ "error": format!("Token exchange failed: {}", e) })),
+                Json(json!({ "error": "Token exchange failed" })),
             )
         })?;
 
     if !resp.status().is_success() {
         let err = resp.text().await.unwrap_or_default();
+        tracing::error!("Anthropic rejected token exchange: {}", err);
         return Err((
             StatusCode::BAD_GATEWAY,
-            Json(json!({ "error": format!("Anthropic rejected token exchange: {}", err) })),
+            Json(json!({ "error": "Token exchange failed" })),
         ));
     }
 
     let token_resp: TokenResponse = resp.json().await.map_err(|e| {
+        tracing::error!("Invalid token response from Anthropic: {}", e);
         (
             StatusCode::BAD_GATEWAY,
-            Json(json!({ "error": format!("Invalid token response: {}", e) })),
+            Json(json!({ "error": "Token exchange failed" })),
         )
     })?;
 

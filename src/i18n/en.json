@@ -9,50 +9,22 @@
     },
     "chats": "CHATS",
     "newChat": "New chat",
-    "deleteChat": "Delete chat",
+    "rename": "Rename",
+    "confirmDelete": "Click again to delete",
     "message": "msg",
     "messages": "msgs",
     "expandSidebar": "Expand sidebar",
-    "collapseSidebar": "Collapse sidebar"
+    "collapseSidebar": "Collapse sidebar",
+    "partner": "ClaudeHydra",
+    "noSessions": "No sessions",
+    "openSidebar": "Open sidebar"
   },
   "footer": {
     "tagline": "Wolf Swarm"
   },
   "common": {
-    "save": "Save",
-    "cancel": "Cancel",
     "delete": "Delete",
-    "confirm": "Confirm",
-    "retry": "Retry",
-    "loading": "Loading...",
-    "error": "Error",
-    "send": "Send",
-    "clear": "Clear",
-    "search": "Search",
-    "close": "Close",
-    "back": "Back",
-    "next": "Next",
-    "reset": "Reset"
-  },
-  "features": {
-    "welcome_title": "GeminiHydra",
-    "welcome_subtitle": "AI Swarm Control Center",
-    "new_chat": "New Chat",
-    "no_sessions": "No sessions yet",
-    "start_conversation": "Start a new conversation",
-    "recent_chats": "Recent Chats",
-    "session_history": "Session History",
-    "system_status": "System Status",
-    "settings_title": "Settings",
-    "coming_soon": "Coming Soon",
-    "type_message": "Type a message...",
-    "generating": "Generating...",
-    "empty_chat": "Type a message to start a conversation...",
-    "delete_session": "Delete Session",
-    "delete_confirm": "Are you sure you want to delete this session? This action cannot be undone.",
-    "sort_newest": "Newest first",
-    "sort_oldest": "Oldest first",
-    "search_sessions": "Search sessions..."
+    "copy": "Copy"
   },
   "home": {
     "subtitle": "AI Swarm Control Center — start a new chat or continue a previous conversation.",
@@ -60,6 +32,8 @@
     "recentChats": "Recent Chats",
     "noChats": "No chats yet. Start a new conversation!",
     "msg": "msg",
+    "logoAlt": "GeminiHydra Logo",
+    "title": "GeminiHydra",
     "badges": {
       "agents": "12 Agents",
       "pipeline": "5-Phase Pipeline",
@@ -73,5 +47,39 @@
     "hoursAgo": "{{h}}h ago",
     "yesterday": "yesterday",
     "daysAgo": "{{d}}d ago"
+  },
+  "chat": {
+    "fileDropZone": "File drop zone",
+    "dropFileToAddContext": "DROP FILE TO ADD CONTEXT",
+    "emptyState": "Type a message to start a conversation...",
+    "generating": "Generating...",
+    "copySession": "Copy entire session",
+    "removeContext": "Remove context",
+    "attachLocalFile": "Attach local file",
+    "stopGeneration": "Stop generation",
+    "send": "Send (Enter)",
+    "copyMessage": "Copy message",
+    "systemOutput": "System Output",
+    "searchModels": "Search models...",
+    "closeTab": "Close tab",
+    "newTab": "New tab (Ctrl+T)"
+  },
+  "agents": {
+    "loading": "Loading agents...",
+    "title": "Hydra Agents",
+    "agentName": "Agent Name",
+    "role": "Role (e.g. Backend)",
+    "coordinator": "Coordinator",
+    "description": "Description",
+    "agentDescription": "Agent description...",
+    "keywords": "sql, database, query...",
+    "systemPrompt": "Custom system instructions...",
+    "editAgent": "Edit Agent",
+    "createAgent": "Create New Agent",
+    "saveChanges": "Save Changes",
+    "createAgentBtn": "Create Agent"
+  },
+  "memory": {
+    "neuralNetwork": "Neural Network"
   }
 }

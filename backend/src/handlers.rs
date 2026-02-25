@@ -544,11 +544,13 @@ async fn execute_streaming_gemini(
             Ok(r) if r.status().is_success() => r,
             Ok(r) => {
                 let err_body = r.text().await.unwrap_or_default();
-                let _ = ws_send(sender, &WsServerMessage::Error { message: format!("API Error: {}", &err_body[..err_body.len().min(300)]), code: Some("GEMINI_ERROR".into()) }).await;
+                tracing::error!("Gemini API error: {}", &err_body[..err_body.len().min(500)]);
+                let _ = ws_send(sender, &WsServerMessage::Error { message: "AI service error".into(), code: Some("GEMINI_ERROR".into()) }).await;
                 return full_text;
             }
             Err(e) => {
-                let _ = ws_send(sender, &WsServerMessage::Error { message: e.to_string(), code: Some("REQUEST_FAILED".into()) }).await;
+                tracing::error!("Gemini API request failed: {}", e);
+                let _ = ws_send(sender, &WsServerMessage::Error { message: "AI service error".into(), code: Some("REQUEST_FAILED".into()) }).await;
                 return full_text;
             }
         };
@@ -631,11 +633,13 @@ async fn execute_streaming_ollama(
     let resp = match state.client.post(&url).json(&body).send().await {
         Ok(r) if r.status().is_success() => r,
         Ok(r) => {
-            let _ = ws_send(sender, &WsServerMessage::Error { message: format!("Ollama Error: {}", r.status()), code: Some("OLLAMA_ERROR".into()) }).await;
+            tracing::error!("Ollama API error: {}", r.status());
+            let _ = ws_send(sender, &WsServerMessage::Error { message: "AI service error".into(), code: Some("OLLAMA_ERROR".into()) }).await;
             return String::new();
         }
         Err(e) => {
-            let _ = ws_send(sender, &WsServerMessage::Error { message: format!("Ollama Connection Failed: {}", e), code: Some("CONNECTION_ERROR".into()) }).await;
+            tracing::error!("Ollama connection failed: {}", e);
+            let _ = ws_send(sender, &WsServerMessage::Error { message: "AI service error".into(), code: Some("CONNECTION_ERROR".into()) }).await;
             return String::new();
         }
     };
@@ -664,7 +668,8 @@ async fn execute_streaming_ollama(
                         }
                     }
                     Some(Err(e)) => {
-                        let _ = ws_send(sender, &WsServerMessage::Error { message: e.to_string(), code: Some("STREAM_ERROR".into()) }).await;
+                        tracing::error!("Ollama stream error: {}", e);
+                        let _ = ws_send(sender, &WsServerMessage::Error { message: "AI service error".into(), code: Some("STREAM_ERROR".into()) }).await;
                         break;
                     }
                     None => break,
