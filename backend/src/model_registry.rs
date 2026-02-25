@@ -88,12 +88,14 @@ async fn fetch_google_models(
         api_key
     );
 
-    if !url.starts_with("https://") {
+    let parsed_url = reqwest::Url::parse(&url)
+        .map_err(|e| format!("Invalid URL: {}", e))?;
+    if parsed_url.scheme() != "https" {
         return Err("API credentials must only be sent over HTTPS".to_string());
     }
 
     let resp = client
-        .get(&url)
+        .get(parsed_url)
         .send()
         .await
         .map_err(|e| format!("Google models request failed: {}", e))?;

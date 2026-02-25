@@ -647,10 +647,13 @@ async fn execute_streaming_gemini(
     }
 
     let url = format!("https://generativelanguage.googleapis.com/v1beta/models/{}:streamGenerateContent?alt=sse&key={}", ctx.model, ctx.api_key);
-    if !url.starts_with("https://") {
-        let _ = ws_send(sender, &WsServerMessage::Error { message: "API credentials require HTTPS".into(), code: Some("SECURITY".into()) }).await;
-        return String::new();
-    }
+    let parsed_url = match reqwest::Url::parse(&url) {
+        Ok(u) if u.scheme() == "https" => u,
+        _ => {
+            let _ = ws_send(sender, &WsServerMessage::Error { message: "API credentials require HTTPS".into(), code: Some("SECURITY".into()) }).await;
+            return String::new();
+        }
+    };
     let tools = build_tools();
     let mut contents = if let Some(s) = &sid { load_session_history(&state.db, s).await } else { Vec::new() };
     contents.push(json!({ "role": "user", "parts": [{ "text": ctx.final_user_prompt }] }));
@@ -658,7 +661,7 @@ async fn execute_streaming_gemini(
     let mut full_text = String::new();
     for iter in 0..10 {
         let body = json!({ "systemInstruction": { "parts": [{ "text": ctx.system_prompt }] }, "contents": contents, "tools": tools });
-        let resp = match state.client.post(&url).json(&body).send().await {
+        let resp = match state.client.post(parsed_url.clone()).json(&body).send().await {
             Ok(r) if r.status().is_success() => r,
             Ok(r) => {
                 let err_body = r.text().await.unwrap_or_default();
@@ -898,7 +901,7 @@ pub async fn gemini_models(State(state): State<AppState>) -> Json<Value> {
     let key = state.runtime.read().await.api_keys.get("google").cloned().unwrap_or_default();
     if !key.is_empty() {
         let url = format!("https://generativelanguage.googleapis.com/v1beta/models?key={}", key);
-        if url.starts_with("https://") && let Ok(res) = state.client.get(&url).send().await
+        if let Ok(parsed) = reqwest::Url::parse(&url) && parsed.scheme() == "https" && let Ok(res) = state.client.get(parsed).send().await
             && res.status().is_success()
                 && let Ok(body) = res.json::<Value>().await
                     && let Some(list) = body["models"].as_array() {
@@ -1005,10 +1008,13 @@ pub async fn execute(State(state): State<AppState>, Json(body): Json<ExecuteRequ
     if ctx.api_key.is_empty() { return Json(json!({ "error": "No API Key" })); }
 
     let url = format!("https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent?key={}", ctx.model, ctx.api_key);
-    if !url.starts_with("https://") { return Json(json!({ "error": "API credentials require HTTPS" })); }
+    let parsed_url = match reqwest::Url::parse(&url) {
+        Ok(u) if u.scheme() == "https" => u,
+        _ => return Json(json!({ "error": "API credentials require HTTPS" })),
+    };
     let gem_body = json!({ "systemInstruction": { "parts": [{ "text": ctx.system_prompt }] }, "contents": [{ "parts": [{ "text": ctx.final_user_prompt }] }] });
 
-    let res = state.client.post(&url).json(&gem_body).send().await;
+    let res = state.client.post(parsed_url).json(&gem_body).send().await;
     let text = match res {
         Ok(r) if r.status().is_success() => {
             let j: Value = r.json().await.unwrap_or_default();

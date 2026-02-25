@@ -50,6 +50,12 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Lint
+        run: pnpm lint
+
+      - name: Test
+        run: pnpm test
+
       - name: Type check
         run: npx tsc --noEmit
 
@@ -97,7 +103,7 @@ jobs:
         run: cargo build --release
 
       - name: Test
-        run: cargo test
+        run: cargo test --features test-helpers
 
   deploy:
     name: Deploy to Fly.io
