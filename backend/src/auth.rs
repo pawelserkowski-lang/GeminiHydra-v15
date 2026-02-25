@@ -148,7 +148,7 @@ mod tests {
 
     #[test]
     fn bearer_basic_auth_rejected() {
-        assert!(!check_bearer_token(Some("Basic dXNlcjpwYXNz"), "mysecret"));
+        assert!(!check_bearer_token(Some("Basic not-a-bearer-token"), "mysecret"));
     }
 
     #[test]
