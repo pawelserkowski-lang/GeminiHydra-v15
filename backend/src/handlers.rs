@@ -1005,6 +1005,7 @@ pub async fn execute(State(state): State<AppState>, Json(body): Json<ExecuteRequ
     if ctx.api_key.is_empty() { return Json(json!({ "error": "No API Key" })); }
 
     let url = format!("https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent?key={}", ctx.model, ctx.api_key);
+    if !url.starts_with("https://") { return Json(json!({ "error": "API credentials require HTTPS" })); }
     let gem_body = json!({ "systemInstruction": { "parts": [{ "text": ctx.system_prompt }] }, "contents": [{ "parts": [{ "text": ctx.final_user_prompt }] }] });
 
     let res = state.client.post(&url).json(&gem_body).send().await;

@@ -556,6 +556,14 @@ pub async fn update_settings(
     State(state): State<AppState>,
     Json(patch): Json<PartialSettings>,
 ) -> Result<Json<AppSettings>, StatusCode> {
+    // Limit string field sizes to prevent uncontrolled memory allocation
+    if patch.welcome_message.as_ref().is_some_and(|s| s.len() > 10_000)
+        || patch.default_model.as_ref().is_some_and(|s| s.len() > 200)
+        || patch.ollama_url.as_ref().is_some_and(|s| s.len() > 500)
+    {
+        return Err(StatusCode::PAYLOAD_TOO_LARGE);
+    }
+
     let current = sqlx::query_as::<_, SettingsRow>(
         "SELECT temperature, max_tokens, default_model, language, theme, welcome_message, ollama_url, use_docker_sandbox \
          FROM gh_settings WHERE id = 1",
