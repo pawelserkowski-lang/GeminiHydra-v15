@@ -5,9 +5,10 @@
  */
 import { ChevronDown, Globe, Moon, Sun } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/contexts/ThemeContext';
+import { useViewTheme } from '@/shared/hooks/useViewTheme';
 import { cn } from '@/shared/utils/cn';
 
 interface FooterControlsProps {
@@ -21,12 +22,33 @@ const LANGUAGES = [
   { code: 'pl', name: 'Polski', flag: '\u{1F1F5}\u{1F1F1}' },
 ];
 
+const THEME_LABELS: Record<string, string> = {
+  dark: 'TRYB CIEMNY',
+  light: 'TRYB JASNY',
+};
+
+const getThemeLabel = (theme: string): string =>
+  THEME_LABELS[theme] ?? 'TRYB CIEMNY';
+
 export function FooterControls({ collapsed, version, tagline }: FooterControlsProps) {
   const { i18n } = useTranslation();
   const { resolvedTheme, toggleTheme } = useTheme();
-  const isLight = resolvedTheme === 'light';
+  const theme = useViewTheme();
+  const isLight = theme.isLight;
 
   const [showLangDropdown, setShowLangDropdown] = useState(false);
+  const langDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!showLangDropdown) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (langDropdownRef.current && !langDropdownRef.current.contains(e.target as Node)) {
+        setShowLangDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showLangDropdown]);
 
   const currentLang = LANGUAGES.find((l) => l.code === i18n.language) || LANGUAGES[1];
 
@@ -35,13 +57,6 @@ export function FooterControls({ collapsed, version, tagline }: FooterControlsPr
     setShowLangDropdown(false);
   };
 
-  // Theme-aware utility classes (matching GeminiHydra Sidebar style)
-  const textMuted = isLight ? 'text-slate-700' : 'text-white/80';
-  const textDim = isLight ? 'text-slate-600' : 'text-white/50';
-  const textHover = isLight ? 'hover:text-slate-900' : 'hover:text-white';
-  const iconMuted = isLight ? 'text-slate-600' : 'text-white/50';
-  const iconHover = isLight ? 'group-hover:text-emerald-700' : 'group-hover:text-white';
-  const hoverBg = isLight ? 'hover:bg-black/5' : 'hover:bg-white/5';
   const glassPanel = isLight ? 'glass-panel-light' : 'glass-panel-dark';
 
   return (
@@ -51,58 +66,68 @@ export function FooterControls({ collapsed, version, tagline }: FooterControlsPr
         {/* Theme Toggle */}
         <button
           type="button"
-          data-testid="btn-theme-toggle"
+          data-testid="sidebar-theme-toggle"
           onClick={toggleTheme}
           className={cn(
             'flex items-center gap-3 w-full p-2 rounded-lg transition-all group',
             collapsed ? 'justify-center' : 'justify-start',
-            hoverBg,
+            isLight ? 'hover:bg-black/5' : 'hover:bg-white/5',
           )}
           title={collapsed ? `Theme: ${resolvedTheme === 'dark' ? 'Dark' : 'Light'}` : undefined}
         >
           <div className="relative">
             {resolvedTheme === 'dark' ? (
-              <Moon size={18} className="text-slate-400 group-hover:text-white transition-colors" />
+              <Moon size={18} className={cn(theme.iconMuted, 'group-hover:text-white transition-colors')} />
             ) : (
-              <Sun size={18} className="text-amber-600 group-hover:text-amber-500 transition-colors" />
+              <Sun size={18} className="text-amber-500 group-hover:text-amber-400 transition-colors" />
             )}
           </div>
           {!collapsed && (
-            <span className={cn('text-base font-mono tracking-tight truncate', textMuted, textHover)}>
-              {resolvedTheme === 'dark' ? 'TRYB CIEMNY' : 'TRYB JASNY'}
+            <span
+              className={cn(
+                'text-base font-mono',
+                theme.textMuted,
+                isLight ? 'group-hover:text-black' : 'group-hover:text-white',
+                'truncate',
+              )}
+            >
+              {getThemeLabel(resolvedTheme)}
             </span>
           )}
         </button>
 
         {/* Language Selector */}
-        <div className="relative">
+        <div className="relative" ref={langDropdownRef} data-testid="sidebar-lang-selector">
           <button
             type="button"
             onClick={() => setShowLangDropdown(!showLangDropdown)}
             className={cn(
               'flex items-center gap-3 w-full p-2 rounded-lg transition-all group',
               collapsed ? 'justify-center' : 'justify-between',
-              hoverBg,
+              isLight ? 'hover:bg-black/5' : 'hover:bg-white/5',
             )}
             title={collapsed ? `Language: ${currentLang?.name}` : undefined}
           >
             <div className="flex items-center gap-3">
               <div className="relative">
-                <Globe size={18} className={cn(iconMuted, iconHover, 'transition-colors')} />
+                <Globe
+                  size={18}
+                  className={cn(theme.iconMuted, isLight ? 'group-hover:text-emerald-600' : 'group-hover:text-white', 'transition-colors')}
+                />
               </div>
               {!collapsed && (
-                <span className={cn('text-base font-mono truncate', textMuted, textHover)}>
+                <span
+                  className={cn('text-base font-mono', theme.textMuted, isLight ? 'group-hover:text-black' : 'group-hover:text-white', 'truncate')}
+                >
                   <span className="mr-1.5">{currentLang?.flag}</span>
-                  <span className={cn('font-bold', isLight ? 'text-emerald-700' : 'text-white')}>
-                    {currentLang?.code.toUpperCase()}
-                  </span>
+                  <span className={cn('font-bold', theme.textAccent)}>{currentLang?.code.toUpperCase()}</span>
                 </span>
               )}
             </div>
             {!collapsed && (
               <ChevronDown
                 size={14}
-                className={cn(textDim, 'transition-transform duration-200', showLangDropdown ? 'rotate-180' : '')}
+                className={cn(theme.iconMuted, 'transition-transform duration-200', showLangDropdown ? 'rotate-180' : '')}
               />
             )}
           </button>
@@ -118,22 +143,21 @@ export function FooterControls({ collapsed, version, tagline }: FooterControlsPr
                 className={cn(
                   'absolute bottom-full left-0 right-0 mb-1 rounded-xl backdrop-blur-xl border overflow-hidden z-50',
                   isLight
-                    ? 'bg-white/95 border-emerald-600/20 shadow-[0_8px_32px_rgba(0,0,0,0.15)]'
-                    : 'bg-black/90 border-white/20 shadow-[0_8px_32px_rgba(0,0,0,0.6)]',
+                    ? 'bg-white/95 border-emerald-500/20 shadow-lg'
+                    : 'bg-black/90 border-white/20 shadow-[0_0_32px_rgba(0,0,0,0.6)]',
                 )}
               >
                 {LANGUAGES.map((lang) => (
                   <button
-                    type="button"
                     key={lang.code}
+                    type="button"
+                    data-testid={`sidebar-lang-${lang.code}`}
                     onClick={() => selectLanguage(lang.code)}
                     className={cn(
                       'w-full flex items-center gap-3 px-3 py-2.5 text-sm transition-all',
                       i18n.language === lang.code
-                        ? isLight
-                          ? 'bg-emerald-500/15 text-emerald-800'
-                          : 'bg-white/15 text-white'
-                        : cn(textMuted, hoverBg, textHover),
+                        ? isLight ? 'bg-emerald-500/20 text-emerald-600' : 'bg-white/15 text-white'
+                        : cn(theme.textMuted, isLight ? 'hover:bg-black/5 hover:text-black' : 'hover:bg-white/5 hover:text-white'),
                     )}
                   >
                     <span className="text-base">{lang.flag}</span>
@@ -143,8 +167,8 @@ export function FooterControls({ collapsed, version, tagline }: FooterControlsPr
                         className={cn(
                           'ml-auto w-1.5 h-1.5 rounded-full',
                           isLight
-                            ? 'bg-emerald-600 shadow-[0_0_6px_rgba(5,150,105,0.5)]'
-                            : 'bg-white shadow-[0_0_6px_rgba(255,255,255,0.5)]',
+                            ? 'bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.5)]'
+                            : 'bg-white shadow-[0_0_6px_rgba(255,255,255,0.4)]',
                         )}
                       />
                     )}
@@ -158,11 +182,14 @@ export function FooterControls({ collapsed, version, tagline }: FooterControlsPr
 
       {/* Version */}
       {!collapsed && (
-        <div className={cn('text-center text-xs py-2', isLight ? 'text-slate-600' : 'text-white/50')}>
-          <span className={isLight ? 'text-emerald-700' : 'text-white'}>{version.split(' ')[0]}</span>{' '}
+        <p
+          data-testid="sidebar-version"
+          className={cn('text-center text-xs py-2', theme.textMuted)}
+        >
+          <span className={theme.textAccent}>{version.split(' ')[0]}</span>{' '}
           {version.includes(' ') ? version.slice(version.indexOf(' ') + 1) : ''}
           {tagline && <> | {tagline}</>}
-        </div>
+        </p>
       )}
     </>
   );

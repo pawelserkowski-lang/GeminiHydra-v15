@@ -8,6 +8,7 @@
  */
 
 import { forwardRef, type InputHTMLAttributes, type ReactNode, useId } from 'react';
+import { cn } from '@/shared/utils/cn';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -63,7 +64,20 @@ const rightElementPaddingClasses: Record<InputSize, string> = {
 // ---------------------------------------------------------------------------
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(
-  ({ label, icon, rightElement, error, inputSize = 'md', className = '', disabled, id: externalId, ...rest }, ref) => {
+  (
+    {
+      label,
+      icon,
+      rightElement,
+      error,
+      inputSize = 'md',
+      className = '',
+      disabled,
+      id: externalId,
+      ...rest
+    },
+    ref,
+  ) => {
     const autoId = useId();
     const inputId = externalId ?? autoId;
     const errorId = error ? `${inputId}-error` : undefined;
@@ -71,7 +85,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
     const hasError = Boolean(error);
 
     return (
-      <div className={`flex flex-col gap-1.5 ${className}`}>
+      <div className={cn('flex flex-col gap-1.5', className)}>
         {/* Label */}
         {label && (
           <label htmlFor={inputId} className="text-xs font-medium text-[var(--matrix-text-secondary)]">
@@ -84,7 +98,10 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
           {/* Left icon */}
           {icon && (
             <span
-              className={`absolute top-1/2 -translate-y-1/2 text-[var(--matrix-text-secondary)] pointer-events-none ${iconSizeClasses[inputSize]}`}
+              className={cn(
+                'absolute top-1/2 -translate-y-1/2 text-[var(--matrix-text-secondary)] pointer-events-none',
+                iconSizeClasses[inputSize],
+              )}
               aria-hidden="true"
             >
               {icon}
@@ -98,17 +115,17 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
             disabled={disabled}
             aria-invalid={hasError || undefined}
             aria-describedby={errorId}
-            className={[
+            className={cn(
               'glass-input w-full rounded-lg font-mono',
               'text-[var(--matrix-text-primary)] placeholder:text-[var(--matrix-text-secondary)]/60',
               'outline-none transition-all duration-200',
               'focus:border-[var(--matrix-accent)] focus:ring-2 focus:ring-[var(--matrix-accent)]/30',
               'disabled:opacity-50 disabled:cursor-not-allowed',
-              hasError ? 'border-red-500 focus:border-red-500 focus:ring-red-500/30' : '',
+              hasError && 'border-red-500 focus:border-red-500 focus:ring-red-500/30',
               sizeClasses[inputSize],
-              icon ? iconPaddingClasses[inputSize] : '',
-              rightElement ? rightElementPaddingClasses[inputSize] : '',
-            ].join(' ')}
+              icon && iconPaddingClasses[inputSize],
+              rightElement && rightElementPaddingClasses[inputSize],
+            )}
             {...rest}
           />
 

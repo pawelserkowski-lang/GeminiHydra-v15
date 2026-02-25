@@ -4,12 +4,9 @@
  * ====================================
  * Composes: LayeredBackground + RuneRain + Sidebar + TabBar + Content + StatusFooter.
  * Wrapped in ThemeProvider.
- * Ported pixel-perfect from GeminiHydra legacy App.tsx layout.
- *
- * Uses `motion` package (NOT framer-motion).
+ * View transition animations are handled by ViewRouter in main.tsx.
  */
 
-import { AnimatePresence, motion } from 'motion/react';
 import { type ReactNode, useCallback, useEffect, useMemo } from 'react';
 import { LayeredBackground, RuneRain } from '@/components/atoms';
 import { Sidebar } from '@/components/organisms/Sidebar';
@@ -132,20 +129,9 @@ function AppShellInner({ children, statusFooterProps }: AppShellProps) {
           {/* Chat Tab Bar — only visible in chat view */}
           {currentView === 'chat' && <TabBar />}
 
-          {/* View Content with animated transitions */}
+          {/* View Content — animations handled by ViewRouter */}
           <div className="flex-1 min-h-0 overflow-hidden">
-            <AnimatePresence mode="wait">
-              <motion.div
-                key={currentView}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -10 }}
-                transition={{ duration: 0.2 }}
-                className="h-full"
-              >
-                {children}
-              </motion.div>
-            </AnimatePresence>
+            {children}
           </div>
 
           {/* Status Footer */}

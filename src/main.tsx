@@ -7,6 +7,7 @@
  */
 
 import { QueryClientProvider } from '@tanstack/react-query';
+import { AnimatePresence, motion } from 'motion/react';
 import { lazy, StrictMode, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Toaster } from 'sonner';
@@ -179,22 +180,43 @@ function ChatViewWrapper() {
 function ViewRouter() {
   const currentView = useViewStore((s) => s.currentView);
 
-  switch (currentView) {
-    case 'home':
-      return <LazyWelcomeScreen />;
-    case 'chat':
-      return <ChatViewWrapper />;
-    case 'agents':
-      return <LazyAgentsView />;
-    case 'history':
-      return <LazyHistoryView />;
-    case 'settings':
-      return <LazySettingsView />;
-    case 'status':
-      return <LazyStatusView />;
-    case 'brain':
-      return <LazyKnowledgeGraphView />;
+  function renderView() {
+    switch (currentView) {
+      case 'home':
+        return <LazyWelcomeScreen />;
+      case 'chat':
+        return <ChatViewWrapper />;
+      case 'agents':
+        return <LazyAgentsView />;
+      case 'history':
+        return <LazyHistoryView />;
+      case 'settings':
+        return <LazySettingsView />;
+      case 'status':
+        return <LazyStatusView />;
+      case 'brain':
+        return <LazyKnowledgeGraphView />;
+    }
   }
+
+  return (
+    <div className="h-full overflow-hidden relative">
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={currentView}
+          initial={{ opacity: 0, y: 6 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -6 }}
+          transition={{ duration: 0.2, ease: 'easeInOut' }}
+          className="h-full w-full"
+        >
+          <ErrorBoundary>
+            <Suspense fallback={<ViewSkeleton />}>{renderView()}</Suspense>
+          </ErrorBoundary>
+        </motion.div>
+      </AnimatePresence>
+    </div>
+  );
 }
 
 // ============================================================================
@@ -206,9 +228,7 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <ErrorBoundary>
         <AppShell>
-          <Suspense fallback={<ViewSkeleton />}>
-            <ViewRouter />
-          </Suspense>
+          <ViewRouter />
         </AppShell>
       </ErrorBoundary>
       <Toaster position="bottom-right" theme="dark" richColors />

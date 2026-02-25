@@ -1,21 +1,58 @@
+// src/contexts/ThemeContext.tsx
 /**
  * GeminiHydra v15 Theme Context
- * =========================
+ * =============================
  * Provides theme switching (dark/light/system) across the app.
- * Ported pixel-perfect from GeminiHydra legacy (Tissaia Design System).
+ * Persists selection to localStorage.
+ * Updates document data-theme attribute and meta theme-color tag.
  */
-import { createContext, type ReactNode, useContext, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import {
+  createContext,
+  type ReactNode,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+} from 'react';
+
+// ============================================
+// TYPES
+// ============================================
 
 export type Theme = 'dark' | 'light' | 'system';
+export type ResolvedTheme = 'dark' | 'light';
+
+// ============================================
+// CONTEXT TYPE
+// ============================================
 
 interface ThemeContextType {
+  /** Current theme mode (dark | light | system) */
   theme: Theme;
+  /** Update theme mode and persist to localStorage */
   setTheme: (theme: Theme) => void;
+  /** Toggle between dark and light (ignores system) */
   toggleTheme: () => void;
-  resolvedTheme: 'dark' | 'light';
+  /** Resolved theme after evaluating system preference */
+  resolvedTheme: ResolvedTheme;
 }
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
+
+// ============================================
+// CONSTANTS
+// ============================================
+
+const META_THEME_COLORS: Record<ResolvedTheme, string> = {
+  dark: '#0a0f0d',
+  light: '#ffffff',
+};
+
+// ============================================
+// PROVIDER
+// ============================================
 
 interface ThemeProviderProps {
   children: ReactNode;
@@ -23,16 +60,13 @@ interface ThemeProviderProps {
   storageKey?: string;
 }
 
-export function ThemeProvider({
-  children,
-  defaultTheme = 'dark',
-  storageKey = 'geminihydra-theme',
-}: ThemeProviderProps) {
+export function ThemeProvider({ children, defaultTheme = 'dark', storageKey = 'geminihydra-theme' }: ThemeProviderProps) {
   const [theme, setThemeState] = useState<Theme>(() => {
     if (typeof window === 'undefined') return defaultTheme;
     return (localStorage.getItem(storageKey) as Theme) || defaultTheme;
   });
 
+  // Use useSyncExternalStore for system preference to avoid setState in effect
   const systemPrefersDark = useSyncExternalStore(
     (callback) => {
       const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
@@ -40,51 +74,69 @@ export function ThemeProvider({
       return () => mediaQuery.removeEventListener('change', callback);
     },
     () => window.matchMedia('(prefers-color-scheme: dark)').matches,
-    () => true,
+    () => true, // Server snapshot defaults to dark
   );
 
-  const resolvedTheme = useMemo<'dark' | 'light'>(() => {
+  // Compute resolved theme without extra state
+  const resolvedTheme = useMemo<ResolvedTheme>(() => {
     if (theme === 'system') {
       return systemPrefersDark ? 'dark' : 'light';
     }
-    return theme as 'dark' | 'light';
+    return theme;
   }, [theme, systemPrefersDark]);
 
+  // Apply theme to document (side effect only, no setState)
   useEffect(() => {
     const root = window.document.documentElement;
 
+    // Update data-theme attribute
+    root.setAttribute('data-theme', resolvedTheme);
+
+    // Also maintain class for compatibility with Tailwind dark: prefix
     root.classList.remove('light', 'dark');
     root.classList.add(resolvedTheme);
 
-    // Also set data-theme for backward compatibility
-    root.setAttribute('data-theme', resolvedTheme);
-
-    const metaThemeColor = document.querySelector('meta[name="theme-color"]');
-    if (metaThemeColor) {
-      metaThemeColor.setAttribute('content', resolvedTheme === 'dark' ? '#0a0f0d' : '#ffffff');
+    // Update meta theme-color
+    let metaThemeColor = document.querySelector('meta[name="theme-color"]');
+    if (!metaThemeColor) {
+      metaThemeColor = document.createElement('meta');
+      metaThemeColor.setAttribute('name', 'theme-color');
+      document.head.appendChild(metaThemeColor);
     }
+    metaThemeColor.setAttribute('content', META_THEME_COLORS[resolvedTheme]);
   }, [resolvedTheme]);
 
-  const setTheme = (newTheme: Theme) => {
-    localStorage.setItem(storageKey, newTheme);
-    setThemeState(newTheme);
-  };
-
-  const toggleTheme = () => {
-    const newTheme = theme === 'dark' ? 'light' : 'dark';
-    localStorage.setItem(storageKey, newTheme);
-    setThemeState(newTheme);
-  };
-
-  return (
-    <ThemeContext.Provider value={{ theme, setTheme, toggleTheme, resolvedTheme }}>{children}</ThemeContext.Provider>
+  const setTheme = useCallback(
+    (newTheme: Theme) => {
+      localStorage.setItem(storageKey, newTheme);
+      setThemeState(newTheme);
+    },
+    [storageKey],
   );
+
+  const toggleTheme = useCallback(() => {
+    const next: Theme = resolvedTheme === 'dark' ? 'light' : 'dark';
+    setTheme(next);
+  }, [resolvedTheme, setTheme]);
+
+  const value = useMemo<ThemeContextType>(
+    () => ({ theme, setTheme, toggleTheme, resolvedTheme }),
+    [theme, setTheme, toggleTheme, resolvedTheme],
+  );
+
+  return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }
 
-export function useTheme() {
+// ============================================
+// HOOK
+// ============================================
+
+export function useTheme(): ThemeContextType {
   const context = useContext(ThemeContext);
+
   if (context === undefined) {
     throw new Error('useTheme must be used within a ThemeProvider');
   }
+
   return context;
 }
