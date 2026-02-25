@@ -16,13 +16,7 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react';
-
-// ============================================
-// TYPES
-// ============================================
-
-export type Theme = 'dark' | 'light' | 'system';
-export type ResolvedTheme = 'dark' | 'light';
+import type { ResolvedTheme, Theme } from '@/shared/types';
 
 // ============================================
 // CONTEXT TYPE

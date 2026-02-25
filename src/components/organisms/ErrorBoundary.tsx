@@ -1,9 +1,13 @@
+/** Jaskier Design System */
 // src/components/organisms/ErrorBoundary.tsx
 /**
- * GeminiHydra v15 - Error Boundary
- * ==================================
- * React Error Boundary with retry functionality.
- * Styled with the Card atom for consistent glass-panel appearance.
+ * Error Boundary — Unified across all Jaskier projects
+ * =====================================================
+ * React class-based error boundary with:
+ *  - Dynamic import error detection + auto-reload (critical for lazy-loaded chunks)
+ *  - Optional `fallback` prop for custom error UI
+ *  - Default error card with AlertTriangle icon, error details, and retry button
+ *  - Card atom + lucide-react icons for consistent styling
  */
 
 import { AlertTriangle, RotateCcw } from 'lucide-react';
@@ -25,6 +29,21 @@ interface ErrorBoundaryState {
 }
 
 // ============================================================================
+// HELPERS
+// ============================================================================
+
+/** Detect errors caused by stale chunk references after a new deployment. */
+function isDynamicImportError(error: Error | null): boolean {
+  if (!error) return false;
+  const msg = error.message;
+  return (
+    msg.includes('Failed to fetch dynamically imported module') ||
+    msg.includes('Importing a module script failed') ||
+    msg.includes('Loading chunk')
+  );
+}
+
+// ============================================================================
 // COMPONENT
 // ============================================================================
 
@@ -39,10 +58,19 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo): void {
-    console.error('[ErrorBoundary] Caught error:', error, errorInfo);
+    console.error('[ErrorBoundary] Caught error:', error, errorInfo.componentStack);
+
+    // Stale chunk after deploy — reload the page automatically
+    if (isDynamicImportError(error)) {
+      window.location.reload();
+    }
   }
 
   handleRetry = (): void => {
+    if (isDynamicImportError(this.state.error)) {
+      window.location.reload();
+      return;
+    }
     this.setState({ hasError: false, error: null });
   };
 
@@ -61,7 +89,9 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
               </div>
 
               <div>
-                <h2 className="text-lg font-bold font-mono text-[var(--matrix-text-primary)]">Something went wrong</h2>
+                <h2 className="text-lg font-bold font-mono text-[var(--matrix-text-primary)]">
+                  Something went wrong
+                </h2>
                 <p className="text-sm text-[var(--matrix-text-dim)] mt-1">
                   An unexpected error occurred. You can try again or refresh the page.
                 </p>
@@ -85,3 +115,5 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     return this.props.children;
   }
 }
+
+export default ErrorBoundary;

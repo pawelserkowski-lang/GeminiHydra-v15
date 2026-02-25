@@ -10,10 +10,10 @@ export { Card } from './Card';
 
 export { Input } from './Input';
 
-export { LayeredBackground } from './LayeredBackground';
-
 export { ProgressBar } from './ProgressBar';
 
 export { Skeleton } from './Skeleton';
 
 export { RuneRain } from './RuneRain';
+
+export { ThemedBackground } from './ThemedBackground';

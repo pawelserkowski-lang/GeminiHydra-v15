@@ -1,6 +1,6 @@
 // Jaskier Shared Pattern — Anthropic OAuth PKCE
-// Identical logic in ClaudeHydra & GeminiHydra (only DB table name differs:
-// ch_oauth_tokens vs gh_oauth_tokens). Keep in sync when editing.
+// Identical logic in ClaudeHydra & GeminiHydra. Only OAUTH_TABLE differs.
+// Keep in sync when editing.
 
 use axum::extract::State;
 use axum::http::StatusCode;
@@ -12,6 +12,9 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
 use crate::state::AppState;
+
+// ── Project-specific DB table ───────────────────────────────────────────
+const OAUTH_TABLE: &str = "gh_oauth_tokens";
 
 // ── OAuth constants (from anthropic-max-router) ────────────────────────
 
@@ -169,12 +172,12 @@ pub async fn auth_callback(
     let expires_at = now + token_resp.expires_in;
 
     // Upsert tokens in DB
-    sqlx::query(
-        "INSERT INTO gh_oauth_tokens (id, access_token, refresh_token, expires_at, scope, updated_at) \
+    sqlx::query(&format!(
+        "INSERT INTO {OAUTH_TABLE} (id, access_token, refresh_token, expires_at, scope, updated_at) \
          VALUES (1, $1, $2, $3, $4, NOW()) \
          ON CONFLICT (id) DO UPDATE SET \
          access_token = $1, refresh_token = $2, expires_at = $3, scope = $4, updated_at = NOW()",
-    )
+    ))
     .bind(&token_resp.access_token)
     .bind(token_resp.refresh_token.as_deref().unwrap_or(""))
     .bind(expires_at)
@@ -204,7 +207,7 @@ pub async fn auth_callback(
 
 /// POST /api/auth/logout — delete stored OAuth tokens
 pub async fn auth_logout(State(state): State<AppState>) -> Json<Value> {
-    sqlx::query("DELETE FROM gh_oauth_tokens WHERE id = 1")
+    sqlx::query(&format!("DELETE FROM {OAUTH_TABLE} WHERE id = 1"))
         .execute(&state.db)
         .await
         .ok();
@@ -253,10 +256,10 @@ pub async fn get_valid_access_token(state: &AppState) -> Option<String> {
     let expires_at = now + token_resp.expires_in;
     let refresh = token_resp.refresh_token.unwrap_or(row.refresh_token);
 
-    sqlx::query(
-        "UPDATE gh_oauth_tokens SET access_token = $1, refresh_token = $2, \
+    sqlx::query(&format!(
+        "UPDATE {OAUTH_TABLE} SET access_token = $1, refresh_token = $2, \
          expires_at = $3, updated_at = NOW() WHERE id = 1",
-    )
+    ))
     .bind(&token_resp.access_token)
     .bind(&refresh)
     .bind(expires_at)
@@ -310,9 +313,9 @@ pub fn ensure_system_prompt(body: &mut Value) {
 // ── Helpers ────────────────────────────────────────────────────────────
 
 async fn get_token_row(state: &AppState) -> Option<OAuthTokenRow> {
-    sqlx::query_as::<_, OAuthTokenRow>(
-        "SELECT access_token, refresh_token, expires_at, scope FROM gh_oauth_tokens WHERE id = 1",
-    )
+    sqlx::query_as::<_, OAuthTokenRow>(&format!(
+        "SELECT access_token, refresh_token, expires_at, scope FROM {OAUTH_TABLE} WHERE id = 1",
+    ))
     .fetch_optional(&state.db)
     .await
     .ok()?

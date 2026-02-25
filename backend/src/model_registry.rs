@@ -14,6 +14,8 @@ use serde_json::{json, Value};
 
 use crate::state::AppState;
 
+// --- Jaskier Shared Core Types ---
+
 // ── Cache TTL ────────────────────────────────────────────────────────────────
 
 const CACHE_TTL: Duration = Duration::from_secs(3600); // 1 hour
@@ -27,6 +29,8 @@ pub struct ModelInfo {
     pub display_name: Option<String>,
     pub capabilities: Vec<String>,
 }
+
+// --- Project-Specific Types ---
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ResolvedModels {
@@ -411,6 +415,8 @@ pub async fn startup_sync(state: &AppState) {
         resolved.image.as_ref().map(|m| m.id.as_str()).unwrap_or("(none)"),
     );
 }
+
+// --- Shared Handlers ---
 
 /// GET /api/models — Return all cached models + resolved selections + pins
 pub async fn list_models(State(state): State<AppState>) -> Json<Value> {

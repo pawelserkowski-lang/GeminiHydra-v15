@@ -1,21 +1,21 @@
+/** Jaskier Design System */
 import { memo } from 'react';
 
 /**
- * LayeredBackground Component
- * 4-layer composited background with smooth crossfade between themes.
+ * ThemedBackground — shared 4-layer composited background with smooth crossfade.
  *
  * Layer 1a: Dark background image (/background.webp) — always mounted
  * Layer 1b: Light background image (/backgroundlight.webp) — always mounted
  *           Both layers use CSS opacity transition for smooth crossfade.
  * Layer 2:  Gradient overlay (theme-aware, crossfades)
- * Layer 3:  Radial vignette (theme-aware, crossfades)
+ * Layer 3:  Radial glow (theme-aware, crossfades)
  */
 
-interface LayeredBackgroundProps {
+interface ThemedBackgroundProps {
   resolvedTheme: 'dark' | 'light';
 }
 
-export const LayeredBackground = memo(({ resolvedTheme }: LayeredBackgroundProps) => {
+export const ThemedBackground = memo(({ resolvedTheme }: ThemedBackgroundProps) => {
   const isLight = resolvedTheme === 'light';
 
   return (
@@ -63,4 +63,4 @@ export const LayeredBackground = memo(({ resolvedTheme }: LayeredBackgroundProps
   );
 });
 
-LayeredBackground.displayName = 'LayeredBackground';
+ThemedBackground.displayName = 'ThemedBackground';

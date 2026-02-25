@@ -1,4 +1,5 @@
 // src/components/organisms/StatusFooter.tsx
+/** Jaskier Design System */
 /**
  * StatusFooter - Compact status bar
  * ==================================

@@ -1,3 +1,4 @@
+/** Jaskier Shared Pattern */
 // src/shared/api/client.ts
 /**
  * GeminiHydra v15 - Typed API Client
@@ -7,16 +8,16 @@
  * and automatic retry with exponential backoff for network failures.
  */
 
-const BASE_URL = import.meta.env.VITE_BACKEND_URL || (import.meta.env.PROD ? 'https://geminihydra-v15-backend.fly.dev' : '');
+const BASE_URL = import.meta.env.VITE_BACKEND_URL ?? (import.meta.env.PROD ? 'https://geminihydra-v15-backend.fly.dev' : '');
 
 const MAX_RETRIES = 3;
 const RETRY_BASE_MS = 1000;
 
-// ============================================================================
-// ERROR CLASS
-// ============================================================================
+// -------------------------------------------------------------------
+// Error class
+// -------------------------------------------------------------------
 
-class ApiError extends Error {
+export class ApiError extends Error {
   readonly status: number;
   readonly statusText: string;
   readonly body: unknown;
@@ -30,9 +31,9 @@ class ApiError extends Error {
   }
 }
 
-// ============================================================================
-// RETRY WRAPPER
-// ============================================================================
+// -------------------------------------------------------------------
+// Retry wrapper
+// -------------------------------------------------------------------
 
 /** Retry on network errors (TypeError = "Failed to fetch") with exponential backoff. */
 async function fetchWithRetry(
@@ -42,8 +43,11 @@ async function fetchWithRetry(
 ): Promise<Response> {
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
-      return await fetch(url, init);
+      const response = await fetch(url, init);
+      // Don't retry on HTTP errors (4xx/5xx) — only network failures
+      return response;
     } catch (err) {
+      // TypeError = network failure ("Failed to fetch")
       if (attempt < retries && err instanceof TypeError) {
         const delay = RETRY_BASE_MS * 2 ** attempt;
         console.warn(
@@ -55,12 +59,13 @@ async function fetchWithRetry(
       throw err;
     }
   }
+  // Should never reach here, but TypeScript needs it
   throw new TypeError('Failed to fetch after retries');
 }
 
-// ============================================================================
-// INTERNAL FETCH HELPER
-// ============================================================================
+// -------------------------------------------------------------------
+// Internal fetch helper
+// -------------------------------------------------------------------
 
 async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
   const url = `${BASE_URL}${path}`;
@@ -91,9 +96,9 @@ async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> 
   return response.json() as Promise<T>;
 }
 
-// ============================================================================
-// PUBLIC API METHODS
-// ============================================================================
+// -------------------------------------------------------------------
+// Public API
+// -------------------------------------------------------------------
 
 export async function apiGet<T>(path: string): Promise<T> {
   return apiFetch<T>(path, { method: 'GET' });
@@ -117,9 +122,9 @@ export async function apiDelete<T>(path: string): Promise<T> {
   return apiFetch<T>(path, { method: 'DELETE' });
 }
 
-// ============================================================================
-// HEALTH CHECK
-// ============================================================================
+// -------------------------------------------------------------------
+// Health check
+// -------------------------------------------------------------------
 
 export interface HealthStatus {
   ready: boolean;
@@ -142,10 +147,13 @@ export async function checkHealth(): Promise<HealthStatus> {
     if (response.ok) {
       return (await response.json()) as HealthStatus;
     }
+
+    // 503 = starting up
     if (response.status === 503) {
       const body = (await response.json()) as HealthStatus;
       return { ready: false, uptime_seconds: body.uptime_seconds };
     }
+
     return { ready: false };
   } catch {
     return { ready: false };

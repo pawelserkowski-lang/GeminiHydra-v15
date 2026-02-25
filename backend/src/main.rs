@@ -24,6 +24,9 @@ async fn build_app() -> (axum::Router, AppState) {
 
     let state = AppState::new(pool).await;
 
+    // ── Spawn system monitor (CPU/memory stats, refreshed every 5s) ──
+    geminihydra_backend::system_monitor::spawn(state.system_monitor.clone());
+
     // CORS — allow all origins for simplicity in Vercel/Fly deployment
     let cors = CorsLayer::new()
         .allow_origin(AllowOrigin::any())

@@ -2,13 +2,13 @@
 /**
  * AppShell - Main layout composition
  * ====================================
- * Composes: LayeredBackground + RuneRain + Sidebar + TabBar + Content + StatusFooter.
+ * Composes: ThemedBackground + RuneRain + Sidebar + TabBar + Content + StatusFooter.
  * Wrapped in ThemeProvider.
  * View transition animations are handled by ViewRouter in main.tsx.
  */
 
 import { type ReactNode, useCallback, useEffect, useMemo } from 'react';
-import { LayeredBackground, RuneRain } from '@/components/atoms';
+import { RuneRain, ThemedBackground } from '@/components/atoms';
 import { Sidebar } from '@/components/organisms/Sidebar';
 import type { ConnectionHealth, StatusFooterProps } from '@/components/organisms/StatusFooter';
 import { StatusFooter } from '@/components/organisms/StatusFooter';
@@ -106,7 +106,7 @@ function AppShellInner({ children, statusFooterProps }: AppShellProps) {
       className={`relative flex h-screen w-full ${isLight ? 'text-black selection:bg-emerald-500 selection:text-white' : 'text-white selection:bg-white/30 selection:text-white'} overflow-hidden font-mono transition-colors duration-500`}
     >
       {/* Background layers */}
-      <LayeredBackground resolvedTheme={resolvedTheme} />
+      <ThemedBackground resolvedTheme={resolvedTheme} />
 
       {/* RuneRain overlay */}
       <RuneRain opacity={0.12} />

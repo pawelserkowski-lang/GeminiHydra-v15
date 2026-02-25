@@ -3,8 +3,8 @@ import { checkHealth } from '@/shared/api/client';
 
 export type BackendStatus = 'connected' | 'starting' | 'disconnected';
 
-const POLL_INTERVAL_MS = 15_000;
-const FAST_POLL_MS = 5_000;
+const POLL_INTERVAL_MS = 15_000; // 15s when healthy
+const FAST_POLL_MS = 5_000; // 5s when unhealthy
 
 export function useBackendHealth() {
   const [status, setStatus] = useState<BackendStatus>('disconnected');
@@ -23,6 +23,7 @@ export function useBackendHealth() {
         setStatus('connected');
         setUptime(health.uptime_seconds);
       } else if (health.uptime_seconds !== undefined) {
+        // Got a response but not ready yet — starting up
         setStatus('starting');
         setUptime(health.uptime_seconds);
       } else {

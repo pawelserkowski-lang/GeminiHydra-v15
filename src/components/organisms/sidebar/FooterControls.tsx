@@ -1,4 +1,5 @@
 // src/components/organisms/sidebar/FooterControls.tsx
+/** Jaskier Design System */
 /**
  * Shared FooterControls — theme toggle, language selector, and version display.
  * Extracted from Sidebar for reuse across the Jaskier app family.
