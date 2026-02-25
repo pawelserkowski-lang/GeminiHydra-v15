@@ -6,7 +6,7 @@ import type {
   MessageRole as SharedMessageRole,
 } from '@/shared/types/store';
 
-export type View = 'home' | 'chat' | 'agents' | 'history' | 'settings' | 'status' | 'brain';
+export type View = 'home' | 'chat' | 'agents' | 'brain';
 
 /**
  * GeminiHydra session — extends shared ChatSession.

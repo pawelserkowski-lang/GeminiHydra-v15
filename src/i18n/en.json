@@ -3,16 +3,12 @@
     "home": "Home",
     "chat": "Chat",
     "agents": "Agents",
-    "brain": "Brain",
-    "history": "History",
-    "settings": "Settings",
-    "status": "Status"
+    "brain": "Brain"
   },
   "sidebar": {
     "groups": {
       "main": "MAIN",
-      "tools": "TOOLS",
-      "system": "SYSTEM"
+      "tools": "TOOLS"
     },
     "chats": "CHATS",
     "newChat": "New chat",
@@ -70,7 +66,6 @@
     "subtitle": "AI Swarm Control Center — start a new chat or continue a previous conversation.",
     "newChat": "New Chat",
     "agents": "Agents",
-    "settings": "Settings",
     "recentChats": "Recent Chats",
     "noChats": "No chats yet. Start a new conversation!",
     "msg": "msg",
@@ -87,63 +82,5 @@
     "hoursAgo": "{{h}}h ago",
     "yesterday": "yesterday",
     "daysAgo": "{{d}}d ago"
-  },
-  "settings": {
-    "title": "Settings",
-    "subtitle": "Configure your GeminiHydra experience",
-    "save": "Save Changes",
-    "reset": "Reset to Defaults",
-    "reset_confirm": "Are you sure you want to reset all settings to their default values? This action cannot be undone.",
-    "save_success": "Settings saved successfully",
-    "reset_success": "Settings reset to defaults",
-    "sections": {
-      "model": "Model Configuration",
-      "ui": "User Interface",
-      "advanced": "Advanced"
-    },
-    "fields": {
-      "temperature": "Temperature",
-      "temperature_desc": "Controls randomness in responses. Lower values are more focused, higher values more creative.",
-      "max_tokens": "Max Tokens",
-      "max_tokens_desc": "Maximum number of tokens in the response.",
-      "default_model": "Default Model",
-      "default_model_desc": "The AI model used for generating responses.",
-      "language": "Language",
-      "language_desc": "Interface display language.",
-      "theme": "Theme",
-      "theme_desc": "Application color scheme.",
-      "welcome_message": "Welcome Message",
-      "welcome_message_desc": "Custom message displayed on the home screen."
-    },
-    "temperature_labels": {
-      "focused": "Focused",
-      "balanced": "Balanced",
-      "creative": "Creative",
-      "experimental": "Experimental"
-    }
-  },
-  "status": {
-    "title": "System Status",
-    "subtitle": "Real-time system health and performance metrics",
-    "uptime": "Uptime",
-    "backend": "Backend",
-    "connection": "Connection",
-    "mode": "Mode",
-    "websocket": "WebSocket",
-    "http": "HTTP",
-    "version": "Version",
-    "stats": {
-      "cpu": "CPU Usage",
-      "memory": "Memory",
-      "active_agents": "Active Agents",
-      "total_requests": "Total Requests",
-      "platform": "Platform",
-      "uptime": "Uptime"
-    },
-    "health": {
-      "healthy": "Healthy",
-      "degraded": "Degraded",
-      "offline": "Offline"
-    }
   }
 }
