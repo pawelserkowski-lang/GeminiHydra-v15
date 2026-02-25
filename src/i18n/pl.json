@@ -1,36 +1,33 @@
 {
   "nav": {
     "home": "Start",
-    "chat": "Czat",
-    "agents": "Agenci",
-    "brain": "Mozg"
+    "chat": "Czat"
   },
   "sidebar": {
     "groups": {
-      "main": "GLOWNE",
-      "tools": "NARZEDZIA"
+      "main": "GŁÓWNE"
     },
     "chats": "CZATY",
     "newChat": "Nowy czat",
-    "deleteChat": "Usun czat",
+    "deleteChat": "Usuń czat",
     "message": "wiad.",
     "messages": "wiad.",
-    "expandSidebar": "Rozwin pasek boczny",
-    "collapseSidebar": "Zwin pasek boczny"
+    "expandSidebar": "Rozwiń pasek boczny",
+    "collapseSidebar": "Zwiń pasek boczny"
   },
   "footer": {
-    "tagline": "Wilczy Roj"
+    "tagline": "Wilczy Rój"
   },
   "common": {
     "save": "Zapisz",
     "cancel": "Anuluj",
-    "delete": "Usun",
-    "confirm": "Potwierdz",
-    "retry": "Ponow",
-    "loading": "Ladowanie...",
-    "error": "Blad",
-    "send": "Wyslij",
-    "clear": "Wyczysc",
+    "delete": "Usuń",
+    "confirm": "Potwierdź",
+    "retry": "Ponów",
+    "loading": "Ładowanie...",
+    "error": "Błąd",
+    "send": "Wyślij",
+    "clear": "Wyczyść",
     "search": "Szukaj",
     "close": "Zamknij",
     "back": "Wstecz",
@@ -42,42 +39,36 @@
     "welcome_subtitle": "Centrum Sterowania Rojem AI",
     "new_chat": "Nowy Czat",
     "no_sessions": "Brak sesji",
-    "start_conversation": "Rozpocznij nowa rozmowe",
+    "start_conversation": "Rozpocznij nową rozmowę",
     "recent_chats": "Ostatnie Czaty",
     "session_history": "Historia Sesji",
-    "hydra_agents": "Agenci Hydra",
     "system_status": "Status Systemu",
     "settings_title": "Ustawienia",
-    "coming_soon": "Wkrotce",
-    "type_message": "Wpisz wiadomosc...",
+    "coming_soon": "Wkrótce",
+    "type_message": "Wpisz wiadomość...",
     "generating": "Generowanie...",
-    "empty_chat": "Wpisz wiadomosc, aby rozpoczac rozmowe...",
-    "delete_session": "Usun Sesje",
-    "delete_confirm": "Czy na pewno chcesz usunac te sesje? Tej operacji nie mozna cofnac.",
+    "empty_chat": "Wpisz wiadomość, aby rozpocząć rozmowę...",
+    "delete_session": "Usuń Sesję",
+    "delete_confirm": "Czy na pewno chcesz usunąć tę sesję? Tej operacji nie można cofnąć.",
     "sort_newest": "Najnowsze",
     "sort_oldest": "Najstarsze",
-    "search_sessions": "Szukaj sesji...",
-    "all_agents": "Wszyscy Agenci",
-    "commander": "Dowodca",
-    "coordinators": "Koordynatorzy",
-    "executors": "Wykonawcy"
+    "search_sessions": "Szukaj sesji..."
   },
   "home": {
-    "subtitle": "Centrum Sterowania Rojem AI — rozpocznij nowy czat lub kontynuuj rozmowe.",
+    "subtitle": "Centrum Sterowania Rojem AI — rozpocznij nowy czat lub kontynuuj rozmowę.",
     "newChat": "Nowy Czat",
-    "agents": "Agenci",
     "recentChats": "Ostatnie Czaty",
-    "noChats": "Brak czatow. Rozpocznij nowa rozmowe!",
+    "noChats": "Brak czatów. Rozpocznij nową rozmowę!",
     "msg": "wiad.",
     "badges": {
-      "agents": "12 Agentow",
+      "agents": "12 Agentów",
       "pipeline": "5-fazowy Pipeline",
-      "multiProvider": "Wielu Dostawcow",
+      "multiProvider": "Wielu Dostawców",
       "swarmArch": "Architektura Roju"
     }
   },
   "time": {
-    "justNow": "przed chwila",
+    "justNow": "przed chwilą",
     "minutesAgo": "{{m}} min temu",
     "hoursAgo": "{{h}} godz. temu",
     "yesterday": "wczoraj",

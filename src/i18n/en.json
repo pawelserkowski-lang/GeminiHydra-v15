@@ -1,14 +1,11 @@
 {
   "nav": {
     "home": "Home",
-    "chat": "Chat",
-    "agents": "Agents",
-    "brain": "Brain"
+    "chat": "Chat"
   },
   "sidebar": {
     "groups": {
-      "main": "MAIN",
-      "tools": "TOOLS"
+      "main": "MAIN"
     },
     "chats": "CHATS",
     "newChat": "New chat",
@@ -45,7 +42,6 @@
     "start_conversation": "Start a new conversation",
     "recent_chats": "Recent Chats",
     "session_history": "Session History",
-    "hydra_agents": "Hydra Agents",
     "system_status": "System Status",
     "settings_title": "Settings",
     "coming_soon": "Coming Soon",
@@ -56,16 +52,11 @@
     "delete_confirm": "Are you sure you want to delete this session? This action cannot be undone.",
     "sort_newest": "Newest first",
     "sort_oldest": "Oldest first",
-    "search_sessions": "Search sessions...",
-    "all_agents": "All Agents",
-    "commander": "Commander",
-    "coordinators": "Coordinators",
-    "executors": "Executors"
+    "search_sessions": "Search sessions..."
   },
   "home": {
     "subtitle": "AI Swarm Control Center — start a new chat or continue a previous conversation.",
     "newChat": "New Chat",
-    "agents": "Agents",
     "recentChats": "Recent Chats",
     "noChats": "No chats yet. Start a new conversation!",
     "msg": "msg",
