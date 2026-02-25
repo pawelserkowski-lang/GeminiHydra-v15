@@ -647,6 +647,10 @@ async fn execute_streaming_gemini(
     }
 
     let url = format!("https://generativelanguage.googleapis.com/v1beta/models/{}:streamGenerateContent?alt=sse&key={}", ctx.model, ctx.api_key);
+    if !url.starts_with("https://") {
+        let _ = ws_send(sender, &WsServerMessage::Error { message: "API credentials require HTTPS".into(), code: Some("SECURITY".into()) }).await;
+        return String::new();
+    }
     let tools = build_tools();
     let mut contents = if let Some(s) = &sid { load_session_history(&state.db, s).await } else { Vec::new() };
     contents.push(json!({ "role": "user", "parts": [{ "text": ctx.final_user_prompt }] }));
@@ -894,7 +898,7 @@ pub async fn gemini_models(State(state): State<AppState>) -> Json<Value> {
     let key = state.runtime.read().await.api_keys.get("google").cloned().unwrap_or_default();
     if !key.is_empty() {
         let url = format!("https://generativelanguage.googleapis.com/v1beta/models?key={}", key);
-        if let Ok(res) = state.client.get(&url).send().await
+        if url.starts_with("https://") && let Ok(res) = state.client.get(&url).send().await
             && res.status().is_success()
                 && let Ok(body) = res.json::<Value>().await
                     && let Some(list) = body["models"].as_array() {

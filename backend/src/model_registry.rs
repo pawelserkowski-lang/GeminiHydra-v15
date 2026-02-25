@@ -88,6 +88,10 @@ async fn fetch_google_models(
         api_key
     );
 
+    if !url.starts_with("https://") {
+        return Err("API credentials must only be sent over HTTPS".to_string());
+    }
+
     let resp = client
         .get(&url)
         .send()

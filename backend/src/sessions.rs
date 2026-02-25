@@ -488,6 +488,11 @@ pub async fn add_session_message(
 ) -> Result<(StatusCode, Json<Value>), StatusCode> {
     let session_id: uuid::Uuid = id.parse().map_err(|_| StatusCode::BAD_REQUEST)?;
 
+    // Limit message content to 1 MB to prevent uncontrolled memory allocation
+    if body.content.len() > 1_048_576 {
+        return Err(StatusCode::PAYLOAD_TOO_LARGE);
+    }
+
     // Verify session exists
     sqlx::query("SELECT 1 FROM gh_sessions WHERE id = $1")
         .bind(session_id)
