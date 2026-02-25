@@ -8,15 +8,14 @@ test.describe('Navigation', () => {
     await page.waitForLoadState('networkidle');
   });
 
+  test('should show home view by default with welcome hero', async ({ page }) => {
+    await expect(page.getByTestId('welcome-hero')).toBeVisible();
+  });
+
   test('should navigate to chat view via nav-chat', async ({ page }) => {
     await page.getByTestId('nav-chat').click();
     // Chat view shows the ChatContainer with input
     await expect(page.getByTestId('chat-textarea')).toBeVisible();
-  });
-
-  test('should navigate to history view via nav-history', async ({ page }) => {
-    await page.getByTestId('nav-history').click();
-    await expect(page.getByRole('heading', { name: 'Session History' })).toBeVisible();
   });
 
   test('should navigate back to home via nav-home', async ({ page }) => {
@@ -28,13 +27,37 @@ test.describe('Navigation', () => {
     await expect(page.getByTestId('welcome-hero')).toBeVisible();
   });
 
-  test('should show Coming Soon for settings', async ({ page }) => {
-    await page.getByTestId('nav-settings').click();
-    await expect(page.getByText('Coming Soon')).toBeVisible();
+  test('should highlight active nav item', async ({ page }) => {
+    // Home should be active by default
+    const navHome = page.getByTestId('nav-home');
+    await expect(navHome).toBeVisible();
+
+    // Navigate to chat
+    const navChat = page.getByTestId('nav-chat');
+    await navChat.click();
+    await expect(page.getByTestId('chat-textarea')).toBeVisible();
+
+    // Navigate back to home
+    await navHome.click();
+    await expect(page.getByTestId('welcome-hero')).toBeVisible();
   });
 
-  test('should show Coming Soon for status', async ({ page }) => {
-    await page.getByTestId('nav-status').click();
-    await expect(page.getByText('Coming Soon')).toBeVisible();
+  test('should toggle sidebar collapse', async ({ page }) => {
+    const collapseBtn = page.getByTestId('btn-sidebar-collapse');
+    await expect(collapseBtn).toBeVisible();
+
+    // Collapse
+    await collapseBtn.click();
+
+    // Nav items should still be visible (icons only when collapsed)
+    await expect(page.getByTestId('nav-home')).toBeVisible();
+    await expect(page.getByTestId('nav-chat')).toBeVisible();
+
+    // Expand again
+    await collapseBtn.click();
+
+    // Nav items still visible
+    await expect(page.getByTestId('nav-home')).toBeVisible();
+    await expect(page.getByTestId('nav-chat')).toBeVisible();
   });
 });

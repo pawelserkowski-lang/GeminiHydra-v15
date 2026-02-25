@@ -68,6 +68,18 @@ pub struct HistoryParams {
     pub limit: Option<usize>,
 }
 
+/// Pagination query params for session/message listing.
+/// Backwards-compatible: all fields optional with sensible defaults.
+#[derive(Debug, Deserialize)]
+pub struct PaginationParams {
+    /// Max items to return (clamped to 500).
+    #[serde(default)]
+    pub limit: Option<i64>,
+    /// Number of items to skip.
+    #[serde(default)]
+    pub offset: Option<i64>,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct MemoryQueryParams {
     #[serde(default)]
@@ -307,18 +319,29 @@ pub async fn clear_history(
 // Session CRUD handlers
 // ============================================================================
 
-/// GET /api/sessions
+/// GET /api/sessions?limit=100&offset=0
 #[utoipa::path(get, path = "/api/sessions", tag = "sessions",
+    params(
+        ("limit" = Option<i64>, Query, description = "Max sessions to return (default 100, max 500)"),
+        ("offset" = Option<i64>, Query, description = "Number of sessions to skip (default 0)"),
+    ),
     responses((status = 200, description = "List of session summaries", body = Vec<SessionSummary>))
 )]
 pub async fn list_sessions(
     State(state): State<AppState>,
+    Query(params): Query<PaginationParams>,
 ) -> Result<Json<Value>, StatusCode> {
+    let limit = params.limit.unwrap_or(100).clamp(1, 500);
+    let offset = params.offset.unwrap_or(0).max(0);
+
     let rows = sqlx::query_as::<_, SessionSummaryRow>(
         "SELECT s.id, s.title, s.created_at, \
          (SELECT COUNT(*) FROM gh_chat_messages WHERE session_id = s.id) as message_count \
-         FROM gh_sessions s ORDER BY s.updated_at DESC",
+         FROM gh_sessions s ORDER BY s.updated_at DESC \
+         LIMIT $1 OFFSET $2",
     )
+    .bind(limit)
+    .bind(offset)
     .fetch_all(&state.db)
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
@@ -364,9 +387,13 @@ pub async fn create_session(
     Ok((StatusCode::CREATED, Json(serde_json::to_value(session).unwrap())))
 }
 
-/// GET /api/sessions/:id
+/// GET /api/sessions/:id?limit=200&offset=0
 #[utoipa::path(get, path = "/api/sessions/{id}", tag = "sessions",
-    params(("id" = String, Path, description = "Session UUID")),
+    params(
+        ("id" = String, Path, description = "Session UUID"),
+        ("limit" = Option<i64>, Query, description = "Max messages to return (default 200, max 500)"),
+        ("offset" = Option<i64>, Query, description = "Number of messages to skip (default 0)"),
+    ),
     responses(
         (status = 200, description = "Session with messages", body = Session),
         (status = 404, description = "Session not found")
@@ -375,8 +402,11 @@ pub async fn create_session(
 pub async fn get_session(
     State(state): State<AppState>,
     Path(id): Path<String>,
+    Query(params): Query<PaginationParams>,
 ) -> Result<Json<Value>, StatusCode> {
     let session_id: uuid::Uuid = id.parse().map_err(|_| StatusCode::BAD_REQUEST)?;
+    let msg_limit = params.limit.unwrap_or(200).clamp(1, 500);
+    let msg_offset = params.offset.unwrap_or(0).max(0);
 
     let session_row = sqlx::query_as::<_, SessionRow>(
         "SELECT id, title, created_at, updated_at FROM gh_sessions WHERE id = $1",
@@ -387,11 +417,17 @@ pub async fn get_session(
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
     .ok_or(StatusCode::NOT_FOUND)?;
 
+    // Fetch the most recent N messages (subquery DESC, then re-sort ASC)
     let message_rows = sqlx::query_as::<_, ChatMessageRow>(
-        "SELECT id, role, content, model, agent, created_at \
-         FROM gh_chat_messages WHERE session_id = $1 ORDER BY created_at ASC",
+        "SELECT * FROM (\
+            SELECT id, role, content, model, agent, created_at \
+            FROM gh_chat_messages WHERE session_id = $1 \
+            ORDER BY created_at DESC LIMIT $2 OFFSET $3\
+        ) sub ORDER BY created_at ASC",
     )
     .bind(session_id)
+    .bind(msg_limit)
+    .bind(msg_offset)
     .fetch_all(&state.db)
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
