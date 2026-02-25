@@ -3,6 +3,52 @@ import { ChatTab, Message } from '../types';
 import { ViewStoreState } from '../viewStore';
 import { MAX_MESSAGES_PER_SESSION, MAX_TITLE_LENGTH, sanitizeContent, sanitizeTitle } from '../utils';
 
+// ── Helpers ─────────────────────────────────────────────────────────────────
+
+const MAX_CONTENT_LENGTH = 100_000;
+
+/** Append a message to a session's history, enforcing the max messages limit. */
+function appendMessage(history: Record<string, Message[]>, sessionId: string, msg: Message): Message[] {
+  const current = history[sessionId] || [];
+  const sanitizedMsg: Message = { ...msg, content: sanitizeContent(msg.content, MAX_CONTENT_LENGTH) };
+  let updated = [...current, sanitizedMsg];
+  if (updated.length > MAX_MESSAGES_PER_SESSION) {
+    updated = updated.slice(-MAX_MESSAGES_PER_SESSION);
+  }
+  return updated;
+}
+
+/** Generate an auto-title from the first user message in a session. */
+function autoTitle(msg: Message, existingMessages: Message[], sessionId: string, sessions: ViewStoreState['sessions'], tabs: ChatTab[]): { sessions: ViewStoreState['sessions']; tabs: ChatTab[] } {
+  if (msg.role !== 'user' || existingMessages.length > 0) {
+    return { sessions, tabs };
+  }
+  const title = sanitizeTitle(
+    msg.content.substring(0, 30) + (msg.content.length > 30 ? '...' : ''),
+    MAX_TITLE_LENGTH,
+  );
+  return {
+    sessions: sessions.map((s) => (s.id === sessionId ? { ...s, title } : s)),
+    tabs: tabs.map((t) => (t.sessionId === sessionId ? { ...t, title } : t)),
+  };
+}
+
+/** Append content to the last message of a session. */
+function appendToLastMessage(history: Record<string, Message[]>, sessionId: string, content: string): Record<string, Message[]> | null {
+  const messages = history[sessionId] || [];
+  if (messages.length === 0) return null;
+  const lastMsg = messages[messages.length - 1];
+  if (!lastMsg) return null;
+  const newMessages = [...messages];
+  newMessages[newMessages.length - 1] = {
+    ...lastMsg,
+    content: sanitizeContent(lastMsg.content + content, MAX_CONTENT_LENGTH),
+  };
+  return { ...history, [sessionId]: newMessages };
+}
+
+// ── Interface ───────────────────────────────────────────────────────────────
+
 export interface ChatSlice {
   chatHistory: Record<string, Message[]>;
   tabs: ChatTab[];
@@ -22,6 +68,8 @@ export interface ChatSlice {
   /** Append content to the last message of a specific session. */
   updateLastMessageInSession: (sessionId: string, content: string) => void;
 }
+
+// ── Slice ───────────────────────────────────────────────────────────────────
 
 export const createChatSlice: StateCreator<
   ViewStoreState,
@@ -113,113 +161,41 @@ export const createChatSlice: StateCreator<
 
   addMessage: (msg) =>
     set((state) => {
-      if (!state.currentSessionId) return state;
-
-      const sanitizedMsg: Message = {
-        ...msg,
-        content: sanitizeContent(msg.content, 100_000),
-      };
-
-      const currentMessages = state.chatHistory[state.currentSessionId] || [];
-
-      let updatedMessages = [...currentMessages, sanitizedMsg];
-      if (updatedMessages.length > MAX_MESSAGES_PER_SESSION) {
-        updatedMessages = updatedMessages.slice(-MAX_MESSAGES_PER_SESSION);
-      }
-
-      let updatedSessions = state.sessions;
-      let updatedTabs = state.tabs;
-      if (msg.role === 'user' && currentMessages.length === 0) {
-        const title = sanitizeTitle(
-          msg.content.substring(0, 30) + (msg.content.length > 30 ? '...' : ''),
-          MAX_TITLE_LENGTH,
-        );
-        updatedSessions = state.sessions.map((s) => (s.id === state.currentSessionId ? { ...s, title } : s));
-        updatedTabs = state.tabs.map((t) => (t.sessionId === state.currentSessionId ? { ...t, title } : t));
-      }
-
+      const sid = state.currentSessionId;
+      if (!sid) return state;
+      const currentMessages = state.chatHistory[sid] || [];
+      const updatedMessages = appendMessage(state.chatHistory, sid, msg);
+      const { sessions, tabs } = autoTitle(msg, currentMessages, sid, state.sessions, state.tabs);
       return {
-        chatHistory: {
-          ...state.chatHistory,
-          [state.currentSessionId]: updatedMessages,
-        },
-        sessions: updatedSessions,
-        tabs: updatedTabs,
+        chatHistory: { ...state.chatHistory, [sid]: updatedMessages },
+        sessions,
+        tabs,
       };
     }),
 
   updateLastMessage: (content) =>
     set((state) => {
       if (!state.currentSessionId) return state;
-      const messages = state.chatHistory[state.currentSessionId] || [];
-      if (messages.length === 0) return state;
-
-      const newMessages = [...messages];
-      const lastMsg = newMessages[newMessages.length - 1];
-      if (!lastMsg) return state;
-
-      newMessages[newMessages.length - 1] = {
-        ...lastMsg,
-        content: sanitizeContent(lastMsg.content + content, 100_000),
-      };
-
-      return {
-        chatHistory: {
-          ...state.chatHistory,
-          [state.currentSessionId]: newMessages,
-        },
-      };
+      const updated = appendToLastMessage(state.chatHistory, state.currentSessionId, content);
+      return updated ? { chatHistory: updated } : state;
     }),
 
   addMessageToSession: (sessionId, msg) =>
     set((state) => {
-      const sanitizedMsg: Message = {
-        ...msg,
-        content: sanitizeContent(msg.content, 100_000),
-      };
-
       const currentMessages = state.chatHistory[sessionId] || [];
-      let updatedMessages = [...currentMessages, sanitizedMsg];
-      if (updatedMessages.length > MAX_MESSAGES_PER_SESSION) {
-        updatedMessages = updatedMessages.slice(-MAX_MESSAGES_PER_SESSION);
-      }
-
-      // Auto-title from first user message
-      let updatedSessions = state.sessions;
-      let updatedTabs = state.tabs;
-      if (msg.role === 'user' && currentMessages.length === 0) {
-        const title = sanitizeTitle(
-          msg.content.substring(0, 30) + (msg.content.length > 30 ? '...' : ''),
-          MAX_TITLE_LENGTH,
-        );
-        updatedSessions = state.sessions.map((s) => (s.id === sessionId ? { ...s, title } : s));
-        updatedTabs = state.tabs.map((t) => (t.sessionId === sessionId ? { ...t, title } : t));
-      }
-
+      const updatedMessages = appendMessage(state.chatHistory, sessionId, msg);
+      const { sessions, tabs } = autoTitle(msg, currentMessages, sessionId, state.sessions, state.tabs);
       return {
         chatHistory: { ...state.chatHistory, [sessionId]: updatedMessages },
-        sessions: updatedSessions,
-        tabs: updatedTabs,
+        sessions,
+        tabs,
       };
     }),
 
   updateLastMessageInSession: (sessionId, content) =>
     set((state) => {
-      const messages = state.chatHistory[sessionId] || [];
-      if (messages.length === 0) return state;
-
-      const newMessages = [...messages];
-      const lastMsg = newMessages[newMessages.length - 1];
-      if (!lastMsg) return state;
-
-      newMessages[newMessages.length - 1] = {
-        ...lastMsg,
-        content: sanitizeContent(lastMsg.content + content, 100_000),
-      };
-
-      return {
-        chatHistory: { ...state.chatHistory, [sessionId]: newMessages },
-      };
+      const updated = appendToLastMessage(state.chatHistory, sessionId, content);
+      return updated ? { chatHistory: updated } : state;
     }),
 
 });

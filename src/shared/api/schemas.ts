@@ -191,7 +191,6 @@ export const settingsSchema = z
 
 export type Settings = z.infer<typeof settingsSchema>;
 
-
 // ============================================================================
 // WEBSOCKET PROTOCOL
 // ============================================================================

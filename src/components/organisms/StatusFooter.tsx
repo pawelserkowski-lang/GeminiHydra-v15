@@ -38,6 +38,42 @@ export interface StatusFooterProps {
 }
 
 // ============================================================================
+// CONSTANTS
+// ============================================================================
+
+const HEALTH_MAP: Record<ConnectionHealth, { status: 'online' | 'pending' | 'offline'; label: string }> = {
+  connected: { status: 'online', label: 'Online' },
+  degraded: { status: 'pending', label: 'Degraded' },
+  disconnected: { status: 'offline', label: 'Offline' },
+};
+
+const TIME_FORMAT: Intl.DateTimeFormatOptions = {
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+};
+
+function getUsageColor(usage: number, thresholdHigh: number, thresholdMid: number, normalLight: string, normalDark: string, isLight: boolean): string {
+  if (usage > thresholdHigh) return 'text-red-400';
+  if (usage > thresholdMid) return 'text-yellow-400';
+  return isLight ? normalLight : normalDark;
+}
+
+function detectModelTier(model: string, isLight: boolean): { label: string; icon: typeof Cloud; cls: string } | null {
+  const lower = model.toLowerCase();
+  if (lower.includes('pro')) {
+    return { label: 'PRO', icon: Cloud, cls: isLight ? 'text-blue-600' : 'text-blue-400' };
+  }
+  if (lower.includes('flash')) {
+    return { label: 'FLASH', icon: Zap, cls: isLight ? 'text-amber-600' : 'text-amber-400' };
+  }
+  if (lower.includes('qwen') || lower.includes('llama')) {
+    return { label: 'LOCAL', icon: Cpu, cls: isLight ? 'text-emerald-600' : 'text-emerald-400' };
+  }
+  return null;
+}
+
+// ============================================================================
 // COMPONENT
 // ============================================================================
 
@@ -52,60 +88,21 @@ const StatusFooterComponent = ({
   const { resolvedTheme } = useTheme();
   const isLight = resolvedTheme === 'light';
 
-  // Live time
   const [currentTime, setCurrentTime] = useState(() =>
-    new Date().toLocaleTimeString('pl-PL', {
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-    }),
+    new Date().toLocaleTimeString('pl-PL', TIME_FORMAT),
   );
 
   useEffect(() => {
     const timer = setInterval(() => {
-      setCurrentTime(
-        new Date().toLocaleTimeString('pl-PL', {
-          hour: '2-digit',
-          minute: '2-digit',
-          second: '2-digit',
-        }),
-      );
+      setCurrentTime(new Date().toLocaleTimeString('pl-PL', TIME_FORMAT));
     }, 1000);
     return () => clearInterval(timer);
   }, []);
 
-  // Connection status mapping
-  const healthMap: Record<ConnectionHealth, { status: 'online' | 'pending' | 'offline'; label: string }> = {
-    connected: { status: 'online', label: 'Online' },
-    degraded: { status: 'pending', label: 'Degraded' },
-    disconnected: { status: 'offline', label: 'Offline' },
-  };
-
-  const health = healthMap[connectionHealth];
-
-  // Detect model tier
-  const modelLower = selectedModel.toLowerCase();
-  const modelTier = modelLower.includes('pro')
-    ? { label: 'PRO', icon: Cloud, cls: isLight ? 'text-blue-600' : 'text-blue-400' }
-    : modelLower.includes('flash')
-      ? { label: 'FLASH', icon: Zap, cls: isLight ? 'text-amber-600' : 'text-amber-400' }
-      : modelLower.includes('qwen') || modelLower.includes('llama')
-        ? { label: 'LOCAL', icon: Cpu, cls: isLight ? 'text-emerald-600' : 'text-emerald-400' }
-        : null;
-
-  // CPU color based on usage
-  const cpuColor =
-    cpuUsage > 80 ? 'text-red-400' : cpuUsage > 50 ? 'text-yellow-400' : isLight ? 'text-sky-600' : 'text-sky-400';
-
-  // RAM color based on usage
-  const ramColor =
-    ramUsage > 85
-      ? 'text-red-400'
-      : ramUsage > 65
-        ? 'text-yellow-400'
-        : isLight
-          ? 'text-violet-600'
-          : 'text-violet-400';
+  const health = HEALTH_MAP[connectionHealth];
+  const modelTier = detectModelTier(selectedModel, isLight);
+  const cpuColor = getUsageColor(cpuUsage, 80, 50, 'text-sky-600', 'text-sky-400', isLight);
+  const ramColor = getUsageColor(ramUsage, 85, 65, 'text-violet-600', 'text-violet-400', isLight);
 
   const dividerCls = isLight ? 'text-slate-300' : 'text-white/20';
 

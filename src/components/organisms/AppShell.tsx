@@ -22,10 +22,8 @@ import { useViewStore } from '@/stores/viewStore';
 /** Format raw model ID (e.g. "gemini-3.1-pro-preview") into a display name ("Gemini 3.1 Pro"). */
 function formatModelName(id: string): string {
   if (id.startsWith('ollama:')) return `Ollama: ${id.slice(7)}`;
-  // Strip common suffixes
-  let name = id.replace(/-preview$/, '').replace(/-latest$/, '');
-  // "gemini-3.1-pro" → ["gemini", "3.1", "pro"]
-  const parts = name.split('-');
+  // Strip common suffixes; split into parts: "gemini-3.1-pro" → ["gemini", "3.1", "pro"]
+  const parts = id.replace(/-preview$/, '').replace(/-latest$/, '').split('-');
   return parts
     .map((p) => (/^\d/.test(p) ? p : p.charAt(0).toUpperCase() + p.slice(1)))
     .join(' ');
@@ -56,8 +54,14 @@ function AppShellInner({ children, statusFooterProps }: AppShellProps) {
   const { data: stats } = useSystemStatsQuery();
   const healthStatus = useHealthStatus();
 
-  const connectionHealth: ConnectionHealth =
-    healthStatus === 'healthy' ? 'connected' : healthStatus === 'degraded' ? 'degraded' : 'disconnected';
+  let connectionHealth: ConnectionHealth;
+  if (healthStatus === 'healthy') {
+    connectionHealth = 'connected';
+  } else if (healthStatus === 'degraded') {
+    connectionHealth = 'degraded';
+  } else {
+    connectionHealth = 'disconnected';
+  }
 
   // Resolve display model: WS activeModel → settings.default_model → fallback
   const displayModel = useMemo(() => {
@@ -103,7 +107,12 @@ function AppShellInner({ children, statusFooterProps }: AppShellProps) {
 
   return (
     <div
-      className={`relative flex h-screen w-full ${isLight ? 'text-black selection:bg-emerald-500 selection:text-white' : 'text-white selection:bg-white/30 selection:text-white'} overflow-hidden font-mono transition-colors duration-500`}
+      className={cn(
+        'relative flex h-screen w-full overflow-hidden font-mono transition-colors duration-500',
+        isLight
+          ? 'text-black selection:bg-emerald-500 selection:text-white'
+          : 'text-white selection:bg-white/30 selection:text-white',
+      )}
     >
       {/* Background layers */}
       <ThemedBackground resolvedTheme={resolvedTheme} />

@@ -250,8 +250,6 @@ export function Sidebar() {
     [partnerSessions],
   );
 
-  const isCollapsed = sidebarCollapsed;
-
   // Mobile drawer state
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -365,9 +363,9 @@ export function Sidebar() {
           'absolute -right-4 top-1/2 -translate-y-1/2 z-30 hidden md:flex items-center justify-center w-9 h-9 border rounded-full shadow-lg backdrop-blur-sm transition-all duration-200 hover:scale-110 active:scale-95',
           collapseBtn,
         )}
-        title={isCollapsed ? t('sidebar.expandSidebar', 'Expand sidebar') : t('sidebar.collapseSidebar', 'Collapse sidebar')}
+        title={sidebarCollapsed ? t('sidebar.expandSidebar', 'Expand sidebar') : t('sidebar.collapseSidebar', 'Collapse sidebar')}
       >
-        {isCollapsed ? (
+        {sidebarCollapsed ? (
           <ChevronRight size={18} strokeWidth={2.5} className={collapseIcon} />
         ) : (
           <ChevronLeft size={18} strokeWidth={2.5} className={collapseIcon} />
@@ -375,7 +373,7 @@ export function Sidebar() {
       </button>
 
       {/* Logo — click navigates to home */}
-      <LogoButton collapsed={isCollapsed} onClick={() => handleNavClick('home')} />
+      <LogoButton collapsed={sidebarCollapsed} onClick={() => handleNavClick('home')} />
 
       {/* Grouped Navigation */}
       <nav className="flex flex-col gap-2 flex-shrink-0">
@@ -387,7 +385,7 @@ export function Sidebar() {
           return (
             <div key={group.id} className={cn(glassPanel, 'overflow-hidden')}>
               {/* Group Header */}
-              {!isCollapsed ? (
+              {!sidebarCollapsed ? (
                 <button
                   type="button"
                   onClick={() => toggleGroup(group.id)}
@@ -415,8 +413,8 @@ export function Sidebar() {
               <div
                 className={cn(
                   'px-1.5 pb-1.5 space-y-0.5 overflow-hidden transition-all duration-200',
-                  !isCollapsed && !isExpanded ? 'max-h-0 opacity-0 pb-0' : 'max-h-96 opacity-100',
-                  isCollapsed ? 'py-1.5' : '',
+                  !sidebarCollapsed && !isExpanded ? 'max-h-0 opacity-0 pb-0' : 'max-h-96 opacity-100',
+                  sidebarCollapsed ? 'py-1.5' : '',
                 )}
               >
                 {group.items.map((item) => (
@@ -427,14 +425,14 @@ export function Sidebar() {
                     onClick={() => handleNavClick(item.id)}
                     className={cn(
                       'relative w-full flex items-center px-3 py-2 rounded-lg transition-all duration-200 group',
-                      isCollapsed ? 'justify-center' : 'space-x-3',
+                      sidebarCollapsed ? 'justify-center' : 'space-x-3',
                       currentView === item.id
                         ? isLight
                           ? 'bg-emerald-500/15 text-emerald-800'
                           : 'bg-white/10 text-white'
                         : cn(textMuted, hoverBg, textHover),
                     )}
-                    title={isCollapsed ? item.label : undefined}
+                    title={sidebarCollapsed ? item.label : undefined}
                   >
                     <item.icon
                       size={16}
@@ -447,7 +445,7 @@ export function Sidebar() {
                           : cn(iconMuted, iconHover),
                       )}
                     />
-                    {!isCollapsed && <span className="font-medium text-base tracking-wide truncate">{item.label}</span>}
+                    {!sidebarCollapsed && <span className="font-medium text-base tracking-wide truncate">{item.label}</span>}
                     {currentView === item.id && (
                       <div
                         className={cn(
@@ -467,7 +465,7 @@ export function Sidebar() {
       </nav>
 
       {/* Chat Sessions (Tissaia style — glass panel + collapsible) */}
-      {!isCollapsed && (
+      {!sidebarCollapsed && (
         <div className={cn(glassPanel, 'flex-1 flex flex-col min-h-0 p-2 overflow-hidden')}>
           {/* Section Header */}
           <div className="flex items-center justify-between px-1 py-1.5">
@@ -533,7 +531,7 @@ export function Sidebar() {
       )}
 
       {/* Partner Sessions — ClaudeHydra (glass panel + collapsible) */}
-      {!isCollapsed && (
+      {!sidebarCollapsed && (
         <div className={cn(glassPanel, 'flex flex-col min-h-0 p-2 overflow-hidden')}>
           <div className="flex items-center justify-between px-1 py-1.5">
             <button
@@ -605,7 +603,7 @@ export function Sidebar() {
       )}
 
       {/* Collapsed: New Chat icon */}
-      {isCollapsed && (
+      {sidebarCollapsed && (
         <div className="flex flex-col items-center gap-1 flex-1">
           <button
             type="button"
@@ -620,7 +618,7 @@ export function Sidebar() {
 
       {/* Footer / Lang & Theme Toggle + Version */}
       <FooterControls
-        collapsed={isCollapsed}
+        collapsed={sidebarCollapsed}
         version="GeminiHydra v15.0.0"
         tagline={t('footer.tagline', 'Wolf Swarm')}
       />
@@ -632,7 +630,7 @@ export function Sidebar() {
       {/* Desktop Sidebar */}
       <motion.aside
         className={cn('shrink-0 h-full hidden md:flex transition-none')}
-        animate={{ width: isCollapsed ? 64 : 240 }}
+        animate={{ width: sidebarCollapsed ? 64 : 240 }}
         transition={{ type: 'spring', stiffness: 300, damping: 30 }}
       >
         {sidebarContent}

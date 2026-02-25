@@ -13,6 +13,16 @@ export interface ViewSlice {
   setActiveModel: (model: string) => void;
 }
 
+const SIDEBAR_STORAGE_KEY = 'geminihydra_sidebar_collapsed';
+
+function persistSidebarState(collapsed: boolean): void {
+  try {
+    localStorage.setItem(SIDEBAR_STORAGE_KEY, String(collapsed));
+  } catch {
+    /* ignore */
+  }
+}
+
 export const createViewSlice: StateCreator<
   ViewStoreState,
   [],
@@ -27,22 +37,14 @@ export const createViewSlice: StateCreator<
   setActiveModel: (model) => set({ activeModel: model }),
 
   setSidebarCollapsed: (collapsed) => {
-    try {
-      localStorage.setItem('geminihydra_sidebar_collapsed', String(collapsed));
-    } catch {
-      /* ignore */
-    }
+    persistSidebarState(collapsed);
     set({ sidebarCollapsed: collapsed });
   },
 
   toggleSidebar: () =>
     set((state) => {
       const next = !state.sidebarCollapsed;
-      try {
-        localStorage.setItem('geminihydra_sidebar_collapsed', String(next));
-      } catch {
-        /* ignore */
-      }
+      persistSidebarState(next);
       return { sidebarCollapsed: next };
     }),
 });
