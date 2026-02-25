@@ -30,8 +30,8 @@ export interface StatusFooterProps {
   cpuUsage?: number;
   /** RAM usage percentage (0-100) — placeholder until backend connects */
   ramUsage?: number;
-  /** Current active agent name */
-  agentName?: string;
+  /** App tagline / agent name */
+  tagline?: string;
   /** Whether stats are loaded (from backend) */
   statsLoaded?: boolean;
 }
@@ -45,7 +45,7 @@ const StatusFooterComponent = ({
   selectedModel = 'Gemini 3 Flash',
   cpuUsage = 12,
   ramUsage = 45,
-  agentName = 'Wolf Swarm',
+  tagline = 'Multi-Agent AI Swarm',
   statsLoaded = true,
 }: StatusFooterProps) => {
   const { resolvedTheme } = useTheme();
@@ -157,8 +157,8 @@ const StatusFooterComponent = ({
 
         <span className={dividerCls}>|</span>
 
-        {/* Agent name */}
-        <span title="Multi-agent architecture">{agentName}</span>
+        {/* Tagline */}
+        <span>{tagline}</span>
 
         <span className={dividerCls}>|</span>
 

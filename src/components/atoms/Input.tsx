@@ -2,7 +2,7 @@
 /**
  * Input Atom
  * ==========
- * Glass-styled text input with icon slot, error state, label, and size
+ * Glass-styled text input with icon slot, right element slot, error state, label, and size
  * variants. Uses `.glass-input` from globals.css and theme accent for focus.
  * Supports forwardRef for external ref access.
  */
@@ -20,6 +20,8 @@ interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
   label?: string;
   /** Icon element rendered on the left side of the input. */
   icon?: ReactNode;
+  /** Element rendered on the right side of the input (e.g. toggle button). */
+  rightElement?: ReactNode;
   /** Error message. When truthy the input shows a red border + message. */
   error?: string;
   /** Size variant controlling padding and font size. */
@@ -50,12 +52,18 @@ const iconPaddingClasses: Record<InputSize, string> = {
   lg: 'pl-11',
 };
 
+const rightElementPaddingClasses: Record<InputSize, string> = {
+  sm: 'pr-8',
+  md: 'pr-10',
+  lg: 'pr-12',
+};
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(
-  ({ label, icon, error, inputSize = 'md', className = '', disabled, id: externalId, ...rest }, ref) => {
+  ({ label, icon, rightElement, error, inputSize = 'md', className = '', disabled, id: externalId, ...rest }, ref) => {
     const autoId = useId();
     const inputId = externalId ?? autoId;
     const errorId = error ? `${inputId}-error` : undefined;
@@ -99,9 +107,17 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
               hasError ? 'border-red-500 focus:border-red-500 focus:ring-red-500/30' : '',
               sizeClasses[inputSize],
               icon ? iconPaddingClasses[inputSize] : '',
+              rightElement ? rightElementPaddingClasses[inputSize] : '',
             ].join(' ')}
             {...rest}
           />
+
+          {/* Right Element */}
+          {rightElement && (
+            <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center">
+              {rightElement}
+            </div>
+          )}
         </div>
 
         {/* Error message */}

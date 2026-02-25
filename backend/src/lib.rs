@@ -26,11 +26,16 @@ pub fn create_router(state: AppState) -> Router {
         let monitor = state.system_monitor.clone();
         tokio::spawn(async move {
             let mut sys = System::new_all();
-            // First measurement — gives the baseline for delta-based CPU %.
-            sys.refresh_all();
+            // Baseline measurement for delta-based CPU %.
+            sys.refresh_cpu_all();
+            // Must wait at least MINIMUM_CPU_UPDATE_INTERVAL before second measurement.
+            tokio::time::sleep(sysinfo::MINIMUM_CPU_UPDATE_INTERVAL).await;
+            sys.refresh_cpu_all();
             loop {
                 tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-                sys.refresh_all();
+                // Only refresh CPU + memory, NOT refresh_all() which resets CPU baseline.
+                sys.refresh_cpu_all();
+                sys.refresh_memory();
 
                 let cpu = if sys.cpus().is_empty() {
                     0.0

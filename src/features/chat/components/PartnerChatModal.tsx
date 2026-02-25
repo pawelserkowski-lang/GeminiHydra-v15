@@ -5,6 +5,7 @@
 import { X, Bot, User, Loader2 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useTheme } from '@/contexts/ThemeContext';
 import { cn } from '@/shared/utils/cn';
 import { usePartnerSession } from '@/features/chat/hooks/usePartnerSessions';
@@ -35,7 +36,7 @@ export function PartnerChatModal({ sessionId, onClose }: Props) {
     return () => window.removeEventListener('keydown', handler);
   }, [onClose]);
 
-  return (
+  return createPortal(
     <AnimatePresence>
       {sessionId && (
         <>
@@ -44,7 +45,7 @@ export function PartnerChatModal({ sessionId, onClose }: Props) {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50"
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[9999]"
             onClick={onClose}
           />
           {/* Modal */}
@@ -54,7 +55,7 @@ export function PartnerChatModal({ sessionId, onClose }: Props) {
             exit={{ opacity: 0, scale: 0.95, y: 20 }}
             transition={{ type: 'spring', stiffness: 300, damping: 30 }}
             className={cn(
-              'fixed inset-4 md:inset-12 lg:inset-20 z-50 flex flex-col rounded-2xl border overflow-hidden',
+              'fixed inset-4 md:inset-12 lg:inset-20 z-[9999] flex flex-col rounded-2xl border overflow-hidden',
               isLight
                 ? 'bg-white/95 border-slate-200 shadow-2xl'
                 : 'bg-[#0a0a0f]/95 border-white/10 shadow-[0_0_60px_rgba(0,0,0,0.8)]',
@@ -157,6 +158,7 @@ export function PartnerChatModal({ sessionId, onClose }: Props) {
           </motion.div>
         </>
       )}
-    </AnimatePresence>
+    </AnimatePresence>,
+    document.body,
   );
 }

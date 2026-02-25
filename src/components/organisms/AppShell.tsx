@@ -13,12 +13,12 @@ import { AnimatePresence, motion } from 'motion/react';
 import { type ReactNode, useCallback, useEffect, useMemo } from 'react';
 import { LayeredBackground, RuneRain } from '@/components/atoms';
 import { Sidebar } from '@/components/organisms/Sidebar';
-import type { StatusFooterProps } from '@/components/organisms/StatusFooter';
+import type { ConnectionHealth, StatusFooterProps } from '@/components/organisms/StatusFooter';
 import { StatusFooter } from '@/components/organisms/StatusFooter';
 import { TabBar } from '@/components/organisms/TabBar';
 import { ThemeProvider, useTheme } from '@/contexts/ThemeContext';
 import { useSettingsQuery } from '@/features/settings/hooks/useSettings';
-import { useSystemStatsQuery } from '@/features/health/hooks/useHealth';
+import { useHealthStatus, useSystemStatsQuery } from '@/features/health/hooks/useHealth';
 import { cn } from '@/shared/utils/cn';
 import { useViewStore } from '@/stores/viewStore';
 
@@ -57,6 +57,10 @@ function AppShellInner({ children, statusFooterProps }: AppShellProps) {
   const activeModel = useViewStore((s) => s.activeModel);
   const { data: settings } = useSettingsQuery();
   const { data: stats } = useSystemStatsQuery();
+  const healthStatus = useHealthStatus();
+
+  const connectionHealth: ConnectionHealth =
+    healthStatus === 'healthy' ? 'connected' : healthStatus === 'degraded' ? 'degraded' : 'disconnected';
 
   // Resolve display model: WS activeModel → settings.default_model → fallback
   const displayModel = useMemo(() => {
@@ -69,6 +73,7 @@ function AppShellInner({ children, statusFooterProps }: AppShellProps) {
   const raw = stats as Record<string, number> | undefined;
   const resolvedFooterProps = useMemo<StatusFooterProps>(() => ({
     ...statusFooterProps,
+    connectionHealth,
     ...(displayModel && { selectedModel: displayModel }),
     ...(raw && {
       cpuUsage: Math.round(raw.cpu_usage_percent ?? raw.cpu_usage ?? 0),
@@ -79,7 +84,7 @@ function AppShellInner({ children, statusFooterProps }: AppShellProps) {
       ),
       statsLoaded: true,
     }),
-  }), [statusFooterProps, displayModel, raw]);
+  }), [statusFooterProps, connectionHealth, displayModel, raw]);
 
   // Global Ctrl+T shortcut — creates a new chat tab when in chat view
   const handleKeyDown = useCallback(
