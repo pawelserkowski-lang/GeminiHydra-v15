@@ -671,6 +671,7 @@ dependencies = [
  "tree-sitter-typescript",
  "url",
  "uuid",
+ "windows",
 ]
 
 [[package]]

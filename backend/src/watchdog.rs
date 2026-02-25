@@ -1,3 +1,4 @@
+// Jaskier Shared Pattern — watchdog
 // GeminiHydra v15 — Background watchdog
 //
 // Periodically checks backend health and performs auto-recovery:

@@ -1,3 +1,7 @@
+// Jaskier Shared Pattern — Anthropic OAuth PKCE
+// Identical logic in ClaudeHydra & GeminiHydra (only DB table name differs:
+// ch_oauth_tokens vs gh_oauth_tokens). Keep in sync when editing.
+
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::Json;
@@ -267,6 +271,40 @@ pub async fn get_valid_access_token(state: &AppState) -> Option<String> {
 /// Check if OAuth tokens exist (for health check).
 pub async fn has_oauth_tokens(state: &AppState) -> bool {
     get_token_row(state).await.is_some()
+}
+
+/// Inject the required system prompt for MAX Plan requests.
+pub fn ensure_system_prompt(body: &mut Value) {
+    let required_block = json!({
+        "type": "text",
+        "text": REQUIRED_SYSTEM_PROMPT
+    });
+
+    match body.get("system") {
+        Some(Value::Array(arr)) => {
+            // Check if already first element
+            if let Some(first) = arr.first() {
+                if first.get("text").and_then(|t| t.as_str()) == Some(REQUIRED_SYSTEM_PROMPT) {
+                    return;
+                }
+            }
+            let mut new_arr = vec![required_block];
+            new_arr.extend(arr.iter().cloned());
+            body["system"] = Value::Array(new_arr);
+        }
+        Some(Value::String(s)) => {
+            if s.starts_with(REQUIRED_SYSTEM_PROMPT) {
+                return;
+            }
+            body["system"] = json!([
+                required_block,
+                { "type": "text", "text": s }
+            ]);
+        }
+        _ => {
+            body["system"] = json!([required_block]);
+        }
+    }
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────
