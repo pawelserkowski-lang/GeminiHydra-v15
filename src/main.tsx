@@ -16,6 +16,7 @@ import { AppShell } from '@/components/organisms/AppShell';
 import { ErrorBoundary } from '@/components/organisms/ErrorBoundary';
 import { useChatExecuteMutation } from '@/features/chat/hooks/useChat';
 import { queryClient } from '@/shared/api/queryClient';
+import { reportWebVitals } from '@/shared/utils/reportWebVitals';
 import { useWebSocketChat } from '@/shared/hooks/useWebSocketChat';
 import type { WsCallbacks } from '@/shared/hooks/useWebSocketChat';
 import { useViewStore } from '@/stores/viewStore';
@@ -264,4 +265,7 @@ if (root) {
       appRoot.unmount();
     });
   }
+
+  // Report Web Vitals performance metrics
+  reportWebVitals();
 }

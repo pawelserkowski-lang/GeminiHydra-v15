@@ -1,0 +1,20 @@
+#!/bin/sh
+
+# Jaskier Shared Pattern -- pre-commit hook
+# Frontend TypeScript check + Backend Rust check
+
+# Frontend TypeScript check
+npx tsc --noEmit --skipLibCheck
+if [ $? -ne 0 ]; then
+  echo "TypeScript check failed. Fix errors before committing."
+  exit 1
+fi
+
+# Backend check (only if .rs files staged)
+if git diff --cached --name-only | grep -q '\.rs$'; then
+  (cd backend && cargo check)
+  if [ $? -ne 0 ]; then
+    echo "Cargo check failed. Fix errors before committing."
+    exit 1
+  fi
+fi
