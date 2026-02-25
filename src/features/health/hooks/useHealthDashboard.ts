@@ -34,6 +34,8 @@ export interface HealthDashboardData {
   memoryTotalMb: number | null;
   modelCount: number | null;
   loading: boolean;
+  error: boolean;
+  refetch: () => void;
 }
 
 // ============================================================================
@@ -68,6 +70,14 @@ export function useHealthDashboard(): HealthDashboardData {
   const memoryTotalMb = statsQuery.data?.memory_total ?? null;
   const modelCount = modelsQuery.data ? modelsQuery.data.length : null;
   const loading = healthQuery.isLoading || statsQuery.isLoading;
+  const error = healthQuery.isError && statsQuery.isError;
+
+  const refetch = () => {
+    void healthQuery.refetch();
+    void statsQuery.refetch();
+    void authQuery.refetch();
+    void modelsQuery.refetch();
+  };
 
   return {
     backendOnline,
@@ -78,5 +88,7 @@ export function useHealthDashboard(): HealthDashboardData {
     memoryTotalMb,
     modelCount,
     loading,
+    error,
+    refetch,
   };
 }

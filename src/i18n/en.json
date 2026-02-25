@@ -24,7 +24,9 @@
   },
   "common": {
     "delete": "Delete",
-    "copy": "Copy"
+    "copy": "Copy",
+    "loadError": "Failed to load data",
+    "retry": "Retry"
   },
   "home": {
     "subtitle": "AI Swarm Control Center — start a new chat or continue a previous conversation.",

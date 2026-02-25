@@ -7,7 +7,7 @@
  */
 
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { devtools, persist } from 'zustand/middleware';
 import { ChatSlice, createChatSlice } from './slices/chatSlice';
 import { createSessionSlice, SessionSlice } from './slices/sessionSlice';
 import { createViewSlice, ViewSlice } from './slices/viewSlice';
@@ -26,34 +26,37 @@ export * from './utils'; // Optional, if consumers need constants
 // ============================================================================
 
 export const useViewStore = create<ViewStoreState>()(
-  persist(
-    (...a) => ({
-      ...createViewSlice(...a),
-      ...createSessionSlice(...a),
-      ...createChatSlice(...a),
-    }),
-    {
-      name: 'geminihydra-v15-state',
-      partialize: (state) => ({
-        currentView: state.currentView,
-        sidebarCollapsed: state.sidebarCollapsed,
-        sessions: state.sessions,
-        currentSessionId: state.currentSessionId,
-        chatHistory: state.chatHistory,
-        tabs: state.tabs,
-        activeTabId: state.activeTabId,
+  devtools(
+    persist(
+      (...a) => ({
+        ...createViewSlice(...a),
+        ...createSessionSlice(...a),
+        ...createChatSlice(...a),
       }),
-      merge: (persisted, current) => {
-        const p = persisted as Partial<ViewStoreState>;
-        const merged = { ...current, ...p };
-        // Always start from home view on app launch
-        merged.currentView = 'home';
-        // Clear tabs on launch (sessions/history preserved)
-        merged.tabs = [];
-        merged.activeTabId = null;
-        return merged;
+      {
+        name: 'geminihydra-v15-state',
+        partialize: (state) => ({
+          currentView: state.currentView,
+          sidebarCollapsed: state.sidebarCollapsed,
+          sessions: state.sessions,
+          currentSessionId: state.currentSessionId,
+          chatHistory: state.chatHistory,
+          tabs: state.tabs,
+          activeTabId: state.activeTabId,
+        }),
+        merge: (persisted, current) => {
+          const p = persisted as Partial<ViewStoreState>;
+          const merged = { ...current, ...p };
+          // Always start from home view on app launch
+          merged.currentView = 'home';
+          // Clear tabs on launch (sessions/history preserved)
+          merged.tabs = [];
+          merged.activeTabId = null;
+          return merged;
+        },
       },
-    },
+    ),
+    { name: 'GeminiHydra/ViewStore', enabled: import.meta.env.DEV },
   ),
 );
 

@@ -21,6 +21,8 @@ import { Button, Card } from '@/components/atoms';
 interface ErrorBoundaryProps {
   children: ReactNode;
   fallback?: ReactNode;
+  /** Called before resetting error state — used by QueryErrorResetBoundary to clear query cache errors */
+  onReset?: () => void;
 }
 
 interface ErrorBoundaryState {
@@ -71,6 +73,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
       window.location.reload();
       return;
     }
+    this.props.onReset?.();
     this.setState({ hasError: false, error: null });
   };
 

@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import { apiGet } from '@/shared/api/client';
 import { useViewTheme } from '@/shared/hooks/useViewTheme';
+import { QueryError } from '@/components/molecules/QueryError';
 import { cn } from '@/shared/utils/cn';
 
 // ============================================================================
@@ -140,7 +141,7 @@ function runSimulation(nodes: Node[], edges: Edge[]): number {
 export function KnowledgeGraphView() {
   const { t: tr } = useTranslation();
   const t = useViewTheme();
-  const { data, isLoading, refetch } = useKnowledgeGraph();
+  const { data, isLoading, isError, refetch } = useKnowledgeGraph();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [nodes, setNodes] = useState<Node[]>([]);
   const requestRef = useRef<number>(0);
@@ -257,8 +258,14 @@ export function KnowledgeGraphView() {
             Loading neural data...
           </div>
         )}
-        
-        {nodes.length === 0 && !isLoading && (
+
+        {isError && !isLoading && (
+          <div className="absolute inset-0 flex items-center justify-center z-10">
+            <QueryError onRetry={() => refetch()} />
+          </div>
+        )}
+
+        {nodes.length === 0 && !isLoading && !isError && (
           <div className="absolute inset-0 flex items-center justify-center text-white/30 font-mono z-10">
             No knowledge nodes found.
           </div>

@@ -9,7 +9,7 @@
 
 import { lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useChatExecuteMutation } from '@/features/chat/hooks/useChat';
-import { useWebSocketChat } from '@/shared/hooks/useWebSocketChat';
+import { useWebSocketChat, MAX_RECONNECT_ATTEMPTS } from '@/shared/hooks/useWebSocketChat';
 import type { WsCallbacks } from '@/shared/hooks/useWebSocketChat';
 import { useViewStore } from '@/stores/viewStore';
 
@@ -52,7 +52,7 @@ export function ChatViewWrapper() {
     [addMessageToSession, updateLastMessageInSession],
   );
 
-  const { status, streamingSessionId, sendExecute, cancelStream } =
+  const { status, streamingSessionId, connectionGaveUp, sendExecute, cancelStream, manualReconnect } =
     useWebSocketChat(wsCallbacks);
 
   // Fallback: if WS never reaches 'connected' within 5s, switch to HTTP.
@@ -142,7 +142,22 @@ export function ChatViewWrapper() {
     }
   }, [usingFallback, cancelStream]);
 
-  return <LazyChatContainer isStreaming={isStreamingCurrentSession} onSubmit={handleSubmit} onStop={handleStop} />;
+  return (
+    <>
+      {connectionGaveUp && (
+        <div className="flex items-center justify-center gap-2 p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-sm mx-4 mt-2">
+          <span className="text-red-400">Connection lost after {MAX_RECONNECT_ATTEMPTS} attempts</span>
+          <button
+            onClick={manualReconnect}
+            className="px-3 py-1 rounded bg-red-500/20 hover:bg-red-500/30 transition-colors text-red-300"
+          >
+            Reconnect
+          </button>
+        </div>
+      )}
+      <LazyChatContainer isStreaming={isStreamingCurrentSession} onSubmit={handleSubmit} onStop={handleStop} />
+    </>
+  );
 }
 
 export default ChatViewWrapper;

@@ -12,6 +12,7 @@ import { memo, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Card } from '@/components/atoms/Card';
+import { QueryError } from '@/components/molecules/QueryError';
 import { useViewTheme } from '@/shared/hooks/useViewTheme';
 import { cn } from '@/shared/utils/cn';
 import { useHealthDashboard } from '../hooks/useHealthDashboard';
@@ -76,6 +77,17 @@ export const HealthDashboard = memo(() => {
         <div className={cn('text-sm font-mono animate-pulse', theme.textMuted)}>
           {t('common.loading', 'Loading...')}
         </div>
+      </div>
+    );
+  }
+
+  if (data.error) {
+    return (
+      <div className="w-full">
+        <h3 className={cn('text-sm font-mono font-semibold uppercase tracking-wider mb-3', theme.textMuted)}>
+          {t('health.title', 'System Health')}
+        </h3>
+        <QueryError onRetry={data.refetch} />
       </div>
     );
   }

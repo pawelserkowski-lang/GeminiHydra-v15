@@ -29,6 +29,7 @@ import { type ReactNode, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Badge, Button, Card } from '@/components/atoms';
 import { StatusIndicator, type StatusState } from '@/components/molecules';
+import { QueryError } from '@/components/molecules/QueryError';
 import { ViewSkeleton } from '@/components/molecules/ViewSkeleton';
 import {
   useAgentsQuery,
@@ -247,7 +248,7 @@ function AgentCard({ agent, onEdit, onDelete }: { agent: Agent; onEdit: () => vo
 export function AgentsView(): ReactNode {
   const { t: tr } = useTranslation();
   const t = useViewTheme();
-  const { data, isLoading } = useAgentsQuery();
+  const { data, isLoading, isError, refetch } = useAgentsQuery();
   const createMutation = useCreateAgentMutation();
   const updateMutation = useUpdateAgentMutation();
   const deleteMutation = useDeleteAgentMutation();
@@ -289,6 +290,7 @@ export function AgentsView(): ReactNode {
   };
 
   if (isLoading) return <ViewSkeleton />;
+  if (isError) return <QueryError onRetry={() => refetch()} />;
 
   return (
     <div className="flex flex-col h-full overflow-hidden">

@@ -6,7 +6,7 @@
  * Phase 7: Views are lazy-loaded with React.lazy + Suspense for code-splitting.
  */
 
-import { QueryClientProvider } from '@tanstack/react-query';
+import { QueryClientProvider, QueryErrorResetBoundary } from '@tanstack/react-query';
 import { AnimatePresence, motion } from 'motion/react';
 import { lazy, StrictMode, Suspense } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -60,9 +60,13 @@ function ViewRouter() {
           transition={{ duration: 0.2, ease: 'easeInOut' }}
           className="h-full w-full"
         >
-          <ErrorBoundary>
-            <Suspense fallback={<ViewSkeleton />}>{renderView()}</Suspense>
-          </ErrorBoundary>
+          <QueryErrorResetBoundary>
+            {({ reset }) => (
+              <ErrorBoundary onReset={reset}>
+                <Suspense fallback={<ViewSkeleton />}>{renderView()}</Suspense>
+              </ErrorBoundary>
+            )}
+          </QueryErrorResetBoundary>
         </motion.div>
       </AnimatePresence>
     </div>
@@ -76,11 +80,15 @@ function ViewRouter() {
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <ErrorBoundary>
-        <AppShell>
-          <ViewRouter />
-        </AppShell>
-      </ErrorBoundary>
+      <QueryErrorResetBoundary>
+        {({ reset }) => (
+          <ErrorBoundary onReset={reset}>
+            <AppShell>
+              <ViewRouter />
+            </AppShell>
+          </ErrorBoundary>
+        )}
+      </QueryErrorResetBoundary>
       <Toaster position="bottom-right" theme="dark" richColors />
     </QueryClientProvider>
   );

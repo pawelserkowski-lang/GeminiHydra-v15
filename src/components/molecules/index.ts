@@ -14,4 +14,5 @@ export type {
   StatusState,
 } from './StatusIndicator';
 export { StatusIndicator } from './StatusIndicator';
+export { QueryError } from './QueryError';
 export { ViewSkeleton } from './ViewSkeleton';

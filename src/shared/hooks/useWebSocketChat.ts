@@ -40,6 +40,7 @@ export interface WsCallbacks {
 // ============================================================================
 
 const MAX_BACKOFF_MS = 16_000;
+export const MAX_RECONNECT_ATTEMPTS = 10;
 const HEARTBEAT_INTERVAL_MS = 30_000;
 const HEARTBEAT_TIMEOUT_MS = 10_000;
 
@@ -65,6 +66,7 @@ export function useWebSocketChat(callbacks: WsCallbacks) {
   const [status, setStatus] = useState<WsStatus>('disconnected');
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamingSessionId, setStreamingSessionId] = useState<string | null>(null);
+  const [connectionGaveUp, setConnectionGaveUp] = useState(false);
 
   const wsRef = useRef<WebSocket | null>(null);
   const callbacksRef = useRef(callbacks);
@@ -196,6 +198,10 @@ export function useWebSocketChat(callbacks: WsCallbacks) {
       clearTimers();
 
       if (!intentionalCloseRef.current) {
+        if (reconnectAttemptRef.current >= MAX_RECONNECT_ATTEMPTS) {
+          setConnectionGaveUp(true);
+          return;
+        }
         const delay = Math.min(
           1000 * 2 ** reconnectAttemptRef.current,
           MAX_BACKOFF_MS,
@@ -255,5 +261,11 @@ export function useWebSocketChat(callbacks: WsCallbacks) {
     streamingSessionIdRef.current = null;
   }, []);
 
-  return { status, isStreaming, streamingSessionId, sendExecute, cancelStream };
+  const manualReconnect = useCallback(() => {
+    reconnectAttemptRef.current = 0;
+    setConnectionGaveUp(false);
+    connect();
+  }, [connect]);
+
+  return { status, isStreaming, streamingSessionId, connectionGaveUp, sendExecute, cancelStream, manualReconnect };
 }

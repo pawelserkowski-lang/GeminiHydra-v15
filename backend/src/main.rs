@@ -51,7 +51,8 @@ async fn build_app() -> (axum::Router, AppState) {
             Method::DELETE,
             Method::OPTIONS,
         ])
-        .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION]);
+        .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION])
+        .max_age(std::time::Duration::from_secs(86_400));
 
     // Security headers
     let nosniff: SetResponseHeaderLayer<HeaderValue> = SetResponseHeaderLayer::overriding(

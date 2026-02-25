@@ -24,7 +24,9 @@
   },
   "common": {
     "delete": "Usuń",
-    "copy": "Kopiuj"
+    "copy": "Kopiuj",
+    "loadError": "Nie udało się załadować danych",
+    "retry": "Ponów"
   },
   "home": {
     "subtitle": "Centrum Sterowania Rojem AI — rozpocznij nowy czat lub kontynuuj rozmowę.",
