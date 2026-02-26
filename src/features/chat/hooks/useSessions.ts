@@ -7,11 +7,14 @@ import { toast } from 'sonner';
 import { apiDelete, apiGet, apiPatch, apiPost } from '@/shared/api/client';
 import type { Session, SessionSummary, SessionsList } from '@/shared/api/schemas';
 
-/** GET /api/sessions */
+/** GET /api/sessions — backend returns { sessions: [...], has_more, next_cursor } */
 export function useSessionsQuery() {
   return useQuery<SessionsList>({
     queryKey: ['sessions'],
-    queryFn: () => apiGet<SessionsList>('/api/sessions'),
+    queryFn: async () => {
+      const data = await apiGet<SessionsList | { sessions: SessionsList }>('/api/sessions');
+      return Array.isArray(data) ? data : ((data as { sessions: SessionsList }).sessions ?? []);
+    },
   });
 }
 

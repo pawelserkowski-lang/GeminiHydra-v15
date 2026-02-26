@@ -15,18 +15,23 @@ import { z } from 'zod';
 const healthSchema = z.object({
   status: z.string(),
   version: z.string(),
+  app: z.string(),
   uptime_seconds: z.number(),
+  providers: z.array(
+    z.object({
+      name: z.string(),
+      available: z.boolean(),
+      model: z.string().nullable().optional(),
+    }),
+  ),
 });
 
 export type Health = z.infer<typeof healthSchema>;
 
 const detailedHealthSchema = healthSchema.extend({
-  system: z.object({
-    cpu_usage: z.number(),
-    memory_used: z.number(),
-    memory_total: z.number(),
-    os: z.string(),
-  }),
+  memory_usage_mb: z.number(),
+  cpu_usage_percent: z.number(),
+  platform: z.string(),
 });
 
 export type DetailedHealth = z.infer<typeof detailedHealthSchema>;
@@ -94,12 +99,10 @@ export type FileReadResponse = z.infer<typeof fileReadResponseSchema>;
 // ============================================================================
 
 const systemStatsSchema = z.object({
-  cpu_usage: z.number(),
-  memory_used: z.number(),
-  memory_total: z.number(),
-  uptime_seconds: z.number(),
-  active_agents: z.number(),
-  total_requests: z.number(),
+  cpu_usage_percent: z.number(),
+  memory_used_mb: z.number(),
+  memory_total_mb: z.number(),
+  platform: z.string(),
 });
 
 export type SystemStats = z.infer<typeof systemStatsSchema>;

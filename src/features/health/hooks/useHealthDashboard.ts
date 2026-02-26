@@ -6,6 +6,12 @@
  * Aggregates health, auth mode, system stats, and model count
  * for the HealthDashboard component. Reuses existing TanStack Query hooks
  * where available and adds new lightweight queries.
+ *
+ * Backend endpoints used:
+ *   GET /api/health        → { status, version, app, uptime_seconds, providers[] }
+ *   GET /api/system/stats  → { cpu_usage_percent, memory_used_mb, memory_total_mb, platform }
+ *   GET /api/auth/mode     → { auth_required }
+ *   GET /api/models        → { total_models, selected: { chat, thinking, image }, ... }
  */
 
 import { useQuery } from '@tanstack/react-query';
@@ -20,8 +26,23 @@ interface AuthMode {
   auth_required: boolean;
 }
 
-interface ModelInfo {
+/** Shape returned by GET /api/models (model_registry::list_models) */
+interface ModelsResponse {
+  total_models: number;
+  cache_stale: boolean;
+  cache_age_seconds: number | null;
+  pins: Record<string, string>;
+  selected: {
+    chat: SelectedModel | null;
+    thinking: SelectedModel | null;
+    image: SelectedModel | null;
+  };
+  providers: Record<string, unknown[]>;
+}
+
+interface SelectedModel {
   id: string;
+  display_name?: string;
   [key: string]: unknown;
 }
 
@@ -29,7 +50,6 @@ interface ResolvedModels {
   chat: string | null;
   thinking: string | null;
   image: string | null;
-  [key: string]: string | null;
 }
 
 export interface HealthDashboardData {
@@ -69,41 +89,43 @@ export function useHealthDashboard(): HealthDashboardData {
     enabled: backendOnline, // don't poll when backend is down
   });
 
-  const modelsQuery = useQuery<ModelInfo[]>({
+  const modelsQuery = useQuery<ModelsResponse>({
     queryKey: ['models', 'list'],
-    queryFn: () => apiGetPolling<ModelInfo[]>('/api/models'),
+    queryFn: () => apiGetPolling<ModelsResponse>('/api/models'),
     refetchInterval: 60_000,
     retry: false, // refetchInterval handles recovery
     enabled: backendOnline, // don't poll when backend is down
   });
 
-  // Detailed health includes watchdog and resolved models
-  const detailedQuery = useQuery<{
-    resolved_models?: ResolvedModels;
-    watchdog?: { last_check?: string; status?: string };
-  }>({
-    queryKey: ['health', 'detailed'],
-    queryFn: () =>
-      apiGetPolling<{
-        resolved_models?: ResolvedModels;
-        watchdog?: { last_check?: string; status?: string };
-      }>('/api/health/detailed'),
-    refetchInterval: 30_000,
-    retry: false,
-    enabled: backendOnline,
-  });
-
-  // GeminiHydra useHealthQuery returns { status: string } without uptime,
-  // so we read uptime_seconds from the SystemStats endpoint instead.
-  const uptimeSeconds = statsQuery.data?.uptime_seconds ?? null;
+  // Uptime comes from /api/health (uptime_seconds field)
+  const uptimeSeconds = healthQuery.data?.uptime_seconds ?? null;
   const authRequired = authQuery.data?.auth_required ?? null;
-  const cpuUsage = statsQuery.data?.cpu_usage ?? null;
-  const memoryUsedMb = statsQuery.data?.memory_used ?? null;
-  const memoryTotalMb = statsQuery.data?.memory_total ?? null;
-  const modelCount = modelsQuery.data ? modelsQuery.data.length : null;
-  const resolvedModels = detailedQuery.data?.resolved_models ?? null;
-  const watchdogLastCheck = detailedQuery.data?.watchdog?.last_check ?? null;
-  const watchdogStatus = detailedQuery.data?.watchdog?.status ?? null;
+  // System stats uses backend field names: cpu_usage_percent, memory_used_mb, memory_total_mb
+  const cpuUsage = statsQuery.data?.cpu_usage_percent ?? null;
+  const memoryUsedMb = statsQuery.data?.memory_used_mb ?? null;
+  const memoryTotalMb = statsQuery.data?.memory_total_mb ?? null;
+  // Model count from total_models field
+  const modelCount = modelsQuery.data?.total_models ?? null;
+
+  // Resolved models from /api/models selected field
+  const selected = modelsQuery.data?.selected ?? null;
+  const resolvedModels: ResolvedModels | null = selected
+    ? {
+        chat: selected.chat?.id ?? null,
+        thinking: selected.thinking?.id ?? null,
+        image: selected.image?.id ?? null,
+      }
+    : null;
+
+  // Watchdog status: backend is running if health is ok
+  // (no separate watchdog endpoint — derive from health status)
+  const watchdogLastCheck: string | null = null;
+  const watchdogStatus: string | null = backendOnline
+    ? healthQuery.data?.status === 'ok'
+      ? 'ok'
+      : (healthQuery.data?.status ?? null)
+    : null;
+
   const loading = healthQuery.isLoading || statsQuery.isLoading;
   const error = healthQuery.isError && statsQuery.isError;
 
@@ -112,7 +134,6 @@ export function useHealthDashboard(): HealthDashboardData {
     void statsQuery.refetch();
     void authQuery.refetch();
     void modelsQuery.refetch();
-    void detailedQuery.refetch();
   };
 
   return {

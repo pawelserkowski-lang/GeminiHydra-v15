@@ -7,7 +7,7 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { apiGetPolling } from '@/shared/api/client';
-import type { SystemStats } from '@/shared/api/schemas';
+import type { Health, SystemStats } from '@/shared/api/schemas';
 
 export function useSystemStatsQuery(enabled = true) {
   return useQuery<SystemStats>({
@@ -20,9 +20,9 @@ export function useSystemStatsQuery(enabled = true) {
 }
 
 export function useHealthQuery() {
-  return useQuery<{ status: string }>({
+  return useQuery<Health>({
     queryKey: ['health'],
-    queryFn: () => apiGetPolling<{ status: string }>('/api/health'),
+    queryFn: () => apiGetPolling<Health>('/api/health'),
     refetchInterval: 30_000,
     retry: false, // refetchInterval handles recovery naturally — no retry stacking
   });

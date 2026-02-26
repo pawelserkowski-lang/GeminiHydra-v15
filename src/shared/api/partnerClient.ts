@@ -40,7 +40,9 @@ export async function fetchPartnerSessions(): Promise<PartnerSessionSummary[]> {
     ...(PARTNER_AUTH_SECRET ? { headers: { Authorization: `Bearer ${PARTNER_AUTH_SECRET}` } } : {}),
   });
   if (!res.ok) throw new Error(`Partner API error: ${res.status}`);
-  return res.json();
+  const data = await res.json();
+  // CH returns { sessions: [...], has_more, next_cursor } — extract array
+  return Array.isArray(data) ? data : (data.sessions ?? []);
 }
 
 export async function fetchPartnerSession(id: string): Promise<PartnerSession> {

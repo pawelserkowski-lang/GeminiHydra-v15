@@ -71,23 +71,19 @@ function AppShellInner({ children, statusFooterProps }: AppShellProps) {
     return raw ? formatModelName(raw) : undefined;
   }, [activeModel, settings?.default_model]);
 
-  // Build live footer props
-  // Backend returns cpu_usage_percent / memory_used_mb / memory_total_mb (not matching TS schema)
-  const raw = stats as Record<string, number> | undefined;
+  // Build live footer props from system stats
   const resolvedFooterProps = useMemo<StatusFooterProps>(
     () => ({
       ...statusFooterProps,
       connectionHealth,
       ...(displayModel && { selectedModel: displayModel }),
-      ...(raw && {
-        cpuUsage: Math.round(raw.cpu_usage_percent ?? raw.cpu_usage ?? 0),
-        ramUsage: Math.round(
-          ((raw.memory_used_mb ?? raw.memory_used ?? 0) / (raw.memory_total_mb ?? raw.memory_total ?? 1)) * 100,
-        ),
+      ...(stats && {
+        cpuUsage: Math.round(stats.cpu_usage_percent),
+        ramUsage: Math.round((stats.memory_used_mb / stats.memory_total_mb) * 100),
         statsLoaded: true,
       }),
     }),
-    [statusFooterProps, connectionHealth, displayModel, raw],
+    [statusFooterProps, connectionHealth, displayModel, stats],
   );
 
   // Global Ctrl+T shortcut — creates a new chat tab when in chat view
