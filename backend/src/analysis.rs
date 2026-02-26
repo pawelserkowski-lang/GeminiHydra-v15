@@ -1,9 +1,15 @@
 // backend/src/analysis.rs
-//! Static Code Analysis module using Tree-sitter.
+//! Static Code Analysis module using Tree-sitter with regex fallback.
 //!
 //! Provides AST-based structure extraction to give agents a high-level view
 //! of code without reading entire file contents.
+//!
+//! Two-stage approach:
+//! 1. Tree-sitter AST parsing (most accurate, handles complex syntax)
+//! 2. Regex-based fallback (handles newer syntax tree-sitter may not support,
+//!    e.g. Rust let-chains, or when tree-sitter grammar version mismatches)
 
+use regex::Regex;
 use serde::Serialize;
 use streaming_iterator::StreamingIterator;
 use tree_sitter::{Parser, Query, QueryCursor};
@@ -21,6 +27,42 @@ pub struct FileStructure {
     pub path: String,
     pub symbols: Vec<CodeSymbol>,
 }
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
+/// Analyze a source file and extract its code structure (functions, classes, etc.).
+///
+/// Uses tree-sitter AST analysis first; falls back to regex-based extraction
+/// when tree-sitter fails (e.g., for files using newer language syntax).
+pub fn analyze_file(path: &str, content: &str) -> Option<FileStructure> {
+    let extension = std::path::Path::new(path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("");
+
+    // Check if we support this extension at all
+    if !matches!(extension, "rs" | "ts" | "tsx" | "js" | "jsx" | "py" | "go") {
+        return None;
+    }
+
+    // Try tree-sitter AST analysis first (most accurate)
+    if let Some(result) = analyze_treesitter(path, content, extension) {
+        if !result.symbols.is_empty() {
+            return Some(result);
+        }
+    }
+
+    // Fallback: regex-based analysis (handles newer syntax tree-sitter may not support)
+    tracing::debug!("Tree-sitter returned no symbols for '{}', using regex fallback", path);
+    let result = analyze_regex(path, content, extension);
+    if result.symbols.is_empty() { None } else { Some(result) }
+}
+
+// ---------------------------------------------------------------------------
+// Tree-sitter Analysis
+// ---------------------------------------------------------------------------
 
 /// Query definitions for each supported language.
 /// Each language may provide multiple query variants: if the first fails
@@ -78,12 +120,7 @@ fn go_queries() -> &'static [&'static str] {
     ]
 }
 
-pub fn analyze_file(path: &str, content: &str) -> Option<FileStructure> {
-    let extension = std::path::Path::new(path)
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("");
-
+fn analyze_treesitter(path: &str, content: &str, extension: &str) -> Option<FileStructure> {
     let mut parser = Parser::new();
     let language = match extension {
         "rs" => tree_sitter_rust::LANGUAGE.into(),
@@ -94,8 +131,18 @@ pub fn analyze_file(path: &str, content: &str) -> Option<FileStructure> {
         _ => return None,
     };
 
-    parser.set_language(&language).ok()?;
-    let tree = parser.parse(content, None)?;
+    if parser.set_language(&language).is_err() {
+        tracing::warn!("Tree-sitter: failed to set language for extension '{}'", extension);
+        return None;
+    }
+
+    let tree = match parser.parse(content, None) {
+        Some(t) => t,
+        None => {
+            tracing::warn!("Tree-sitter: failed to parse '{}'", path);
+            return None;
+        }
+    };
     let root = tree.root_node();
 
     let query_variants = match extension {
@@ -107,8 +154,13 @@ pub fn analyze_file(path: &str, content: &str) -> Option<FileStructure> {
     };
 
     // Try each query variant until one succeeds
-    let query = query_variants.iter()
-        .find_map(|qs| Query::new(&language, qs).ok())?;
+    let query = match query_variants.iter().find_map(|qs| Query::new(&language, qs).ok()) {
+        Some(q) => q,
+        None => {
+            tracing::warn!("Tree-sitter: all query variants failed for '{}'", path);
+            return None;
+        }
+    };
 
     let mut cursor = QueryCursor::new();
     let mut symbols = Vec::new();
@@ -167,4 +219,81 @@ pub fn analyze_file(path: &str, content: &str) -> Option<FileStructure> {
         path: path.to_string(),
         symbols,
     })
+}
+
+// ---------------------------------------------------------------------------
+// Regex-based Fallback
+// ---------------------------------------------------------------------------
+
+/// Regex-based code structure extraction. Less accurate than tree-sitter
+/// but handles files with newer syntax that tree-sitter grammars may not support.
+fn analyze_regex(path: &str, content: &str, extension: &str) -> FileStructure {
+    let patterns: &[(&str, &str)] = match extension {
+        "rs" => &[
+            (r"(?m)^\s*(?:pub(?:\(crate\))?\s+)?(?:async\s+)?fn\s+(\w+)", "function"),
+            (r"(?m)^\s*(?:pub(?:\(crate\))?\s+)?struct\s+(\w+)", "struct"),
+            (r"(?m)^\s*(?:pub(?:\(crate\))?\s+)?enum\s+(\w+)", "enum"),
+            (r"(?m)^\s*(?:pub(?:\(crate\))?\s+)?trait\s+(\w+)", "trait"),
+            (r"(?m)^impl(?:<[^>]*>)?\s+(?:(\w+)\s+for\s+)?(\w+)", "impl"),
+            (r"(?m)^\s*(?:pub(?:\(crate\))?\s+)?mod\s+(\w+)", "mod"),
+        ],
+        "ts" | "tsx" | "js" | "jsx" => &[
+            (r"(?m)^\s*(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s+(\w+)", "function"),
+            (r"(?m)^\s*(?:export\s+)?(?:default\s+)?class\s+(\w+)", "class"),
+            (r"(?m)^\s*(?:export\s+)?interface\s+(\w+)", "interface"),
+            (r"(?m)^\s*(?:export\s+)?type\s+(\w+)", "type"),
+            (r"(?m)^\s*(?:export\s+)?(?:const|let)\s+(\w+)\s*=\s*(?:async\s+)?\(", "arrow_fn"),
+        ],
+        "py" => &[
+            (r"(?m)^\s*(?:async\s+)?def\s+(\w+)", "function"),
+            (r"(?m)^\s*class\s+(\w+)", "class"),
+        ],
+        "go" => &[
+            (r"(?m)^func\s+(?:\(\w+\s+\*?\w+\)\s+)?(\w+)", "function"),
+            (r"(?m)^type\s+(\w+)\s+struct", "struct"),
+            (r"(?m)^type\s+(\w+)\s+interface", "interface"),
+        ],
+        _ => &[],
+    };
+
+    let mut symbols = Vec::new();
+    let lines: Vec<&str> = content.lines().collect();
+
+    for &(pattern, kind) in patterns {
+        if let Ok(re) = Regex::new(pattern) {
+            for cap in re.captures_iter(content) {
+                // Use the last non-None capture group (handles impl X for Y case)
+                let name = (1..cap.len())
+                    .rev()
+                    .find_map(|i| cap.get(i).map(|m| m.as_str().to_string()))
+                    .unwrap_or_else(|| "anonymous".to_string());
+
+                if name == "anonymous" { continue; }
+
+                let byte_offset = cap.get(0).map(|m| m.start()).unwrap_or(0);
+                let line_num = content[..byte_offset].matches('\n').count();
+                let signature = if line_num < lines.len() {
+                    lines[line_num].trim().to_string()
+                } else {
+                    kind.to_string()
+                };
+
+                symbols.push(CodeSymbol {
+                    kind: kind.to_string(),
+                    name,
+                    signature,
+                    line: line_num + 1,
+                });
+            }
+        }
+    }
+
+    // Sort by line number and deduplicate
+    symbols.sort_by_key(|s| s.line);
+    symbols.dedup_by(|a, b| a.line == b.line && a.name == b.name);
+
+    FileStructure {
+        path: path.to_string(),
+        symbols,
+    }
 }

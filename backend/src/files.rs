@@ -149,7 +149,7 @@ pub fn extract_file_paths(prompt: &str) -> Vec<String> {
 // File reading
 // ---------------------------------------------------------------------------
 
-fn is_text_extension(ext: &str) -> bool {
+pub fn is_text_extension(ext: &str) -> bool {
     TEXT_EXTENSIONS.contains(&ext.to_lowercase().as_str())
 }
 

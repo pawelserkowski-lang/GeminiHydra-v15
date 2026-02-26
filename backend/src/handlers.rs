@@ -156,70 +156,52 @@ fn build_system_prompt(agent_id: &str, agents: &[WitcherAgent], language: &str, 
 
     let custom = agent.system_prompt.as_deref().unwrap_or("");
     let base_prompt = format!(
-        r#"## CRITICAL: Local Machine Access
-You are running on the user's LOCAL machine with FULL filesystem access.
-You CAN and MUST read, write, and browse local files directly using your tools.
-NEVER say "I don't have access to your files" or "I can't read local files" — YOU CAN.
-When the user provides a file path or directory path, USE your tools to access it immediately.
+        r#"## Your Identity
+**{name}** | {role} | {tier} | Powered by `{model}` | GeminiHydra v15 Wolf Swarm
+{description}
 
-## CRITICAL: Substance Over Theatrics
-- Be CONCISE and DIRECT. Every sentence must provide value.
-- NEVER use `execute_command` for theatrical purposes (echo, print status messages, greetings).
-- NEVER roleplay, monologue, or add flavor text. No "Ah, I see you want to..." or character speeches.
-- When the user sends a simple message like "test" or "hello", respond briefly and ask what they need.
-- Your personality comes through the QUALITY of your work, not through theatrical dialogue.
+## Environment
+- LOCAL machine with FULL filesystem access. You CAN read/write/browse files. NEVER say otherwise.
+- **Windows** machine. Use Windows commands if you must use `execute_command`.
+- Respond in **{language}** unless the user writes differently.
 
-## CRITICAL: Action-First Protocol
-1. **NEVER suggest commands** — EXECUTE them with `execute_command`.
-2. **NEVER ask the user to paste code** — use `read_file` to read it yourself.
-3. **Directory detected?** — Call `list_directory` IMMEDIATELY, then explore.
-4. **Refactoring**: `list_directory` → `read_file` → analyze → `write_file` → verify.
-5. **Act first, explain after.**
-6. **Chain up to 10 tool calls per turn.**
+## Tools (local filesystem)
+| Tool | Use for | NEVER use execute_command for |
+|------|---------|-------------------------------|
+| `list_directory` | browse directories | ls, dir |
+| `read_file` | read files by path | cat, type, Get-Content |
+| `search_files` | find text patterns across files | grep, Select-String, findstr |
+| `get_code_structure` | AST overview (Rust, TS, JS, Py, Go) | — |
+| `write_file` | create/edit files | echo, redirect |
+| `execute_command` | ONLY build/test/git/npm/cargo CLI | — |
 
-## CRITICAL: Quality Standards
-- Every response must contain SPECIFIC, ACTIONABLE insights — not generic observations.
-- When analyzing code: identify concrete issues, suggest specific improvements, reference exact files and line numbers.
-- NEVER dump raw tool output without analysis. Tool results are INPUT to your reasoning, not the response itself.
-- A file listing is NOT analysis. Reading function signatures is NOT analysis.
-- Structure your findings with clear sections: Issues Found, Recommendations, Architecture Notes.
+## Core Rules
+1. **Act first, explain after.** Execute tools — never suggest commands for the user to run.
+2. **Be concise and direct.** No roleplay, monologue, or flavor text. Quality comes from insights, not theatrics.
+3. **Use 2-4 strategic tool calls**, not 10 unfocused ones. Read key files deeply, not all files superficially.
+4. **get_code_structure before read_file** — use AST overview first to decide which functions to read in full.
 
-## CRITICAL: Deep Analysis Protocol
-When asked to analyze or review code:
-1. **Understand the architecture first**: Read key config files (package.json, Cargo.toml, main entry points).
-2. **Read the actual code**: Use `read_file` on important source files — don't just list them.
-3. **Identify real issues**: Look for bugs, security problems, performance bottlenecks, design flaws, missing error handling.
-4. **Provide structured feedback**:
-   - **Architecture**: How is the code organized? Is it well-structured?
-   - **Code Quality**: Are there anti-patterns, code smells, or violations?
-   - **Security**: Any vulnerabilities (injection, auth issues, exposed secrets)?
-   - **Performance**: Any obvious bottlenecks or inefficiencies?
-   - **Testing**: Is test coverage adequate? Are tests meaningful?
-   - **Actionable Fixes**: Specific recommendations with file paths and code changes.
-5. **Be selective**: Don't try to read every file. Focus on the most important ones and go deep.
+## MANDATORY: Response Quality Protocol
+THIS IS THE MOST IMPORTANT SECTION. Your response quality is measured by ANALYSIS, not by how many tools you call.
 
-## CRITICAL: Tool Selection Rules
-- **To list files/directories** → ALWAYS use `list_directory`, NEVER `execute_command` with ls/dir.
-- **To read a file** → ALWAYS use `read_file`, NEVER `execute_command` with cat/type.
-- **To write a file** → ALWAYS use `write_file`, NEVER `execute_command` with echo/redirect.
-- Use `execute_command` ONLY for: build, test, git, npm, cargo, pip, and other CLI tools.
-- This is a **Windows** machine. If you must use `execute_command`, use Windows commands (dir, type, etc.), NOT Unix (ls, cat, cd ~).
+**WHAT MAKES A GOOD RESPONSE:**
+- Specific, actionable findings with file paths and line numbers
+- Structured sections: Architecture, Issues, Security, Performance, Recommendations
+- Concrete code improvements with before/after examples
+- Prioritized findings (critical → minor)
 
-## Your Identity
-- **Name:** {name} | **Role:** {role} | **Tier:** {tier}
-- **AI Model:** You are powered by `{model}`. NEVER claim to use a different model or version.
-- {description}
-- Part of **GeminiHydra v15 Wolf Swarm**.
+**WHAT MAKES A BAD RESPONSE (NEVER DO THIS):**
+- Dumping raw tool output (file listings, code blocks) without interpretation
+- Calling tools endlessly without synthesizing — 3-4 focused tool calls then ANALYZE
+- Generic observations like "the code looks well-organized" without specifics
+- Listing files/functions without evaluating them
 
-## Language
-- Respond in **{language}** unless the user writes in a different language.
-
-## Tools (all operate on the LOCAL filesystem)
-- `execute_command` — run shell commands on this machine (ONLY for build/test/git/CLI tools, NEVER for echo/print)
-- `read_file` — read any local file by absolute path
-- `write_file` — write/create local files
-- `list_directory` — browse local directories
-- `get_code_structure` — analyze code AST without full read (supports: Rust, TypeScript, JavaScript, Python, Go)
+**AFTER USING TOOLS — ALWAYS:**
+1. Stop calling tools after gathering enough data (usually 3-5 calls)
+2. Write a structured analysis with specific insights
+3. Reference exact file paths and line numbers
+4. Provide actionable recommendations with concrete code changes
+5. Tool results are INPUT to your reasoning — your TEXT response is the actual deliverable
 
 ## Swarm Roster
 {roster}"#,
@@ -419,6 +401,8 @@ struct ExecuteContext {
     final_user_prompt: String,
     files_loaded: Vec<String>,
     steps: Vec<String>,
+    temperature: f64,
+    max_tokens: i32,
 }
 
 async fn prepare_execution(
@@ -431,12 +415,12 @@ async fn prepare_execution(
     
     let (agent_id, confidence, reasoning) = agent_override.unwrap_or_else(|| classify_prompt(prompt, &agents_lock));
 
-    let (def_model, lang) = sqlx::query_as::<_, (String, String)>(
-        "SELECT default_model, language FROM gh_settings WHERE id = 1",
+    let (def_model, lang, temperature, max_tokens) = sqlx::query_as::<_, (String, String, f64, i32)>(
+        "SELECT default_model, language, temperature, max_tokens FROM gh_settings WHERE id = 1",
     )
     .fetch_one(&state.db)
     .await
-    .unwrap_or_else(|_| ("gemini-3.1-pro-preview".to_string(), "en".to_string()));
+    .unwrap_or_else(|_| ("gemini-3.1-pro-preview".to_string(), "en".to_string(), 0.7, 8192));
 
     let model = model_override.unwrap_or(def_model);
     let language = match lang.as_str() { "pl" => "Polish", "en" => "English", other => other };
@@ -481,6 +465,8 @@ async fn prepare_execution(
         final_user_prompt,
         files_loaded,
         steps,
+        temperature,
+        max_tokens,
     }
 }
 
@@ -549,6 +535,27 @@ impl SseParser {
         self.buffer.clear();
         events
     }
+}
+
+/// Truncate tool output for Gemini context to prevent context window overflow.
+/// Full output is still streamed to the user via WebSocket — this only affects
+/// what gets sent back to Gemini as functionResponse for the next iteration.
+const MAX_TOOL_RESULT_FOR_CONTEXT: usize = 6000;
+
+fn truncate_for_context(output: &str) -> String {
+    if output.len() <= MAX_TOOL_RESULT_FOR_CONTEXT {
+        return output.to_string();
+    }
+    let boundary = output.char_indices()
+        .take_while(|(i, _)| *i < MAX_TOOL_RESULT_FOR_CONTEXT)
+        .last()
+        .map(|(i, c)| i + c.len_utf8())
+        .unwrap_or(0);
+    format!(
+        "{}\n\n... [truncated — {} total chars. You have enough data. ANALYZE what you see instead of reading more.]",
+        &output[..boundary],
+        output.len()
+    )
 }
 
 async fn ws_send(sender: &mut futures_util::stream::SplitSink<WebSocket, WsMessage>, msg: &WsServerMessage) -> bool {
@@ -685,12 +692,26 @@ async fn execute_streaming_gemini(
 
     let mut full_text = String::new();
     for iter in 0..10 {
-        let body = json!({ "systemInstruction": { "parts": [{ "text": ctx.system_prompt }] }, "contents": contents, "tools": tools });
+        let body = json!({
+            "systemInstruction": { "parts": [{ "text": ctx.system_prompt }] },
+            "contents": contents,
+            "tools": tools,
+            "generationConfig": {
+                "temperature": ctx.temperature,
+                "topP": 0.95,
+                "maxOutputTokens": ctx.max_tokens
+            }
+        });
         let resp = match state.client.post(parsed_url.clone()).json(&body).send().await {
             Ok(r) if r.status().is_success() => r,
             Ok(r) => {
                 let err_body = r.text().await.unwrap_or_default();
-                tracing::error!("Gemini API error: {}", &err_body[..err_body.len().min(500)]);
+                let safe_len = err_body.char_indices()
+                    .take_while(|(i, _)| *i < 500)
+                    .last()
+                    .map(|(i, c)| i + c.len_utf8())
+                    .unwrap_or(0);
+                tracing::error!("Gemini API error: {}", &err_body[..safe_len]);
                 let _ = ws_send(sender, &WsServerMessage::Error { message: "AI service error".into(), code: Some("GEMINI_ERROR".into()) }).await;
                 return full_text;
             }
@@ -722,7 +743,15 @@ async fn execute_streaming_gemini(
             let res_md = format!("```\n{}\n```\n---\n\n", output);
             full_text.push_str(&res_md);
             let _ = ws_send(sender, &WsServerMessage::Token { content: res_md }).await;
-            res_parts.push(json!({ "functionResponse": { "name": name, "response": { "result": output } } }));
+
+            // Truncate tool output for Gemini context to prevent context overflow.
+            // Full output is already streamed to the user above.
+            let context_output = truncate_for_context(&output);
+            res_parts.push(json!({ "functionResponse": { "name": name, "response": { "result": context_output } } }));
+        }
+        // After tool results, add synthesis reminder to prevent endless tool-calling
+        if iter >= 2 {
+            res_parts.push(json!({ "text": "[SYSTEM: You have made multiple tool calls. Stop gathering data and SYNTHESIZE your findings NOW. Provide structured analysis with specific insights, issues, and actionable recommendations. Reference exact files and line numbers. Do NOT call more tools unless absolutely critical.]" }));
         }
         contents.push(json!({ "role": "user", "parts": res_parts }));
     }
@@ -1010,11 +1039,36 @@ pub async fn list_files(Json(body): Json<FileListRequest>) -> Json<Value> {
 fn build_tools() -> Value {
     json!([{
         "function_declarations": [
-            { "name": "execute_command", "description": "Execute a shell command on the local machine. Use for git, npm, cargo, and other CLI operations.", "parameters": { "type": "object", "properties": { "command": { "type": "string", "description": "Shell command to execute" } }, "required": ["command"] } },
-            { "name": "read_file", "description": "Read a file from the local filesystem by its absolute path. Use this to inspect code, configs, logs, etc.", "parameters": { "type": "object", "properties": { "path": { "type": "string", "description": "Absolute path to the local file, e.g. C:\\Users\\...\\file.ts" } }, "required": ["path"] } },
-            { "name": "write_file", "description": "Write or create a file on the local filesystem. Use for code edits, config changes, etc.", "parameters": { "type": "object", "properties": { "path": { "type": "string", "description": "Absolute path for the file to write" }, "content": { "type": "string", "description": "Full file content to write" } }, "required": ["path", "content"] } },
-            { "name": "list_directory", "description": "List files and subdirectories in a local directory. Use to explore project structure.", "parameters": { "type": "object", "properties": { "path": { "type": "string", "description": "Absolute path to the local directory" }, "show_hidden": { "type": "boolean", "description": "Include hidden files (dotfiles)" } }, "required": ["path"] } },
-            { "name": "get_code_structure", "description": "Analyze code structure (functions, classes, imports) via AST without reading full file content. Supports Rust, TypeScript, JavaScript, Python, Go.", "parameters": { "type": "object", "properties": { "path": { "type": "string", "description": "Absolute path to the source file to analyze" } }, "required": ["path"] } }
+            {
+                "name": "list_directory",
+                "description": "List files and subdirectories in a local directory. ALWAYS use this to explore project structure — never use execute_command with dir/ls.",
+                "parameters": { "type": "object", "properties": { "path": { "type": "string", "description": "Absolute path to the local directory" }, "show_hidden": { "type": "boolean", "description": "Include hidden files (dotfiles)" } }, "required": ["path"] }
+            },
+            {
+                "name": "read_file",
+                "description": "Read a file from the local filesystem by its absolute path. ALWAYS use this to inspect code — never use execute_command with cat/type/Get-Content.",
+                "parameters": { "type": "object", "properties": { "path": { "type": "string", "description": "Absolute path to the local file, e.g. C:\\Users\\...\\file.ts" } }, "required": ["path"] }
+            },
+            {
+                "name": "search_files",
+                "description": "Search for text or regex patterns across all files in a directory (recursive). Returns matching lines with file paths and line numbers. ALWAYS use this to search for code patterns — never use execute_command with grep/Select-String/findstr.",
+                "parameters": { "type": "object", "properties": { "path": { "type": "string", "description": "Directory to search in (absolute path)" }, "pattern": { "type": "string", "description": "Text or regex pattern to search for (case-insensitive)" }, "file_extensions": { "type": "string", "description": "Comma-separated extensions to filter, e.g. 'ts,tsx,rs'. Default: all text files" } }, "required": ["path", "pattern"] }
+            },
+            {
+                "name": "get_code_structure",
+                "description": "Analyze code structure (functions, classes, structs, traits) via AST without reading full file content. Returns symbol names, types, and line numbers. Supports Rust, TypeScript, JavaScript, Python, Go.",
+                "parameters": { "type": "object", "properties": { "path": { "type": "string", "description": "Absolute path to the source file to analyze" } }, "required": ["path"] }
+            },
+            {
+                "name": "write_file",
+                "description": "Write or create a file on the local filesystem. Use for code edits, config changes, etc.",
+                "parameters": { "type": "object", "properties": { "path": { "type": "string", "description": "Absolute path for the file to write" }, "content": { "type": "string", "description": "Full file content to write" } }, "required": ["path", "content"] }
+            },
+            {
+                "name": "execute_command",
+                "description": "Execute a shell command on the local Windows machine. ONLY use for build/test/git/npm/cargo CLI operations. NEVER use for file reading (use read_file), directory listing (use list_directory), or text search (use search_files).",
+                "parameters": { "type": "object", "properties": { "command": { "type": "string", "description": "Shell command to execute (Windows cmd.exe)" } }, "required": ["command"] }
+            }
         ]
     }])
 }
@@ -1037,7 +1091,15 @@ pub async fn execute(State(state): State<AppState>, Json(body): Json<ExecuteRequ
         Ok(u) if u.scheme() == "https" => u,
         _ => return Json(json!({ "error": "API credentials require HTTPS" })),
     };
-    let gem_body = json!({ "systemInstruction": { "parts": [{ "text": ctx.system_prompt }] }, "contents": [{ "parts": [{ "text": ctx.final_user_prompt }] }] });
+    let gem_body = json!({
+        "systemInstruction": { "parts": [{ "text": ctx.system_prompt }] },
+        "contents": [{ "parts": [{ "text": ctx.final_user_prompt }] }],
+        "generationConfig": {
+            "temperature": ctx.temperature,
+            "topP": 0.95,
+            "maxOutputTokens": ctx.max_tokens
+        }
+    });
 
     let res = state.client.post(parsed_url).json(&gem_body).send().await;
     let text = match res {

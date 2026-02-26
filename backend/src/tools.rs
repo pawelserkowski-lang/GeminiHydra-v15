@@ -1,12 +1,15 @@
 // backend/src/tools.rs
 //! Tool execution module for Gemini function calling.
 //!
-//! Provides 4 local tools that Gemini agents can invoke:
+//! Provides 6 local tools that Gemini agents can invoke:
 //! - `execute_command` — run shell commands with timeout + safety filters
 //! - `read_file` — read file contents (reuses files::read_file_for_context)
 //! - `write_file` — create/overwrite files with size + path restrictions
 //! - `list_directory` — list directory contents (reuses files::list_directory)
+//! - `search_files` — search for text/regex patterns across files in a directory
+//! - `get_code_structure` — analyze code AST without full read
 
+use regex::Regex;
 use serde_json::Value;
 use std::time::Duration;
 use tokio::process::Command;
@@ -57,6 +60,16 @@ pub async fn execute_tool(name: &str, args: &Value, state: &AppState) -> Result<
                 .ok_or("Missing required argument: path")?;
             let show_hidden = args["show_hidden"].as_bool().unwrap_or(false);
             tool_list_directory(path, show_hidden).await
+        }
+        "search_files" => {
+            let path = args["path"]
+                .as_str()
+                .ok_or("Missing required argument: path")?;
+            let pattern = args["pattern"]
+                .as_str()
+                .ok_or("Missing required argument: pattern")?;
+            let extensions = args["file_extensions"].as_str();
+            tool_search_files(path, pattern, extensions).await
         }
         "get_code_structure" => {
             let path = args["path"]
@@ -217,6 +230,147 @@ fn format_size(bytes: u64) -> String {
 }
 
 // ---------------------------------------------------------------------------
+// search_files
+// ---------------------------------------------------------------------------
+
+/// Max search results to return.
+const MAX_SEARCH_RESULTS: usize = 80;
+
+/// Max directory depth for recursive search.
+const MAX_SEARCH_DEPTH: usize = 8;
+
+/// Directories to skip during search.
+const SKIP_DIRS: &[&str] = &[
+    "node_modules", "target", "dist", "build", ".git", "__pycache__",
+    ".next", ".nuxt", "vendor", ".cache", "coverage", ".turbo",
+];
+
+async fn tool_search_files(
+    path: &str,
+    pattern: &str,
+    extensions: Option<&str>,
+) -> Result<String, String> {
+    let dir = std::path::Path::new(path);
+    if !dir.is_dir() {
+        return Err(format!("'{}' is not a directory", path));
+    }
+
+    // Build regex: try as regex first, fall back to literal escape
+    let re = Regex::new(&format!("(?i){}", pattern))
+        .or_else(|_| Regex::new(&format!("(?i){}", regex::escape(pattern))))
+        .map_err(|e| format!("Invalid pattern '{}': {}", pattern, e))?;
+
+    // Parse extension filter
+    let ext_filter: Option<Vec<String>> = extensions.map(|e| {
+        e.split(',')
+            .map(|s| s.trim().trim_start_matches('.').to_lowercase())
+            .filter(|s| !s.is_empty())
+            .collect()
+    });
+
+    let mut results = Vec::new();
+    let mut files_searched: usize = 0;
+    let mut stack: Vec<(std::path::PathBuf, usize)> = vec![(dir.to_path_buf(), 0)];
+
+    while let Some((current_dir, depth)) = stack.pop() {
+        if depth > MAX_SEARCH_DEPTH || results.len() >= MAX_SEARCH_RESULTS {
+            break;
+        }
+
+        let mut entries = match tokio::fs::read_dir(&current_dir).await {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+
+        while let Ok(Some(entry)) = entries.next_entry().await {
+            if results.len() >= MAX_SEARCH_RESULTS {
+                break;
+            }
+
+            let entry_path = entry.path();
+            let name = entry.file_name().to_string_lossy().to_string();
+
+            // Skip hidden and ignored directories
+            if name.starts_with('.') && entry_path.is_dir() {
+                continue;
+            }
+            if SKIP_DIRS.contains(&name.as_str()) {
+                continue;
+            }
+
+            if entry_path.is_dir() {
+                stack.push((entry_path, depth + 1));
+            } else if entry_path.is_file() {
+                let ext = entry_path
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .unwrap_or("")
+                    .to_lowercase();
+
+                // Filter by extension if specified
+                if let Some(ref filter) = ext_filter {
+                    if !filter.contains(&ext) {
+                        continue;
+                    }
+                }
+
+                // Only search text files
+                if !crate::files::is_text_extension(&ext) {
+                    continue;
+                }
+
+                // Read and search
+                if let Ok(content) = tokio::fs::read_to_string(&entry_path).await {
+                    files_searched += 1;
+                    for (line_num, line) in content.lines().enumerate() {
+                        if results.len() >= MAX_SEARCH_RESULTS {
+                            break;
+                        }
+                        if re.is_match(line) {
+                            let trimmed = line.trim();
+                            // Truncate very long lines
+                            let display = if trimmed.len() > 200 {
+                                format!("{}...", &trimmed[..200])
+                            } else {
+                                trimmed.to_string()
+                            };
+                            results.push(format!(
+                                "{}:{}:  {}",
+                                entry_path.display(),
+                                line_num + 1,
+                                display
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if results.is_empty() {
+        Ok(format!(
+            "No matches found for '{}' in '{}' ({} files searched)",
+            pattern, path, files_searched
+        ))
+    } else {
+        let truncated = if results.len() >= MAX_SEARCH_RESULTS {
+            format!(" (truncated at {} results)", MAX_SEARCH_RESULTS)
+        } else {
+            String::new()
+        };
+        Ok(format!(
+            "Found {} match(es) for '{}' in '{}' ({} files searched){}:\n\n{}",
+            results.len(),
+            pattern,
+            path,
+            files_searched,
+            truncated,
+            results.join("\n")
+        ))
+    }
+}
+
+// ---------------------------------------------------------------------------
 // get_code_structure
 // ---------------------------------------------------------------------------
 
@@ -226,17 +380,17 @@ async fn tool_get_code_structure(path: &str) -> Result<String, String> {
         .await
         .map_err(|e| format!("Cannot read file '{}': {}", e.path, e.reason))?;
 
-    // Analyze
+    // Analyze (tree-sitter first, regex fallback)
     if let Some(structure) = crate::analysis::analyze_file(&ctx.path, &ctx.content) {
         let mut out = format!("### Code Structure: {}\n", ctx.path);
         if structure.symbols.is_empty() {
             out.push_str("(No symbols detected or language not supported)");
         } else {
-            for sym in structure.symbols {
-                out.push_str(&format!("- [L{}] {} {}\n", sym.line, sym.kind, sym.name));
-                // Optional: include signature if short?
-                // out.push_str(&format!("  `{}`\n", sym.signature));
+            for sym in &structure.symbols {
+                out.push_str(&format!("- [L{}] {} `{}`\n", sym.line, sym.kind, sym.name));
+                out.push_str(&format!("  `{}`\n", sym.signature));
             }
+            out.push_str(&format!("\n{} symbols total", structure.symbols.len()));
         }
         Ok(out)
     } else {
