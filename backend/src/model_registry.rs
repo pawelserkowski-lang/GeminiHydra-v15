@@ -83,22 +83,17 @@ async fn fetch_google_models(
     client: &reqwest::Client,
     api_key: &str,
 ) -> Result<Vec<ModelInfo>, String> {
-    let url = format!(
-        "https://generativelanguage.googleapis.com/v1beta/models?key={}",
-        api_key
-    );
+    let url = "https://generativelanguage.googleapis.com/v1beta/models";
 
-    let parsed_url = reqwest::Url::parse(&url)
+    let parsed_url = reqwest::Url::parse(url)
         .map_err(|e| format!("Invalid URL: {}", e))?;
-    if parsed_url.scheme() != "https" {
-        return Err("API credentials must only be sent over HTTPS".to_string());
-    }
 
     let resp = client
         .get(parsed_url)
+        .header("x-goog-api-key", api_key)
         .send()
         .await
-        .map_err(|e| format!("Google models request failed: {}", e))?;
+        .map_err(|e| format!("Google models request failed: {:?}", e))?;
 
     if !resp.status().is_success() {
         return Err(format!("Google models API returned {}", resp.status()));

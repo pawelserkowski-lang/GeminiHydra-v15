@@ -680,14 +680,22 @@ pub async fn generate_session_title(
     }
 
     let json_resp: Value = res.json().await.map_err(|_| StatusCode::BAD_GATEWAY)?;
-    let raw_title = json_resp["candidates"][0]["content"]["parts"][0]["text"]
-        .as_str()
-        .unwrap_or("")
-        .trim()
-        .trim_matches('"')
-        .trim();
+    let raw_title = json_resp
+        .get("candidates")
+        .and_then(|c| c.get(0))
+        .and_then(|c0| c0.get("content"))
+        .and_then(|ct| ct.get("parts"))
+        .and_then(|p| p.get(0))
+        .and_then(|p0| p0.get("text"))
+        .and_then(|t| t.as_str())
+        .unwrap_or("");
+    let raw_title = raw_title.trim().trim_matches('"').trim();
 
     if raw_title.is_empty() {
+        tracing::warn!(
+            "generate_session_title: Gemini response missing text — {}",
+            crate::handlers::gemini_diagnose(&json_resp)
+        );
         return Err(StatusCode::BAD_GATEWAY);
     }
 

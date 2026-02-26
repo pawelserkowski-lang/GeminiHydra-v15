@@ -11,7 +11,8 @@
 import { toast } from 'sonner';
 import { env } from '../config/env';
 
-const BASE_URL = env.VITE_BACKEND_URL ?? (import.meta.env.PROD ? 'https://geminihydra-v15-backend.fly.dev' : '');
+const isLocalhost = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+const BASE_URL = env.VITE_BACKEND_URL ?? (import.meta.env.PROD && !isLocalhost ? 'https://geminihydra-v15-backend.fly.dev' : '');
 const AUTH_SECRET = env.VITE_AUTH_SECRET;
 
 const MAX_RETRIES = 3;

@@ -77,6 +77,50 @@ impl axum::response::IntoResponse for ApiError {
 
 // ---------------------------------------------------------------------------
 // Helpers & Routing Logic
+
+/// Extract diagnostic info from a Gemini API response that's missing expected parts.
+pub(crate) fn gemini_diagnose(resp_json: &Value) -> String {
+    let mut diag = Vec::new();
+
+    if let Some(feedback) = resp_json.get("promptFeedback") {
+        if let Some(reason) = feedback.get("blockReason").and_then(|v| v.as_str()) {
+            diag.push(format!("promptFeedback.blockReason={}", reason));
+        }
+        if let Some(ratings) = feedback.get("safetyRatings").and_then(|v| v.as_array()) {
+            for r in ratings {
+                if let (Some(cat), Some(prob)) = (
+                    r.get("category").and_then(|v| v.as_str()),
+                    r.get("probability").and_then(|v| v.as_str()),
+                ) {
+                    if prob != "NEGLIGIBLE" && prob != "LOW" {
+                        diag.push(format!("safety: {}={}", cat, prob));
+                    }
+                }
+            }
+        }
+    }
+
+    if let Some(candidates) = resp_json.get("candidates").and_then(|v| v.as_array()) {
+        if candidates.is_empty() {
+            diag.push("candidates array is empty".to_string());
+        } else if let Some(c0) = candidates.first() {
+            if let Some(reason) = c0.get("finishReason").and_then(|v| v.as_str()) {
+                diag.push(format!("finishReason={}", reason));
+            }
+            if c0.get("content").is_none() {
+                diag.push("candidate has no 'content' field".to_string());
+            }
+        }
+    } else {
+        diag.push("no 'candidates' field in response".to_string());
+    }
+
+    if diag.is_empty() {
+        "unknown (response structure unrecognized)".to_string()
+    } else {
+        diag.join(", ")
+    }
+}
 // ---------------------------------------------------------------------------
 
 fn build_providers(api_keys: &HashMap<String, String>, cached_google: &[crate::model_registry::ModelInfo]) -> Vec<ProviderInfo> {
@@ -487,7 +531,13 @@ impl SseParser {
 
     fn parse_parts(json_val: &Value) -> Vec<SseParsedEvent> {
         let mut events = Vec::new();
-        if let Some(parts) = json_val["candidates"][0]["content"]["parts"].as_array() {
+        if let Some(parts) = json_val
+            .get("candidates")
+            .and_then(|c| c.get(0))
+            .and_then(|c0| c0.get("content"))
+            .and_then(|ct| ct.get("parts"))
+            .and_then(|p| p.as_array())
+        {
             for part in parts {
                 if let Some(text) = part["text"].as_str().filter(|t| !t.is_empty()) {
                     events.push(SseParsedEvent::TextToken(text.to_string()));
@@ -498,6 +548,23 @@ impl SseParser {
                         args: part["functionCall"]["args"].clone(),
                         raw_part: part.clone(),
                     });
+                }
+            }
+        } else {
+            // Log diagnostic info for chunks that might indicate safety blocks or errors
+            if let Some(reason) = json_val.get("promptFeedback")
+                .and_then(|f| f.get("blockReason"))
+                .and_then(|v| v.as_str())
+            {
+                tracing::warn!("stream: Gemini blocked request (blockReason={})", reason);
+            }
+            if let Some(reason) = json_val.get("candidates")
+                .and_then(|c| c.get(0))
+                .and_then(|c0| c0.get("finishReason"))
+                .and_then(|v| v.as_str())
+            {
+                if reason != "STOP" {
+                    tracing::warn!("stream: Gemini chunk has no 'parts' (finishReason={})", reason);
                 }
             }
         }
@@ -678,7 +745,7 @@ async fn execute_streaming_gemini(
         return String::new();
     }
 
-    let url = format!("https://generativelanguage.googleapis.com/v1beta/models/{}:streamGenerateContent?alt=sse&key={}", ctx.model, ctx.api_key);
+    let url = format!("https://generativelanguage.googleapis.com/v1beta/models/{}:streamGenerateContent?alt=sse", ctx.model);
     let parsed_url = match reqwest::Url::parse(&url) {
         Ok(u) if u.scheme() == "https" => u,
         _ => {
@@ -702,7 +769,7 @@ async fn execute_streaming_gemini(
                 "maxOutputTokens": ctx.max_tokens
             }
         });
-        let resp = match state.client.post(parsed_url.clone()).json(&body).send().await {
+        let resp = match state.client.post(parsed_url.clone()).header("x-goog-api-key", &ctx.api_key).json(&body).send().await {
             Ok(r) if r.status().is_success() => r,
             Ok(r) => {
                 let err_body = r.text().await.unwrap_or_default();
@@ -716,7 +783,7 @@ async fn execute_streaming_gemini(
                 return full_text;
             }
             Err(e) => {
-                tracing::error!("Gemini API request failed: {}", e);
+                tracing::error!("Gemini API request failed: {:?}", e);
                 let _ = ws_send(sender, &WsServerMessage::Error { message: "AI service error".into(), code: Some("REQUEST_FAILED".into()) }).await;
                 return full_text;
             }
@@ -1086,7 +1153,7 @@ pub async fn execute(State(state): State<AppState>, Json(body): Json<ExecuteRequ
     let ctx = prepare_execution(&state, &body.prompt, body.model.clone(), None).await;
     if ctx.api_key.is_empty() { return Json(json!({ "error": "No API Key" })); }
 
-    let url = format!("https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent?key={}", ctx.model, ctx.api_key);
+    let url = format!("https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent", ctx.model);
     let parsed_url = match reqwest::Url::parse(&url) {
         Ok(u) if u.scheme() == "https" => u,
         _ => return Json(json!({ "error": "API credentials require HTTPS" })),
@@ -1101,13 +1168,34 @@ pub async fn execute(State(state): State<AppState>, Json(body): Json<ExecuteRequ
         }
     });
 
-    let res = state.client.post(parsed_url).json(&gem_body).send().await;
+    let res = state.client.post(parsed_url).header("x-goog-api-key", &ctx.api_key).json(&gem_body).send().await;
     let text = match res {
         Ok(r) if r.status().is_success() => {
             let j: Value = r.json().await.unwrap_or_default();
-            j["candidates"][0]["content"]["parts"][0]["text"].as_str().unwrap_or("Error").to_string()
+            match j.get("candidates")
+                .and_then(|c| c.get(0))
+                .and_then(|c0| c0.get("content"))
+                .and_then(|ct| ct.get("parts"))
+                .and_then(|p| p.get(0))
+                .and_then(|p0| p0.get("text"))
+                .and_then(|t| t.as_str())
+            {
+                Some(text) => text.to_string(),
+                None => {
+                    let diag = gemini_diagnose(&j);
+                    tracing::error!("execute: Gemini response missing text ({})", diag);
+                    format!("Gemini API returned no text — {}", diag)
+                }
+            }
         }
-        _ => "API Error".to_string(),
+        Ok(r) => {
+            tracing::error!("execute: Gemini API returned {}", r.status());
+            "API Error".to_string()
+        }
+        Err(e) => {
+            tracing::error!("execute: Gemini API request failed: {:?}", e);
+            "API Error".to_string()
+        }
     };
 
     Json(json!(ExecuteResponse {

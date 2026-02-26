@@ -1,26 +1,51 @@
 @echo off
-echo === GeminiHydra v15 Release ===
+setlocal enabledelayedexpansion
+cd /d "%~dp0"
+set "LIB=%~dp0..\jaskier-lib.bat"
 
-:: Kill old backend on port 8081
-echo [RESTART] Stopping old backend on port 8081...
-for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":8081 " ^| findstr LISTENING') do taskkill /f /pid %%a >nul 2>&1
-timeout /t 1 /nobreak >nul
+:: Init colors
+call "%LIB%" :init_colors
+echo !BOLD!!MAGENTA!=== GeminiHydra v15 Release ===!RESET!
 
-:: Start new backend
-echo [START] Backend (cargo run --release)...
-start "GeminiHydra Backend" /min cmd /c "cd /d %~dp0backend && cargo run --release"
+:: Log init
+call "%LIB%" :log_init "geminihydra" "release"
 
-:: Kill old preview on port 4176
-echo [RESTART] Stopping old preview on port 4176...
-for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":4176 " ^| findstr LISTENING') do taskkill /f /pid %%a >nul 2>&1
+:: Validate .env
+call "%LIB%" :env_check "%~dp0.env" "GOOGLE_API_KEY ANTHROPIC_API_KEY"
+call "%LIB%" :env_check "%~dp0backend\.env" "DATABASE_URL GOOGLE_API_KEY ANTHROPIC_API_KEY"
+
+:: Docker DB check
+call "%LIB%" :docker_db_check "geminihydra-pg" "%~dp0backend"
+
+:: Cargo build pre-check
+call "%LIB%" :cargo_check "%~dp0backend" "geminihydra-backend.exe"
+
+:: Kill old processes (graceful)
+call "%LIB%" :kill_port 8081 "backend"
+call "%LIB%" :wait_port_free 8081
+call "%LIB%" :kill_port 4176 "preview"
+
+:: Partner check
+call "%LIB%" :partner_check 8082 "ClaudeHydra"
+
+:: Start backend
+echo !CYAN![START]!RESET! Backend ^(release binary^)...
+start "GeminiHydra Backend" /min cmd /c "cd /d %~dp0backend && target\release\geminihydra-backend.exe"
+%SYSTEMROOT%\System32\timeout.exe /t 2 /nobreak >nul
+
+:: Health check
+call "%LIB%" :health_check 8081 15
 
 :: Build frontend
-echo [BUILD] Building frontend...
+echo !CYAN![BUILD]!RESET! Building frontend...
 call npm run build
 
-:: Open Chrome after delay
-start /b cmd /c "timeout /t 3 /nobreak >nul && start chrome --new-window http://localhost:4173"
+:: Open Chrome in app mode
+start "" chrome --app=http://localhost:4176
 
-:: Start preview server
-echo [PREVIEW] Starting preview...
-npm run preview
+:: Toast notification
+call "%LIB%" :toast "GeminiHydra v15" "Release preview on port 4176"
+
+:: Start preview
+echo !CYAN![PREVIEW]!RESET! Starting preview on port 4176...
+endlocal && cd /d "%~dp0" && npm run preview
