@@ -34,6 +34,7 @@ import { cn } from '@/shared/utils/cn';
 import { type Message, useViewStore } from '@/stores/viewStore';
 
 import { useFileReadMutation } from '../hooks/useFiles';
+import { type AgentActivity, AgentActivityPanel } from './AgentActivityPanel';
 import { ChatInput } from './ChatInput';
 import { MessageBubble } from './MessageBubble';
 
@@ -48,6 +49,8 @@ interface ChatContainerProps {
   onSubmit: (prompt: string, image: string | null) => void;
   /** Callback to stop active stream. */
   onStop?: () => void;
+  /** Live agent activity data. */
+  agentActivity?: AgentActivity;
 }
 
 // ============================================================================
@@ -294,7 +297,7 @@ StreamingIndicator.displayName = 'StreamingIndicator';
 // CHAT CONTAINER
 // ============================================================================
 
-export const ChatContainer = memo<ChatContainerProps>(({ isStreaming, onSubmit, onStop }) => {
+export const ChatContainer = memo<ChatContainerProps>(({ isStreaming, onSubmit, onStop, agentActivity }) => {
   const { t } = useTranslation();
   const theme = useViewTheme();
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -575,6 +578,11 @@ export const ChatContainer = memo<ChatContainerProps>(({ isStreaming, onSubmit, 
             onCopy={handleCopyMessage}
           />
         )}
+
+        {/* Agent activity panel (live tool calls, plan steps) */}
+        <AnimatePresence>
+          {agentActivity && <AgentActivityPanel activity={agentActivity} />}
+        </AnimatePresence>
 
         {/* Text context indicator */}
         <AnimatePresence>

@@ -128,7 +128,7 @@
    BASE STYLES
    ============================================ */
 html {
-  font-size: 80%;
+  font-size: 87.5%;
   height: 100%;
   background: var(--matrix-bg-primary);
   scroll-behavior: smooth;

@@ -13,6 +13,7 @@ import { useSessionSync } from '@/features/chat/hooks/useSessionSync';
 import type { WsCallbacks } from '@/shared/hooks/useWebSocketChat';
 import { MAX_RECONNECT_ATTEMPTS, useWebSocketChat } from '@/shared/hooks/useWebSocketChat';
 import { useViewStore } from '@/stores/viewStore';
+import { type AgentActivity, EMPTY_ACTIVITY, type ToolActivity } from './AgentActivityPanel';
 
 const LazyChatContainer = lazy(() => import('@/features/chat/components/ChatContainer'));
 
@@ -27,6 +28,8 @@ export function ChatViewWrapper() {
   const httpStreamingSessionIdRef = useRef<string | null>(null);
   // Track sessions needing AI title generation (first exchange)
   const needsTitleRef = useRef<Set<string>>(new Set());
+  // Agent activity tracking for live panel
+  const [agentActivity, setAgentActivity] = useState<AgentActivity>(EMPTY_ACTIVITY);
 
   const wsCallbacks = useMemo<WsCallbacks>(
     () => ({
@@ -39,13 +42,54 @@ export function ChatViewWrapper() {
           model: msg.agent,
         });
         useViewStore.getState().setActiveModel(msg.model);
+        // Reset activity for new execution
+        setAgentActivity({
+          agent: msg.agent,
+          model: msg.model,
+          confidence: null,
+          planSteps: [],
+          tools: [],
+          isActive: true,
+        });
       },
       onToken: (content, sessionId) => {
         if (!sessionId) return;
         updateLastMessageInSession(sessionId, content);
       },
+      onPlan: (msg) => {
+        setAgentActivity((prev) => ({
+          ...prev,
+          agent: msg.agent,
+          confidence: msg.confidence,
+          planSteps: msg.steps,
+        }));
+      },
+      onToolCall: (msg) => {
+        const newTool: ToolActivity = {
+          name: msg.name,
+          args: msg.args,
+          iteration: msg.iteration,
+          status: 'running',
+          startedAt: Date.now(),
+        };
+        setAgentActivity((prev) => ({
+          ...prev,
+          tools: [...prev.tools, newTool],
+        }));
+      },
+      onToolResult: (msg) => {
+        setAgentActivity((prev) => ({
+          ...prev,
+          tools: prev.tools.map((t) =>
+            t.name === msg.name && t.iteration === msg.iteration && t.status === 'running'
+              ? { ...t, status: msg.success ? 'success' : 'error', summary: msg.summary, completedAt: Date.now() }
+              : t,
+          ),
+        }));
+      },
       onComplete: (_msg, sessionId) => {
         if (!sessionId) return;
+        setAgentActivity((prev) => ({ ...prev, isActive: false }));
         // Generate AI title after first exchange
         if (needsTitleRef.current.has(sessionId)) {
           needsTitleRef.current.delete(sessionId);
@@ -54,6 +98,7 @@ export function ChatViewWrapper() {
       },
       onError: (message, sessionId) => {
         if (!sessionId) return;
+        setAgentActivity((prev) => ({ ...prev, isActive: false }));
         needsTitleRef.current.delete(sessionId ?? '');
         addMessageToSession(sessionId, {
           role: 'assistant',
@@ -109,6 +154,8 @@ export function ChatViewWrapper() {
       }
 
       addMessageToSession(sessionId, { role: 'user', content: prompt, timestamp: Date.now() });
+      // Reset activity panel for new execution
+      setAgentActivity(EMPTY_ACTIVITY);
 
       if (!usingFallback && status === 'connected') {
         // Primary: WebSocket streaming (only when WS is actually connected)
@@ -180,7 +227,7 @@ export function ChatViewWrapper() {
           </button>
         </div>
       )}
-      <LazyChatContainer isStreaming={isStreamingCurrentSession} onSubmit={handleSubmit} onStop={handleStop} />
+      <LazyChatContainer isStreaming={isStreamingCurrentSession} onSubmit={handleSubmit} onStop={handleStop} agentActivity={agentActivity} />
     </>
   );
 }

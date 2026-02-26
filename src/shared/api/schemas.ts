@@ -162,6 +162,25 @@ const wsErrorMessageSchema = z.object({
   code: z.string().optional(),
 });
 
+const wsToolCallMessageSchema = z.object({
+  type: z.literal('tool_call'),
+  name: z.string(),
+  args: z.unknown(),
+  iteration: z.number(),
+});
+
+export type WsToolCallMessage = z.infer<typeof wsToolCallMessageSchema>;
+
+const wsToolResultMessageSchema = z.object({
+  type: z.literal('tool_result'),
+  name: z.string(),
+  success: z.boolean(),
+  summary: z.string(),
+  iteration: z.number(),
+});
+
+export type WsToolResultMessage = z.infer<typeof wsToolResultMessageSchema>;
+
 const wsPongMessageSchema = z.object({
   type: z.literal('pong'),
 });
@@ -170,6 +189,8 @@ export const wsServerMessageSchema = z.discriminatedUnion('type', [
   wsStartMessageSchema,
   wsTokenMessageSchema,
   wsPlanMessageSchema,
+  wsToolCallMessageSchema,
+  wsToolResultMessageSchema,
   wsCompleteMessageSchema,
   wsErrorMessageSchema,
   wsPongMessageSchema,

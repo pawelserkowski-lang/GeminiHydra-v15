@@ -17,6 +17,8 @@ import type {
   WsPlanMessage,
   WsServerMessage,
   WsStartMessage,
+  WsToolCallMessage,
+  WsToolResultMessage,
 } from '@/shared/api/schemas';
 import { wsServerMessageSchema } from '@/shared/api/schemas';
 import { env } from '@/shared/config/env';
@@ -31,6 +33,8 @@ export interface WsCallbacks {
   onStart?: (msg: WsStartMessage, sessionId: string | null) => void;
   onToken?: (content: string, sessionId: string | null) => void;
   onPlan?: (msg: WsPlanMessage, sessionId: string | null) => void;
+  onToolCall?: (msg: WsToolCallMessage, sessionId: string | null) => void;
+  onToolResult?: (msg: WsToolResultMessage, sessionId: string | null) => void;
   onComplete?: (msg: WsCompleteMessage, sessionId: string | null) => void;
   onError?: (message: string, sessionId: string | null) => void;
 }
@@ -162,6 +166,12 @@ export function useWebSocketChat(callbacks: WsCallbacks) {
           break;
         case 'plan':
           cbs.onPlan?.(msg, sid);
+          break;
+        case 'tool_call':
+          cbs.onToolCall?.(msg, sid);
+          break;
+        case 'tool_result':
+          cbs.onToolResult?.(msg, sid);
           break;
         case 'complete':
           setIsStreaming(false);

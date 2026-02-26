@@ -219,10 +219,20 @@ fn build_system_prompt(agent_id: &str, agents: &[WitcherAgent], language: &str, 
 | `write_file` | create/edit files | echo, redirect |
 | `execute_command` | ONLY build/test/git/npm/cargo CLI | — |
 
+## Parallel Execution (CRITICAL)
+**You MUST request multiple tool calls simultaneously whenever possible.**
+- When analyzing a project: call `get_code_structure` on 3-4 key files AT ONCE in a single response, not one by one.
+- When searching: call `search_files` + `list_directory` + `read_file` in PARALLEL if they target different paths.
+- When writing multiple files: call `write_file` for each file IN THE SAME response.
+- **NEVER chain tool calls sequentially when they are independent.** If tool B does not depend on the output of tool A, request BOTH in one response.
+- Think like a swarm: split the task into independent sub-operations and launch them all at once.
+- Example GOOD: one response with `[get_code_structure("src/main.rs"), get_code_structure("src/lib.rs"), search_files("TODO", "src/")]`
+- Example BAD: response 1 → `get_code_structure("src/main.rs")`, response 2 → `get_code_structure("src/lib.rs")` (wastes round-trips)
+
 ## Core Rules
 1. **Act first, explain after.** Execute tools — never suggest commands for the user to run.
 2. **Be concise and direct.** No roleplay, monologue, or flavor text. Quality comes from insights, not theatrics.
-3. **Use 2-4 strategic tool calls**, not 10 unfocused ones. Read key files deeply, not all files superficially.
+3. **Maximize parallel tool calls** — batch 3-5 independent operations per response. Speed comes from parallelism, not from fewer calls.
 4. **get_code_structure before read_file** — use AST overview first to decide which functions to read in full.
 
 ## MANDATORY: Response Quality Protocol
@@ -769,7 +779,7 @@ async fn execute_streaming_gemini(
                 "maxOutputTokens": ctx.max_tokens
             }
         });
-        let resp = match state.client.post(parsed_url.clone()).header("x-goog-api-key", &ctx.api_key).json(&body).send().await {
+        let resp = match state.client.post(parsed_url.clone()).header("x-goog-api-key", &ctx.api_key).json(&body).timeout(std::time::Duration::from_secs(300)).send().await {
             Ok(r) if r.status().is_success() => r,
             Ok(r) => {
                 let err_body = r.text().await.unwrap_or_default();
@@ -797,15 +807,38 @@ async fn execute_streaming_gemini(
         for (_, _, raw) in &fcs { model_parts.push(raw.clone()); }
         contents.push(json!({ "role": "model", "parts": model_parts }));
 
-        let mut res_parts = Vec::new();
-        for (name, args, _) in fcs {
+        // Announce all tool calls first (so the frontend can show them as "in progress")
+        let tool_count = fcs.len();
+        for (name, args, _) in &fcs {
             let _ = ws_send(sender, &WsServerMessage::ToolCall { name: name.clone(), args: args.clone(), iteration: iter + 1 }).await;
+        }
+        if tool_count > 1 {
+            let parallel_header = format!("\n\n---\n**⚡ Parallel execution: {} tools**\n", tool_count);
+            full_text.push_str(&parallel_header);
+            let _ = ws_send(sender, &WsServerMessage::Token { content: parallel_header }).await;
+        }
+
+        // Execute all tool calls concurrently using tokio::join_all
+        let tool_futures: Vec<_> = fcs.iter().map(|(name, args, _)| {
+            let name = name.clone();
+            let args = args.clone();
+            let state = state.clone();
+            async move {
+                let output = crate::tools::execute_tool(&name, &args, &state).await.unwrap_or_else(|e| format!("TOOL_ERROR: {}", e));
+                (name, output)
+            }
+        }).collect();
+        let tool_results = futures_util::future::join_all(tool_futures).await;
+
+        // Stream results to frontend + build Gemini context
+        let mut res_parts = Vec::new();
+        for (name, output) in &tool_results {
+            let success = !output.starts_with("TOOL_ERROR:");
+            let _ = ws_send(sender, &WsServerMessage::ToolResult { name: name.clone(), success, summary: output.chars().take(200).collect(), iteration: iter + 1 }).await;
+
             let header = format!("\n\n---\n**🔧 Tool:** `{}`\n", name);
             full_text.push_str(&header);
             let _ = ws_send(sender, &WsServerMessage::Token { content: header }).await;
-
-            let output = crate::tools::execute_tool(&name, &args, state).await.unwrap_or_else(|e| format!("TOOL_ERROR: {}", e));
-            let _ = ws_send(sender, &WsServerMessage::ToolResult { name: name.clone(), success: true, summary: output.chars().take(200).collect(), iteration: iter + 1 }).await;
 
             let res_md = format!("```\n{}\n```\n---\n\n", output);
             full_text.push_str(&res_md);
@@ -813,7 +846,7 @@ async fn execute_streaming_gemini(
 
             // Truncate tool output for Gemini context to prevent context overflow.
             // Full output is already streamed to the user above.
-            let context_output = truncate_for_context(&output);
+            let context_output = truncate_for_context(output);
             res_parts.push(json!({ "functionResponse": { "name": name, "response": { "result": context_output } } }));
         }
         // After tool results, add synthesis reminder to prevent endless tool-calling
@@ -872,7 +905,7 @@ async fn execute_streaming_ollama(
         "stream": true,
     });
 
-    let resp = match state.client.post(&url).json(&body).send().await {
+    let resp = match state.client.post(&url).json(&body).timeout(std::time::Duration::from_secs(300)).send().await {
         Ok(r) if r.status().is_success() => r,
         Ok(r) => {
             tracing::error!("Ollama API error: {}", r.status());
@@ -1168,7 +1201,7 @@ pub async fn execute(State(state): State<AppState>, Json(body): Json<ExecuteRequ
         }
     });
 
-    let res = state.client.post(parsed_url).header("x-goog-api-key", &ctx.api_key).json(&gem_body).send().await;
+    let res = state.client.post(parsed_url).header("x-goog-api-key", &ctx.api_key).json(&gem_body).timeout(std::time::Duration::from_secs(300)).send().await;
     let text = match res {
         Ok(r) if r.status().is_success() => {
             let j: Value = r.json().await.unwrap_or_default();

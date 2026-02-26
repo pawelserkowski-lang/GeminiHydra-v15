@@ -109,8 +109,8 @@ export const MessageBubble = memo<MessageBubbleProps>(({ message, isLast, isStre
   // ----- Bubble class ------------------------------------------------
 
   const bubbleClass = cn(
-    'relative max-w-[85%] rounded-2xl px-4 py-3',
-    'text-base leading-relaxed font-mono',
+    'relative max-w-[85%] rounded-2xl px-5 py-4',
+    'text-[15px] leading-relaxed font-mono',
     isUser && [
       theme.isLight
         ? 'bg-emerald-500/15 border border-emerald-500/20 text-black'

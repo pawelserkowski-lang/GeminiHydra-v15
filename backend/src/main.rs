@@ -126,6 +126,8 @@ async fn main() -> shuttle_axum::ShuttleAxum {
 async fn main() -> anyhow::Result<()> {
     use tracing_subscriber::EnvFilter;
 
+    enable_ansi();
+
     let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into());
     if std::env::var("RUST_LOG_FORMAT").as_deref() == Ok("json") {
         tracing_subscriber::fmt()
@@ -135,6 +137,7 @@ async fn main() -> anyhow::Result<()> {
     } else {
         tracing_subscriber::fmt()
             .with_env_filter(env_filter)
+            .with_ansi(true)
             .init();
     }
 
@@ -163,6 +166,7 @@ async fn main() -> anyhow::Result<()> {
         .parse()?;
     let addr = std::net::SocketAddr::from(([0, 0, 0, 0], port));
 
+    print_banner(port);
     tracing::info!("GeminiHydra v15 backend listening on http://{}", addr);
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
@@ -174,6 +178,37 @@ async fn main() -> anyhow::Result<()> {
     .await?;
 
     Ok(())
+}
+
+// Jaskier Shared Pattern -- enable ANSI colors on Windows consoles
+#[cfg(windows)]
+fn enable_ansi() {
+    use windows::Win32::System::Console::{
+        GetConsoleMode, GetStdHandle, SetConsoleMode, ENABLE_VIRTUAL_TERMINAL_PROCESSING,
+        STD_ERROR_HANDLE, STD_OUTPUT_HANDLE,
+    };
+    for std_handle in [STD_OUTPUT_HANDLE, STD_ERROR_HANDLE] {
+        unsafe {
+            let Ok(handle) = GetStdHandle(std_handle) else {
+                continue;
+            };
+            let mut mode = Default::default();
+            if GetConsoleMode(handle, &mut mode).is_ok() {
+                let _ = SetConsoleMode(handle, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+            }
+        }
+    }
+}
+#[cfg(not(windows))]
+fn enable_ansi() {}
+
+fn print_banner(port: u16) {
+    // GeminiHydra: bold cyan (36)
+    println!();
+    println!("  \x1b[1;36m>>>  GEMINIHYDRA v15  <<<\x1b[0m");
+    println!("  \x1b[36mMulti-Agent AI Swarm\x1b[0m");
+    println!("  \x1b[1;32mhttp://localhost:{port}\x1b[0m");
+    println!();
 }
 
 async fn shutdown_signal() {
