@@ -69,20 +69,29 @@ pub struct AddMessageRequest {
 
 #[derive(Debug, Deserialize)]
 pub struct HistoryParams {
+    /// Max messages to return (default 50, max 500).
     #[serde(default)]
-    pub limit: Option<usize>,
+    pub limit: Option<i64>,
+    /// Number of messages to skip (default 0).
+    #[serde(default)]
+    pub offset: Option<i64>,
 }
 
 /// Pagination query params for session/message listing.
 /// Backwards-compatible: all fields optional with sensible defaults.
+/// Supports both offset-based (`offset`) and cursor-based (`after`) pagination.
 #[derive(Debug, Deserialize)]
 pub struct PaginationParams {
     /// Max items to return (clamped to 500).
     #[serde(default)]
     pub limit: Option<i64>,
-    /// Number of items to skip.
+    /// Number of items to skip (offset-based pagination).
     #[serde(default)]
     pub offset: Option<i64>,
+    /// Cursor-based pagination: return sessions created before this session ID.
+    /// When provided, `offset` is ignored.
+    #[serde(default)]
+    pub after: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -207,7 +216,10 @@ pub fn session_routes() -> Router<AppState> {
             "/api/sessions/{id}",
             get(get_session).patch(update_session).delete(delete_session),
         )
-        .route("/api/sessions/{id}/messages", post(add_session_message))
+        .route(
+            "/api/sessions/{id}/messages",
+            get(get_session_messages).post(add_session_message),
+        )
         .route(
             "/api/sessions/{id}/generate-title",
             post(generate_session_title),
@@ -218,15 +230,20 @@ pub fn session_routes() -> Router<AppState> {
 // History handlers
 // ============================================================================
 
-/// GET /api/history?limit=50
+/// GET /api/history?limit=50&offset=0
 #[utoipa::path(get, path = "/api/history", tag = "history",
+    params(
+        ("limit" = Option<i64>, Query, description = "Max messages to return (default 50, max 500)"),
+        ("offset" = Option<i64>, Query, description = "Number of messages to skip (default 0)"),
+    ),
     responses((status = 200, description = "Chat history messages", body = Value))
 )]
 pub async fn get_history(
     State(state): State<AppState>,
     Query(params): Query<HistoryParams>,
 ) -> Result<Json<Value>, StatusCode> {
-    let limit = params.limit.unwrap_or(50) as i64;
+    let limit = params.limit.unwrap_or(50).clamp(1, 500);
+    let offset = params.offset.unwrap_or(0).max(0);
 
     let total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM gh_chat_messages")
         .fetch_one(&state.db)
@@ -236,10 +253,11 @@ pub async fn get_history(
     let rows = sqlx::query_as::<_, ChatMessageRow>(
         "SELECT * FROM (\
             SELECT id, role, content, model, agent, created_at \
-            FROM gh_chat_messages ORDER BY created_at DESC LIMIT $1\
+            FROM gh_chat_messages ORDER BY created_at DESC LIMIT $1 OFFSET $2\
         ) sub ORDER BY created_at ASC",
     )
     .bind(limit)
+    .bind(offset)
     .fetch_all(&state.db)
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
@@ -251,6 +269,8 @@ pub async fn get_history(
         "messages": messages,
         "total": total,
         "returned": returned,
+        "limit": limit,
+        "offset": offset,
     })))
 }
 
@@ -334,10 +354,12 @@ pub async fn clear_history(
 // ============================================================================
 
 /// GET /api/sessions?limit=100&offset=0
+/// Also supports cursor-based pagination: ?after=<session_id>&limit=20
 #[utoipa::path(get, path = "/api/sessions", tag = "sessions",
     params(
         ("limit" = Option<i64>, Query, description = "Max sessions to return (default 100, max 500)"),
         ("offset" = Option<i64>, Query, description = "Number of sessions to skip (default 0)"),
+        ("after" = Option<String>, Query, description = "Cursor: return sessions after this session ID (by updated_at)"),
     ),
     responses((status = 200, description = "List of session summaries", body = Vec<SessionSummary>))
 )]
@@ -346,6 +368,47 @@ pub async fn list_sessions(
     Query(params): Query<PaginationParams>,
 ) -> Result<Json<Value>, StatusCode> {
     let limit = params.limit.unwrap_or(100).clamp(1, 500);
+
+    // Cursor-based pagination: when `after` is provided, use it instead of offset
+    if let Some(ref after_id) = params.after {
+        let cursor_id = uuid::Uuid::parse_str(after_id).map_err(|_| StatusCode::BAD_REQUEST)?;
+
+        let rows = sqlx::query_as::<_, SessionSummaryRow>(
+            "SELECT s.id, s.title, s.created_at, \
+             (SELECT COUNT(*) FROM gh_chat_messages WHERE session_id = s.id) as message_count \
+             FROM gh_sessions s \
+             WHERE s.updated_at < (SELECT updated_at FROM gh_sessions WHERE id = $1) \
+             ORDER BY s.updated_at DESC \
+             LIMIT $2",
+        )
+        .bind(cursor_id)
+        .bind(limit)
+        .fetch_all(&state.db)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+        let summaries: Vec<SessionSummary> = rows
+            .iter()
+            .map(|r| SessionSummary {
+                id: r.id.to_string(),
+                title: r.title.clone(),
+                created_at: r.created_at.to_rfc3339(),
+                message_count: r.message_count as usize,
+            })
+            .collect();
+
+        let has_more = summaries.len() as i64 == limit;
+        let next_cursor = summaries.last().map(|s| s.id.clone());
+
+        return Ok(Json(serde_json::to_value(serde_json::json!({
+            "sessions": summaries,
+            "has_more": has_more,
+            "next_cursor": next_cursor,
+        }))
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?));
+    }
+
+    // Offset-based pagination (backwards compatible)
     let offset = params.offset.unwrap_or(0).max(0);
 
     let rows = sqlx::query_as::<_, SessionSummaryRow>(
@@ -436,6 +499,15 @@ pub async fn get_session(
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
     .ok_or(StatusCode::NOT_FOUND)?;
 
+    // Total message count for pagination metadata
+    let total_messages: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM gh_chat_messages WHERE session_id = $1",
+    )
+    .bind(session_id)
+    .fetch_one(&state.db)
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
     // Fetch the most recent N messages (subquery DESC, then re-sort ASC)
     let message_rows = sqlx::query_as::<_, ChatMessageRow>(
         "SELECT * FROM (\
@@ -460,7 +532,15 @@ pub async fn get_session(
         messages,
     };
 
-    Ok(Json(serde_json::to_value(session).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?))
+    let mut result = serde_json::to_value(session).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    // Extend session JSON with pagination metadata
+    if let Some(obj) = result.as_object_mut() {
+        obj.insert("total_messages".to_string(), json!(total_messages));
+        obj.insert("limit".to_string(), json!(msg_limit));
+        obj.insert("offset".to_string(), json!(msg_offset));
+    }
+
+    Ok(Json(result))
 }
 
 /// PATCH /api/sessions/:id
@@ -515,6 +595,7 @@ pub async fn update_session(
 )]
 pub async fn delete_session(
     State(state): State<AppState>,
+    axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<std::net::SocketAddr>,
     Path(id): Path<String>,
 ) -> Result<Json<Value>, StatusCode> {
     let session_id: uuid::Uuid = id.parse().map_err(|_| StatusCode::BAD_REQUEST)?;
@@ -529,7 +610,82 @@ pub async fn delete_session(
         return Err(StatusCode::NOT_FOUND);
     }
 
+    crate::audit::log_audit(
+        &state.db,
+        "delete_session",
+        serde_json::json!({ "session_id": id }),
+        Some(&addr.ip().to_string()),
+    )
+    .await;
+
     Ok(Json(json!({ "status": "deleted", "id": id })))
+}
+
+/// GET /api/sessions/:id/messages?limit=50&offset=0
+///
+/// Paginated message history for a session. Returns messages in chronological
+/// order with total count for client-side pagination controls.
+#[utoipa::path(get, path = "/api/sessions/{id}/messages", tag = "sessions",
+    params(
+        ("id" = String, Path, description = "Session UUID"),
+        ("limit" = Option<i64>, Query, description = "Max messages to return (default 50, max 500)"),
+        ("offset" = Option<i64>, Query, description = "Number of messages to skip (default 0)"),
+    ),
+    responses(
+        (status = 200, description = "Paginated messages", body = Value),
+        (status = 404, description = "Session not found")
+    )
+)]
+pub async fn get_session_messages(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Query(params): Query<PaginationParams>,
+) -> Result<Json<Value>, StatusCode> {
+    let session_id: uuid::Uuid = id.parse().map_err(|_| StatusCode::BAD_REQUEST)?;
+    let limit = params.limit.unwrap_or(50).clamp(1, 500);
+    let offset = params.offset.unwrap_or(0).max(0);
+
+    // Verify session exists
+    sqlx::query("SELECT 1 FROM gh_sessions WHERE id = $1")
+        .bind(session_id)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    // Total message count for this session
+    let total: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM gh_chat_messages WHERE session_id = $1",
+    )
+    .bind(session_id)
+    .fetch_one(&state.db)
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    // Fetch paginated messages in chronological order
+    let rows = sqlx::query_as::<_, ChatMessageRow>(
+        "SELECT id, role, content, model, agent, created_at \
+         FROM gh_chat_messages WHERE session_id = $1 \
+         ORDER BY created_at ASC LIMIT $2 OFFSET $3",
+    )
+    .bind(session_id)
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(&state.db)
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let messages: Vec<ChatMessage> = rows.into_iter().map(row_to_message).collect();
+    let returned = messages.len();
+
+    Ok(Json(json!({
+        "session_id": id,
+        "messages": messages,
+        "total": total,
+        "returned": returned,
+        "limit": limit,
+        "offset": offset,
+    })))
 }
 
 /// POST /api/sessions/:id/messages
@@ -742,6 +898,7 @@ pub async fn get_settings(
 )]
 pub async fn update_settings(
     State(state): State<AppState>,
+    axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<std::net::SocketAddr>,
     Json(patch): Json<PartialSettings>,
 ) -> Result<Json<AppSettings>, StatusCode> {
     // Limit string field sizes to prevent uncontrolled memory allocation
@@ -785,6 +942,20 @@ pub async fn update_settings(
     .fetch_one(&state.db)
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    crate::audit::log_audit(
+        &state.db,
+        "update_settings",
+        serde_json::json!({
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "default_model": default_model,
+            "language": language,
+            "theme": theme,
+        }),
+        Some(&addr.ip().to_string()),
+    )
+    .await;
 
     Ok(Json(row_to_settings(row)))
 }

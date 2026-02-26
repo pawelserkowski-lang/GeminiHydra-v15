@@ -379,4 +379,5 @@ pub enum WsServerMessage {
         code: Option<String>,
     },
     Pong,
+    Heartbeat,
 }

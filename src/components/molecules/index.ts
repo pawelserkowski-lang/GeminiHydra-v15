@@ -11,6 +11,7 @@ export type {
 } from './ModelSelector';
 export { ModelSelector } from './ModelSelector';
 export { QueryError } from './QueryError';
+export { SessionSearch } from './SessionSearch';
 export type {
   StatusIndicatorProps,
   StatusSize,

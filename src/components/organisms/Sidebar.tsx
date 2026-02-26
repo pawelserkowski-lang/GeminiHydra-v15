@@ -28,12 +28,23 @@ import {
   X,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
-import { type KeyboardEvent, lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  type KeyboardEvent,
+  lazy,
+  type TouchEvent as ReactTouchEvent,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/contexts/ThemeContext';
 
 const PartnerChatModal = lazy(() => import('@/features/chat/components/PartnerChatModal'));
 
+import { SessionSearch } from '@/components/molecules/SessionSearch';
 import { usePartnerSessions } from '@/features/chat/hooks/usePartnerSessions';
 import { useSessionSync } from '@/features/chat/hooks/useSessionSync';
 import { cn } from '@/shared/utils/cn';
@@ -65,6 +76,7 @@ interface NavGroup {
 interface SessionItemProps {
   session: Session;
   isActive: boolean;
+  isFocused?: boolean;
   msgCount: number;
   isLight: boolean;
   onSelect: () => void;
@@ -72,11 +84,22 @@ interface SessionItemProps {
   onRename: (newTitle: string) => void;
 }
 
-function SessionItem({ session, isActive, msgCount, isLight, onSelect, onDelete, onRename }: SessionItemProps) {
+function SessionItem({
+  session,
+  isActive,
+  isFocused = false,
+  msgCount,
+  isLight,
+  onSelect,
+  onDelete,
+  onRename,
+}: SessionItemProps) {
   const { t } = useTranslation();
   const [isEditing, setIsEditing] = useState(false);
   const [editTitle, setEditTitle] = useState(session.title);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  // Optimistic session detection (#16) — pending sessions have temporary IDs
+  const isPending = session.id.startsWith('pending-');
 
   useEffect(() => {
     if (!confirmDelete) return;
@@ -149,9 +172,9 @@ function SessionItem({ session, isActive, msgCount, isLight, onSelect, onDelete,
   }
 
   return (
-    // biome-ignore lint/a11y/useSemanticElements: div with role="button" needed for nested interactive elements
     <div
-      role="button"
+      role="option"
+      aria-selected={isActive}
       tabIndex={0}
       onClick={onSelect}
       onKeyDown={(e) => {
@@ -168,18 +191,28 @@ function SessionItem({ session, isActive, msgCount, isLight, onSelect, onDelete,
             ? 'bg-emerald-500/15 text-emerald-800'
             : 'bg-white/10 text-white'
           : cn(textMuted, hoverBg, isLight ? 'hover:text-slate-900' : 'hover:text-white'),
+        isFocused && 'ring-2 ring-[var(--matrix-accent)]/50',
       )}
       title={session.title}
     >
-      <MessageSquare
-        size={14}
-        className={cn(
-          'flex-shrink-0 transition-colors',
-          isActive ? (isLight ? 'text-emerald-700' : 'text-white') : iconMuted,
-        )}
-      />
+      {isPending ? (
+        <Loader2
+          size={14}
+          className={cn('flex-shrink-0 animate-spin', isLight ? 'text-emerald-600' : 'text-white/60')}
+        />
+      ) : (
+        <MessageSquare
+          size={14}
+          className={cn(
+            'flex-shrink-0 transition-colors',
+            isActive ? (isLight ? 'text-emerald-700' : 'text-white') : iconMuted,
+          )}
+        />
+      )}
       <div className="flex-1 min-w-0">
-        <span className="text-sm truncate block leading-tight">{session.title}</span>
+        <span className={cn('text-sm truncate block leading-tight', isPending && 'opacity-60 italic')}>
+          {session.title}
+        </span>
         {msgCount > 0 && (
           <span className={cn('text-[10px] font-mono', textDim)}>
             {msgCount} {msgCount === 1 ? t('sidebar.message', 'msg') : t('sidebar.messages', 'msgs')}
@@ -260,8 +293,18 @@ export function Sidebar() {
   const [showPartnerSessions, setShowPartnerSessions] = useState(true);
   const [partnerModalSessionId, setPartnerModalSessionId] = useState<string | null>(null);
 
-  // Sessions sorted by creation date (newest first)
-  const sortedSessions = useMemo(() => [...sessions].sort((a, b) => b.createdAt - a.createdAt), [sessions]);
+  // Session search/filter (#19)
+  const [sessionSearchQuery, setSessionSearchQuery] = useState('');
+  const handleSessionSearch = useCallback((query: string) => {
+    setSessionSearchQuery(query);
+  }, []);
+
+  // Sessions sorted by creation date (newest first), then filtered by search
+  const sortedSessions = useMemo(() => {
+    const sorted = [...sessions].sort((a, b) => b.createdAt - a.createdAt);
+    if (!sessionSearchQuery) return sorted;
+    return sorted.filter((s) => s.title.toLowerCase().includes(sessionSearchQuery));
+  }, [sessions, sessionSearchQuery]);
   const sortedPartnerSessions = useMemo(
     () =>
       [...(partnerSessions ?? [])].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()),
@@ -270,6 +313,113 @@ export function Sidebar() {
 
   // Mobile drawer state
   const [mobileOpen, setMobileOpen] = useState(false);
+
+  // Swipe gesture refs (#29)
+  const touchStartXRef = useRef(0);
+  const touchStartYRef = useRef(0);
+  const touchCurrentXRef = useRef(0);
+  const isSwiping = useRef(false);
+
+  // Auto-collapse sidebar on mobile resize (#29)
+  useEffect(() => {
+    const handleResize = () => {
+      if (window.innerWidth < 768) {
+        // On mobile: close mobile drawer when resizing to mobile
+        setMobileOpen(false);
+        // Auto-collapse the desktop sidebar state too
+        if (!sidebarCollapsed) {
+          useViewStore.getState().setSidebarCollapsed(true);
+        }
+      }
+    };
+
+    window.addEventListener('resize', handleResize);
+    // Also check on mount
+    if (window.innerWidth < 768 && !sidebarCollapsed) {
+      useViewStore.getState().setSidebarCollapsed(true);
+    }
+    return () => window.removeEventListener('resize', handleResize);
+  }, [sidebarCollapsed]);
+
+  // Swipe right to open sidebar on mobile (#29)
+  useEffect(() => {
+    const SWIPE_THRESHOLD = 50;
+    const EDGE_ZONE = 30; // pixels from left edge to trigger swipe
+
+    const handleTouchStart = (e: TouchEvent) => {
+      if (window.innerWidth >= 768) return;
+      const touch = e.touches[0];
+      if (!touch) return;
+
+      touchStartXRef.current = touch.clientX;
+      touchStartYRef.current = touch.clientY;
+      touchCurrentXRef.current = touch.clientX;
+
+      // Only start swipe tracking from left edge when sidebar is closed
+      if (!mobileOpen && touch.clientX <= EDGE_ZONE) {
+        isSwiping.current = true;
+      }
+    };
+
+    const handleTouchMove = (e: TouchEvent) => {
+      if (window.innerWidth >= 768) return;
+      const touch = e.touches[0];
+      if (!touch) return;
+      touchCurrentXRef.current = touch.clientX;
+    };
+
+    const handleTouchEnd = () => {
+      if (window.innerWidth >= 768) return;
+
+      const deltaX = touchCurrentXRef.current - touchStartXRef.current;
+      const deltaY = Math.abs(touchCurrentXRef.current - touchStartYRef.current);
+
+      // Only process horizontal swipes (not vertical scrolling)
+      if (Math.abs(deltaX) < deltaY) {
+        isSwiping.current = false;
+        return;
+      }
+
+      // Swipe right from edge to open
+      if (!mobileOpen && isSwiping.current && deltaX > SWIPE_THRESHOLD) {
+        setMobileOpen(true);
+      }
+
+      isSwiping.current = false;
+    };
+
+    document.addEventListener('touchstart', handleTouchStart, { passive: true });
+    document.addEventListener('touchmove', handleTouchMove, { passive: true });
+    document.addEventListener('touchend', handleTouchEnd, { passive: true });
+    return () => {
+      document.removeEventListener('touchstart', handleTouchStart);
+      document.removeEventListener('touchmove', handleTouchMove);
+      document.removeEventListener('touchend', handleTouchEnd);
+    };
+  }, [mobileOpen]);
+
+  // Swipe left on the sidebar drawer itself to close (#29)
+  const handleDrawerTouchStart = useCallback((e: ReactTouchEvent) => {
+    const touch = e.touches[0];
+    if (!touch) return;
+    touchStartXRef.current = touch.clientX;
+    touchCurrentXRef.current = touch.clientX;
+  }, []);
+
+  const handleDrawerTouchMove = useCallback((e: ReactTouchEvent) => {
+    const touch = e.touches[0];
+    if (!touch) return;
+    touchCurrentXRef.current = touch.clientX;
+  }, []);
+
+  const handleDrawerTouchEnd = useCallback(() => {
+    const deltaX = touchCurrentXRef.current - touchStartXRef.current;
+    const SWIPE_THRESHOLD = 50;
+    // Swipe left to close
+    if (deltaX < -SWIPE_THRESHOLD) {
+      setMobileOpen(false);
+    }
+  }, []);
 
   // Collapsible sessions toggle
   const [showSessions, setShowSessions] = useState(true);
@@ -301,6 +451,25 @@ export function Sidebar() {
       void renameSessionWithSync(id, newTitle);
     },
     [renameSessionWithSync],
+  );
+
+  // #42 — Keyboard navigation for session list
+  const [focusedSessionIndex, setFocusedSessionIndex] = useState(-1);
+
+  const handleSessionListKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setFocusedSessionIndex((i) => (i + 1) % sortedSessions.length);
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setFocusedSessionIndex((i) => (i - 1 + sortedSessions.length) % sortedSessions.length);
+      } else if (e.key === 'Enter' && focusedSessionIndex >= 0 && sortedSessions[focusedSessionIndex]) {
+        e.preventDefault();
+        handleSelectSession(sortedSessions[focusedSessionIndex].id);
+      }
+    },
+    [sortedSessions, focusedSessionIndex, handleSelectSession],
   );
 
   const handleNavClick = useCallback(
@@ -535,7 +704,10 @@ export function Sidebar() {
             </div>
           </div>
 
-          {/* Session List */}
+          {/* Session search (#19) */}
+          {showSessions && sessions.length > 3 && <SessionSearch onSearch={handleSessionSearch} isLight={isLight} />}
+
+          {/* Session List (#42 — keyboard nav with role=listbox) */}
           <AnimatePresence>
             {showSessions && (
               <motion.div
@@ -543,20 +715,28 @@ export function Sidebar() {
                 animate={{ height: 'auto', opacity: 1 }}
                 exit={{ height: 0, opacity: 0 }}
                 transition={{ duration: 0.2, ease: 'easeInOut' }}
+                role="listbox"
+                aria-label={t('sidebar.chats', 'Chat sessions')}
+                onKeyDown={handleSessionListKeyDown}
                 className="flex-1 overflow-y-auto scrollbar-hide hover:scrollbar-thin hover:scrollbar-thumb-current space-y-0.5 mt-1"
               >
-                {sortedSessions.map((session) => (
-                  <SessionItem
-                    key={session.id}
-                    session={session}
-                    isActive={session.id === currentSessionId}
-                    msgCount={(chatHistory[session.id] || []).length}
-                    isLight={isLight}
-                    onSelect={() => handleSelectSession(session.id)}
-                    onDelete={() => handleDeleteSession(session.id)}
-                    onRename={(newTitle) => handleRenameSession(session.id, newTitle)}
-                  />
-                ))}
+                {sortedSessions.length === 0 && sessionSearchQuery ? (
+                  <p className={cn('text-[10px] text-center py-3', textDim)}>{t('sidebar.noResults', 'No results')}</p>
+                ) : (
+                  sortedSessions.map((session, idx) => (
+                    <SessionItem
+                      key={session.id}
+                      session={session}
+                      isActive={session.id === currentSessionId}
+                      isFocused={focusedSessionIndex === idx}
+                      msgCount={(chatHistory[session.id] || []).length}
+                      isLight={isLight}
+                      onSelect={() => handleSelectSession(session.id)}
+                      onDelete={() => handleDeleteSession(session.id)}
+                      onRename={(newTitle) => handleRenameSession(session.id, newTitle)}
+                    />
+                  ))
+                )}
               </motion.div>
             )}
           </AnimatePresence>
@@ -699,27 +879,30 @@ export function Sidebar() {
         <Swords size={20} className={isLight ? 'text-emerald-700' : 'text-white'} />
       </button>
 
-      {/* Mobile Drawer Overlay */}
+      {/* Mobile Drawer Overlay (#29 — swipe gestures + backdrop) */}
       <AnimatePresence>
         {mobileOpen && (
           <>
-            {/* Backdrop */}
+            {/* Backdrop — click to close */}
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.2 }}
-              className="md:hidden fixed inset-0 bg-black/50 backdrop-blur-sm z-40"
+              className="md:hidden fixed inset-0 bg-black/60 backdrop-blur-sm z-40"
               onClick={() => setMobileOpen(false)}
               role="presentation"
             />
-            {/* Drawer */}
+            {/* Drawer — swipe left to close (#29) */}
             <motion.aside
               initial={{ x: -280 }}
               animate={{ x: 0 }}
               exit={{ x: -280 }}
               transition={{ type: 'spring', stiffness: 300, damping: 30 }}
               className="md:hidden fixed left-0 top-0 bottom-0 w-60 z-50"
+              onTouchStart={handleDrawerTouchStart}
+              onTouchMove={handleDrawerTouchMove}
+              onTouchEnd={handleDrawerTouchEnd}
             >
               {sidebarContent}
             </motion.aside>

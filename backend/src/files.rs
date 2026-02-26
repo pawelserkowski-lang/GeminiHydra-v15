@@ -153,17 +153,91 @@ pub fn is_text_extension(ext: &str) -> bool {
     TEXT_EXTENSIONS.contains(&ext.to_lowercase().as_str())
 }
 
+/// Backup / swap file extensions that should never be read or written.
+const BLOCKED_EXTENSIONS: &[&str] = &[".bak", ".old", ".orig", ".swp", ".swo"];
+
 /// Canonicalize a path and check it against a blocklist.
 ///
 /// For existing paths, `std::fs::canonicalize` resolves all `..`, symlinks, etc.
 /// For new files (write path), the parent directory is canonicalized and the
 /// filename is re-joined, preventing traversal via `..` segments.
 ///
+/// Additional hardening checks:
+/// - Null bytes in path (injection attack)
+/// - Windows alternate data streams (`filename:stream`)
+/// - UNC paths (`\\server\share`)
+/// - Backup file extensions (.bak, .old, .orig, .swp, ~)
+///
 /// This is modeled after ClaudeHydra's `ToolExecutor::validate_path()`.
 fn validate_and_canonicalize(
     raw_path: &str,
     blocked_prefixes: &[&str],
 ) -> Result<std::path::PathBuf, FileError> {
+    // ── Pre-canonicalization safety checks ───────────────────────────────
+
+    // Block null bytes — can truncate paths at C/OS level
+    if raw_path.contains('\0') {
+        return Err(FileError {
+            path: raw_path.to_string(),
+            reason: "Access denied: path contains null byte".to_string(),
+        });
+    }
+
+    // Block UNC paths (\\server\share) — prevent network share access
+    if raw_path.starts_with("\\\\") || raw_path.starts_with("//") {
+        return Err(FileError {
+            path: raw_path.to_string(),
+            reason: "Access denied: UNC/network paths are not allowed".to_string(),
+        });
+    }
+
+    // Block Windows alternate data streams (filename:stream_name)
+    // Must be careful not to block drive letters like C:\path
+    // ADS syntax: "file.txt:hidden" or "file.txt:hidden:$DATA"
+    {
+        let check_path = raw_path;
+        // Strip drive letter prefix if present (e.g. "C:\..." → "\...")
+        let after_drive = if check_path.len() >= 2
+            && check_path.as_bytes()[0].is_ascii_alphabetic()
+            && check_path.as_bytes()[1] == b':'
+        {
+            &check_path[2..]
+        } else {
+            check_path
+        };
+        // If remaining path contains ':' it is an ADS reference
+        if after_drive.contains(':') {
+            return Err(FileError {
+                path: raw_path.to_string(),
+                reason: "Access denied: Windows alternate data streams (ADS) are not allowed"
+                    .to_string(),
+            });
+        }
+    }
+
+    // Block backup/swap file extensions
+    let path_lower = raw_path.to_lowercase();
+    for ext in BLOCKED_EXTENSIONS {
+        if path_lower.ends_with(ext) {
+            return Err(FileError {
+                path: raw_path.to_string(),
+                reason: format!(
+                    "Access denied: backup/swap file extension '{}' is not allowed",
+                    ext
+                ),
+            });
+        }
+    }
+    // Tilde-suffix backup files (e.g. "file.txt~")
+    if raw_path.ends_with('~') {
+        return Err(FileError {
+            path: raw_path.to_string(),
+            reason: "Access denied: tilde backup files are not allowed".to_string(),
+        });
+    }
+
+    // ── Canonicalization ─────────────────────────────────────────────────
+
     let p = Path::new(raw_path);
 
     // Canonicalize: resolve .., symlinks, etc.
@@ -661,5 +735,82 @@ mod tests {
         assert!(!is_text_extension("exe"));
         assert!(!is_text_extension("dll"));
         assert!(!is_text_extension("png"));
+    }
+
+    // ── Path traversal hardening tests ──────────────────────────────────
+
+    #[test]
+    fn test_block_null_byte_in_path() {
+        let result = validate_and_canonicalize("C:\\Users\\test\0\\file.rs", BLOCKED_READ_PREFIXES);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().reason.contains("null byte"));
+    }
+
+    #[test]
+    fn test_block_unc_path_backslash() {
+        let result = validate_and_canonicalize("\\\\server\\share\\file.rs", BLOCKED_READ_PREFIXES);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().reason.contains("UNC"));
+    }
+
+    #[test]
+    fn test_block_unc_path_forward_slash() {
+        let result = validate_and_canonicalize("//server/share/file.rs", BLOCKED_READ_PREFIXES);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().reason.contains("UNC"));
+    }
+
+    #[test]
+    fn test_block_alternate_data_stream() {
+        let result = validate_and_canonicalize("C:\\Users\\test\\file.txt:hidden", BLOCKED_READ_PREFIXES);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().reason.contains("alternate data stream"));
+    }
+
+    #[test]
+    fn test_block_backup_extension_bak() {
+        let result = validate_and_canonicalize("C:\\Users\\test\\file.bak", BLOCKED_READ_PREFIXES);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().reason.contains("backup"));
+    }
+
+    #[test]
+    fn test_block_backup_extension_old() {
+        let result = validate_and_canonicalize("C:\\Users\\test\\file.old", BLOCKED_READ_PREFIXES);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().reason.contains("backup"));
+    }
+
+    #[test]
+    fn test_block_backup_extension_swp() {
+        let result = validate_and_canonicalize("C:\\Users\\test\\file.swp", BLOCKED_READ_PREFIXES);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().reason.contains("backup"));
+    }
+
+    #[test]
+    fn test_block_tilde_backup() {
+        let result = validate_and_canonicalize("C:\\Users\\test\\file.rs~", BLOCKED_READ_PREFIXES);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().reason.contains("tilde"));
+    }
+
+    #[test]
+    fn test_drive_letter_not_blocked_as_ads() {
+        // A normal drive letter like C:\... must NOT be blocked by the ADS check.
+        // It may fail for other reasons (path not existing, blocked prefix),
+        // but the error reason must NOT mention "alternate data stream".
+        let result = validate_and_canonicalize(
+            "C:\\nonexistent_test_dir_abc123\\file.rs",
+            BLOCKED_READ_PREFIXES,
+        );
+        // This should fail because the parent doesn't exist, not because of ADS
+        assert!(result.is_err());
+        let reason = result.unwrap_err().reason;
+        assert!(
+            !reason.contains("alternate data stream"),
+            "drive letter was incorrectly blocked as ADS: {}",
+            reason
+        );
     }
 }

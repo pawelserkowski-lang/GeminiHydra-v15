@@ -23,17 +23,38 @@ import { type ChatTab, useViewStore } from '@/stores/viewStore';
 
 interface TabItemProps {
   tab: ChatTab;
+  index: number;
   isActive: boolean;
   onSwitch: (tabId: string) => void;
   onClose: (tabId: string) => void;
   onTogglePin: (tabId: string) => void;
   onContextMenu?: (x: number, y: number, tabId: string) => void;
   onArrowNav?: (tabId: string, direction: 'left' | 'right') => void;
+  onDragStart: (index: number) => void;
+  onDragOver: (e: React.DragEvent, index: number) => void;
+  onDragEnd: () => void;
+  isDragOver: boolean;
+  isDragging: boolean;
   messageCount: number;
 }
 
 const TabItem = memo<TabItemProps>(
-  ({ tab, isActive, onSwitch, onClose, onTogglePin, onContextMenu, onArrowNav, messageCount }) => {
+  ({
+    tab,
+    index,
+    isActive,
+    onSwitch,
+    onClose,
+    onTogglePin,
+    onContextMenu,
+    onArrowNav,
+    onDragStart,
+    onDragOver,
+    onDragEnd,
+    isDragOver,
+    isDragging,
+    messageCount,
+  }) => {
     const { t } = useTranslation();
     const theme = useViewTheme();
     const [isHovering, setIsHovering] = useState(false);
@@ -70,92 +91,111 @@ const TabItem = memo<TabItemProps>(
     );
 
     return (
-      <motion.div
-        layout
-        layoutId={`tab-${tab.id}`}
-        data-tab-id={tab.id}
-        role="tab"
-        aria-selected={isActive}
-        aria-label={tab.isPinned ? `Pinned tab: ${tab.title || 'New Chat'}` : tab.title || 'New Chat'}
-        tabIndex={isActive ? 0 : -1}
-        onClick={() => onSwitch(tab.id)}
-        onMouseDown={handleMouseDown}
-        onContextMenu={handleContextMenu}
-        onMouseEnter={() => setIsHovering(true)}
-        onMouseLeave={() => setIsHovering(false)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            onSwitch(tab.id);
-          }
-          if (e.key === 'ArrowLeft') {
-            e.preventDefault();
-            onArrowNav?.(tab.id, 'left');
-          }
-          if (e.key === 'ArrowRight') {
-            e.preventDefault();
-            onArrowNav?.(tab.id, 'right');
-          }
+      // biome-ignore lint/a11y/noStaticElementInteractions: drag-and-drop requires div with event handlers
+      <div
+        draggable
+        onDragStart={(e) => {
+          e.dataTransfer.setData('text/plain', String(index));
+          e.dataTransfer.effectAllowed = 'move';
+          onDragStart(index);
         }}
-        initial={{ opacity: 0, scale: 0.9 }}
-        animate={{ opacity: 1, scale: 1 }}
-        exit={{ opacity: 0, scale: 0.9 }}
-        transition={{ type: 'spring', stiffness: 400, damping: 25 }}
-        className={cn(
-          'group relative flex items-center gap-2 px-4 py-2.5 cursor-pointer select-none text-sm font-semibold rounded-t-xl transition-all duration-200',
-          tab.isPinned ? 'min-w-[48px] max-w-[48px] justify-center' : 'min-w-[140px] max-w-[220px]',
-          isActive
-            ? theme.isLight
-              ? 'bg-white/80 text-black border-b-[3px] border-emerald-500 shadow-md backdrop-blur-sm'
-              : 'bg-white/15 text-white border-b-[3px] border-white shadow-lg shadow-white/5 backdrop-blur-sm'
-            : theme.isLight
-              ? 'bg-white/30 text-gray-700 hover:bg-white/55 hover:text-black border-b-[3px] border-transparent'
-              : 'bg-white/[0.06] text-white/50 hover:bg-white/15 hover:text-white border-b-[3px] border-transparent',
-        )}
+        onDragOver={(e) => {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'move';
+          onDragOver(e, index);
+        }}
+        onDragEnd={onDragEnd}
       >
-        {/* Pin indicator */}
-        {tab.isPinned && (
-          <Pin size={13} className={cn('shrink-0', theme.isLight ? 'text-emerald-600' : 'text-white/70')} />
-        )}
+        <motion.div
+          layout
+          layoutId={`tab-${tab.id}`}
+          data-tab-id={tab.id}
+          role="tab"
+          aria-selected={isActive}
+          aria-label={tab.isPinned ? `Pinned tab: ${tab.title || 'New Chat'}` : tab.title || 'New Chat'}
+          tabIndex={isActive ? 0 : -1}
+          onClick={() => onSwitch(tab.id)}
+          onMouseDown={handleMouseDown}
+          onContextMenu={handleContextMenu}
+          onMouseEnter={() => setIsHovering(true)}
+          onMouseLeave={() => setIsHovering(false)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              onSwitch(tab.id);
+            }
+            if (e.key === 'ArrowLeft') {
+              e.preventDefault();
+              onArrowNav?.(tab.id, 'left');
+            }
+            if (e.key === 'ArrowRight') {
+              e.preventDefault();
+              onArrowNav?.(tab.id, 'right');
+            }
+          }}
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          exit={{ opacity: 0, scale: 0.9 }}
+          transition={{ type: 'spring', stiffness: 400, damping: 25 }}
+          className={cn(
+            'group relative flex items-center gap-2 px-4 py-2.5 cursor-pointer select-none text-sm font-semibold rounded-t-xl transition-all duration-200',
+            tab.isPinned ? 'min-w-[48px] max-w-[48px] justify-center' : 'min-w-[140px] max-w-[220px]',
+            isActive
+              ? theme.isLight
+                ? 'bg-white/80 text-black border-b-[3px] border-emerald-500 shadow-md backdrop-blur-sm'
+                : 'bg-white/15 text-white border-b-[3px] border-white shadow-lg shadow-white/5 backdrop-blur-sm'
+              : theme.isLight
+                ? 'bg-white/30 text-gray-700 hover:bg-white/55 hover:text-black border-b-[3px] border-transparent'
+                : 'bg-white/[0.06] text-white/50 hover:bg-white/15 hover:text-white border-b-[3px] border-transparent',
+            // Drag visual indicators (#14)
+            isDragging && 'opacity-50',
+            isDragOver && 'border-l-2 border-l-[var(--matrix-accent)]',
+          )}
+        >
+          {/* Pin indicator */}
+          {tab.isPinned && (
+            <Pin size={13} className={cn('shrink-0', theme.isLight ? 'text-emerald-600' : 'text-white/70')} />
+          )}
 
-        {/* Title (hidden for pinned tabs) */}
-        {!tab.isPinned && <span className="flex-1 truncate">{tab.title || 'New Chat'}</span>}
+          {/* Title (hidden for pinned tabs) */}
+          {!tab.isPinned && <span className="flex-1 truncate">{tab.title || 'New Chat'}</span>}
 
-        {/* Message count badge */}
-        {messageCount > 0 && !tab.isPinned && (
-          <span
-            className={cn(
-              'text-[10px] font-bold px-1.5 py-0.5 rounded-full shrink-0 min-w-[20px] text-center',
-              isActive
-                ? theme.isLight
-                  ? 'bg-emerald-500/25 text-emerald-800'
-                  : 'bg-white/20 text-white'
-                : theme.isLight
-                  ? 'bg-slate-500/15 text-gray-600'
-                  : 'bg-white/10 text-white/50',
-            )}
-          >
-            {messageCount}
-          </span>
-        )}
+          {/* Message count badge */}
+          {messageCount > 0 && !tab.isPinned && (
+            <span
+              className={cn(
+                'text-[10px] font-bold px-1.5 py-0.5 rounded-full shrink-0 min-w-[20px] text-center',
+                isActive
+                  ? theme.isLight
+                    ? 'bg-emerald-500/25 text-emerald-800'
+                    : 'bg-white/20 text-white'
+                  : theme.isLight
+                    ? 'bg-slate-500/15 text-gray-600'
+                    : 'bg-white/10 text-white/50',
+              )}
+            >
+              {messageCount}
+            </span>
+          )}
 
-        {/* Close button (hidden for pinned tabs) */}
-        {!tab.isPinned && (isHovering || isActive) && (
-          <button
-            type="button"
-            onClick={handleClose}
-            className={cn(
-              'shrink-0 p-1 rounded-md transition-colors',
-              theme.isLight
-                ? 'text-gray-400 hover:bg-red-500/25 hover:text-red-600'
-                : 'text-white/40 hover:bg-red-500/30 hover:text-red-400',
-            )}
-            title={t('chat.closeTab', 'Close tab')}
-          >
-            <X size={14} />
-          </button>
-        )}
-      </motion.div>
+          {/* Close button (hidden for pinned tabs) */}
+          {!tab.isPinned && (isHovering || isActive) && (
+            <button
+              type="button"
+              onClick={handleClose}
+              className={cn(
+                'shrink-0 p-1 rounded-md transition-colors',
+                theme.isLight
+                  ? 'text-gray-400 hover:bg-red-500/25 hover:text-red-600'
+                  : 'text-white/40 hover:bg-red-500/30 hover:text-red-400',
+              )}
+              title={t('chat.closeTab', 'Close tab')}
+            >
+              <X size={14} />
+            </button>
+          )}
+        </motion.div>
+      </div>
     );
   },
 );
@@ -177,11 +217,33 @@ export const TabBar = memo(() => {
   const switchTab = useViewStore((state) => state.switchTab);
   const closeTab = useViewStore((state) => state.closeTab);
   const togglePinTab = useViewStore((state) => state.togglePinTab);
+  const reorderTabs = useViewStore((state) => state.reorderTabs);
   const createSession = useViewStore((state) => state.createSession);
   const openTab = useViewStore((state) => state.openTab);
 
   // Context menu state
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; tabId: string } | null>(null);
+
+  // Drag & drop state (#14)
+  const [dragFromIndex, setDragFromIndex] = useState<number | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+
+  const handleTabDragStart = useCallback((index: number) => {
+    setDragFromIndex(index);
+  }, []);
+
+  const handleTabDragOver = useCallback((e: React.DragEvent, index: number) => {
+    e.preventDefault();
+    setDragOverIndex(index);
+  }, []);
+
+  const handleTabDragEnd = useCallback(() => {
+    if (dragFromIndex !== null && dragOverIndex !== null && dragFromIndex !== dragOverIndex) {
+      reorderTabs(dragFromIndex, dragOverIndex);
+    }
+    setDragFromIndex(null);
+    setDragOverIndex(null);
+  }, [dragFromIndex, dragOverIndex, reorderTabs]);
 
   const handleContextMenuOpen = useCallback((x: number, y: number, tabId: string) => {
     setContextMenu({ x, y, tabId });
@@ -247,16 +309,22 @@ export const TabBar = memo(() => {
         className="flex items-end gap-1 overflow-x-auto scrollbar-hide flex-1 min-w-0"
       >
         <AnimatePresence mode="popLayout">
-          {tabs.map((tab) => (
+          {tabs.map((tab, index) => (
             <TabItem
               key={tab.id}
               tab={tab}
+              index={index}
               isActive={tab.id === activeTabId}
               onSwitch={switchTab}
               onClose={closeTab}
               onTogglePin={togglePinTab}
               onContextMenu={handleContextMenuOpen}
               onArrowNav={handleArrowNav}
+              onDragStart={handleTabDragStart}
+              onDragOver={handleTabDragOver}
+              onDragEnd={handleTabDragEnd}
+              isDragOver={dragOverIndex === index}
+              isDragging={dragFromIndex === index}
               messageCount={(chatHistory[tab.sessionId] || []).length}
             />
           ))}

@@ -13,6 +13,84 @@ use sha2::{Digest, Sha256};
 
 use crate::state::AppState;
 
+// ── AES-256-GCM token encryption ────────────────────────────────────────
+// Encrypts OAuth tokens at rest in DB when OAUTH_ENCRYPTION_KEY or AUTH_SECRET
+// is set. Graceful degradation: stores plaintext if neither key is available.
+
+use aes_gcm::{
+    aead::{Aead, KeyInit},
+    Aes256Gcm, Nonce,
+};
+
+/// Derive a 32-byte AES-256 key from a secret string via SHA-256.
+fn derive_encryption_key(secret: &str) -> [u8; 32] {
+    let hash = Sha256::digest(secret.as_bytes());
+    let mut key = [0u8; 32];
+    key.copy_from_slice(&hash);
+    key
+}
+
+/// Get the encryption key from env, if available.
+/// Priority: OAUTH_ENCRYPTION_KEY > AUTH_SECRET > None (plaintext).
+fn get_encryption_key() -> Option<[u8; 32]> {
+    std::env::var("OAUTH_ENCRYPTION_KEY")
+        .ok()
+        .or_else(|| std::env::var("AUTH_SECRET").ok())
+        .filter(|s| !s.is_empty())
+        .map(|s| derive_encryption_key(&s))
+}
+
+/// Encrypt a plaintext string. Returns hex-encoded "nonce:ciphertext".
+/// Returns the original plaintext if no encryption key is available.
+fn encrypt_token(plaintext: &str) -> String {
+    let Some(key_bytes) = get_encryption_key() else {
+        return plaintext.to_string();
+    };
+    let cipher = Aes256Gcm::new_from_slice(&key_bytes)
+        .expect("AES-256-GCM key is always 32 bytes");
+    let nonce_bytes: [u8; 12] = rand::random();
+    let nonce = Nonce::from_slice(&nonce_bytes);
+    match cipher.encrypt(nonce, plaintext.as_bytes()) {
+        Ok(ciphertext) => {
+            format!("enc:{}:{}", hex::encode(nonce_bytes), hex::encode(ciphertext))
+        }
+        Err(e) => {
+            tracing::error!("Failed to encrypt OAuth token: {}", e);
+            plaintext.to_string()
+        }
+    }
+}
+
+/// Decrypt a token string. If it starts with "enc:", parse nonce:ciphertext.
+/// Otherwise treat as plaintext (backwards-compatible with unencrypted tokens).
+fn decrypt_token(stored: &str) -> Result<String, String> {
+    if !stored.starts_with("enc:") {
+        // Plaintext (no encryption key was set when stored, or dev mode)
+        return Ok(stored.to_string());
+    }
+    let Some(key_bytes) = get_encryption_key() else {
+        return Err("Encrypted token in DB but no encryption key configured".into());
+    };
+    let parts: Vec<&str> = stored.splitn(3, ':').collect();
+    if parts.len() != 3 {
+        return Err("Malformed encrypted token format".into());
+    }
+    let nonce_bytes = hex::decode(parts[1])
+        .map_err(|e| format!("Invalid nonce hex: {}", e))?;
+    let ciphertext = hex::decode(parts[2])
+        .map_err(|e| format!("Invalid ciphertext hex: {}", e))?;
+    if nonce_bytes.len() != 12 {
+        return Err(format!("Invalid nonce length: {} (expected 12)", nonce_bytes.len()));
+    }
+    let cipher = Aes256Gcm::new_from_slice(&key_bytes)
+        .expect("AES-256-GCM key is always 32 bytes");
+    let nonce = Nonce::from_slice(&nonce_bytes);
+    let plaintext = cipher
+        .decrypt(nonce, ciphertext.as_ref())
+        .map_err(|e| format!("Decryption failed (wrong key?): {}", e))?;
+    String::from_utf8(plaintext).map_err(|e| format!("Decrypted token is not valid UTF-8: {}", e))
+}
+
 // ── Project-specific DB table ───────────────────────────────────────────
 // Table name: "gh_oauth_tokens" — hardcoded in SQL via concat!() for compile-time safety.
 // ClaudeHydra uses "ch_oauth_tokens" — keep in sync when porting.
@@ -176,6 +254,10 @@ pub async fn auth_callback(
     let now = chrono::Utc::now().timestamp();
     let expires_at = now + token_resp.expires_in;
 
+    // Encrypt tokens before storing in DB (graceful degradation: plaintext if no key)
+    let encrypted_access = encrypt_token(&token_resp.access_token);
+    let encrypted_refresh = encrypt_token(token_resp.refresh_token.as_deref().unwrap_or(""));
+
     // Upsert tokens in DB
     sqlx::query(
         concat!(
@@ -185,8 +267,8 @@ pub async fn auth_callback(
             "access_token = $1, refresh_token = $2, expires_at = $3, scope = $4, updated_at = NOW()",
         ),
     )
-    .bind(&token_resp.access_token)
-    .bind(token_resp.refresh_token.as_deref().unwrap_or(""))
+    .bind(&encrypted_access)
+    .bind(&encrypted_refresh)
     .bind(expires_at)
     .bind(SCOPE)
     .execute(&state.db)
@@ -228,17 +310,34 @@ pub async fn auth_logout(State(state): State<AppState>) -> Json<Value> {
 
 /// Get a valid OAuth access token, auto-refreshing if expired.
 /// Returns `None` if no tokens are stored or refresh fails.
+/// Decrypts tokens from DB (supports both encrypted and plaintext for backwards compat).
 pub async fn get_valid_access_token(state: &AppState) -> Option<String> {
     let row = get_token_row(state).await?;
     let now = chrono::Utc::now().timestamp();
 
+    // Decrypt the stored access token
+    let access_token = match decrypt_token(&row.access_token) {
+        Ok(t) => t,
+        Err(e) => {
+            tracing::error!("Failed to decrypt OAuth access token: {}", e);
+            return None;
+        }
+    };
+
     // Token still valid
     if now < row.expires_at - TOKEN_EXPIRY_BUFFER_SECS {
-        return Some(row.access_token);
+        return Some(access_token);
     }
 
-    // Need to refresh
+    // Need to refresh — decrypt the refresh token
     tracing::info!("OAuth token expired, refreshing...");
+    let refresh_token = match decrypt_token(&row.refresh_token) {
+        Ok(t) => t,
+        Err(e) => {
+            tracing::error!("Failed to decrypt OAuth refresh token: {}", e);
+            return None;
+        }
+    };
 
     let resp = state
         .client
@@ -247,7 +346,7 @@ pub async fn get_valid_access_token(state: &AppState) -> Option<String> {
         .json(&json!({
             "grant_type": "refresh_token",
             "client_id": CLIENT_ID,
-            "refresh_token": row.refresh_token,
+            "refresh_token": refresh_token,
         }))
         .timeout(std::time::Duration::from_secs(30))
         .send()
@@ -261,7 +360,11 @@ pub async fn get_valid_access_token(state: &AppState) -> Option<String> {
 
     let token_resp: TokenResponse = resp.json().await.ok()?;
     let expires_at = now + token_resp.expires_in;
-    let refresh = token_resp.refresh_token.unwrap_or(row.refresh_token);
+    let new_refresh = token_resp.refresh_token.unwrap_or(refresh_token);
+
+    // Encrypt new tokens before storing
+    let encrypted_access = encrypt_token(&token_resp.access_token);
+    let encrypted_refresh = encrypt_token(&new_refresh);
 
     sqlx::query(
         concat!(
@@ -269,8 +372,8 @@ pub async fn get_valid_access_token(state: &AppState) -> Option<String> {
             "expires_at = $3, updated_at = NOW() WHERE id = 1",
         ),
     )
-    .bind(&token_resp.access_token)
-    .bind(&refresh)
+    .bind(&encrypted_access)
+    .bind(&encrypted_refresh)
     .bind(expires_at)
     .execute(&state.db)
     .await

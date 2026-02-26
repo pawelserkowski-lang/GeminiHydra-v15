@@ -9,6 +9,7 @@
 
 import { type ReactNode, useCallback, useEffect, useMemo } from 'react';
 import { RuneRain, ThemedBackground } from '@/components/atoms';
+import { CommandPalette } from '@/components/molecules/CommandPalette';
 import { Sidebar } from '@/components/organisms/Sidebar';
 import type { ConnectionHealth, StatusFooterProps } from '@/components/organisms/StatusFooter';
 import { StatusFooter } from '@/components/organisms/StatusFooter';
@@ -129,6 +130,9 @@ function AppShellInner({ children, statusFooterProps }: AppShellProps) {
 
       {/* RuneRain overlay */}
       <RuneRain opacity={0.12} />
+
+      {/* Command Palette (Ctrl+K) */}
+      <CommandPalette />
 
       {/* Main Content */}
       <div className="relative z-10 flex h-full w-full backdrop-blur-[1px] gap-4 p-4 overflow-hidden">

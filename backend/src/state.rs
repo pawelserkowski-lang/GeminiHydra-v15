@@ -2,7 +2,7 @@
 // GeminiHydra v15 - Application state
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -12,6 +12,116 @@ use tokio::sync::RwLock;
 
 use crate::model_registry::ModelCache;
 use crate::models::WitcherAgent;
+
+// ── Circuit Breaker ─────────────────────────────────────────────────────────
+// Jaskier Shared Pattern -- circuit_breaker
+//
+// Simple circuit breaker for external API providers.
+// After `FAILURE_THRESHOLD` consecutive failures the circuit trips (OPEN) and
+// all requests fail fast for `RECOVERY_TIMEOUT` seconds. Once that window
+// elapses the breaker moves to HALF-OPEN: the next call is allowed through
+// and either resets the breaker (on success) or trips it again.
+
+const FAILURE_THRESHOLD: u32 = 3;
+const RECOVERY_TIMEOUT_SECS: u64 = 60;
+
+/// Circuit states (encoded as u32 for lock-free atomic access).
+/// 0 = CLOSED (healthy), 1 = OPEN (tripped), 2 = HALF_OPEN (probing).
+const STATE_CLOSED: u32 = 0;
+const STATE_OPEN: u32 = 1;
+const STATE_HALF_OPEN: u32 = 2;
+
+#[derive(Debug)]
+pub struct CircuitBreaker {
+    /// Current state: CLOSED / OPEN / HALF_OPEN.
+    state: AtomicU32,
+    /// Consecutive failure count.
+    consecutive_failures: AtomicU32,
+    /// Instant when the circuit was last tripped (OPEN). Protected by RwLock
+    /// because `Instant` is not atomic but writes are rare (only on state change).
+    last_failure_time: RwLock<Option<Instant>>,
+    /// Human-readable label for log messages.
+    provider: String,
+}
+
+impl CircuitBreaker {
+    pub fn new(provider: &str) -> Self {
+        Self {
+            state: AtomicU32::new(STATE_CLOSED),
+            consecutive_failures: AtomicU32::new(0),
+            last_failure_time: RwLock::new(None),
+            provider: provider.to_string(),
+        }
+    }
+
+    /// Check whether a request is allowed through.
+    /// Returns `Ok(())` if the circuit is CLOSED or HALF_OPEN, or
+    /// `Err(message)` if OPEN and the recovery window hasn't elapsed.
+    pub async fn check(&self) -> Result<(), String> {
+        let current = self.state.load(Ordering::Acquire);
+
+        if current == STATE_CLOSED {
+            return Ok(());
+        }
+
+        // OPEN — check if recovery timeout has elapsed.
+        if current == STATE_OPEN {
+            let lock = self.last_failure_time.read().await;
+            if let Some(t) = *lock {
+                if t.elapsed().as_secs() >= RECOVERY_TIMEOUT_SECS {
+                    drop(lock);
+                    // Transition to HALF_OPEN so the next request is a probe.
+                    self.state.store(STATE_HALF_OPEN, Ordering::Release);
+                    tracing::info!(
+                        "circuit_breaker[{}]: OPEN -> HALF_OPEN (recovery window elapsed)",
+                        self.provider
+                    );
+                    return Ok(());
+                }
+            }
+            let remaining = lock
+                .map(|t| RECOVERY_TIMEOUT_SECS.saturating_sub(t.elapsed().as_secs()))
+                .unwrap_or(RECOVERY_TIMEOUT_SECS);
+            return Err(format!(
+                "Circuit breaker OPEN for provider '{}' — failing fast (retry in ~{}s)",
+                self.provider, remaining
+            ));
+        }
+
+        // HALF_OPEN — allow the probe request through.
+        Ok(())
+    }
+
+    /// Record a successful call. Resets failures and closes the circuit.
+    pub async fn record_success(&self) {
+        let prev = self.state.swap(STATE_CLOSED, Ordering::Release);
+        self.consecutive_failures.store(0, Ordering::Release);
+        if prev != STATE_CLOSED {
+            tracing::info!(
+                "circuit_breaker[{}]: {} -> CLOSED (success)",
+                self.provider,
+                match prev { STATE_OPEN => "OPEN", STATE_HALF_OPEN => "HALF_OPEN", _ => "?" }
+            );
+        }
+    }
+
+    /// Record a failed call. If the threshold is breached, trip the circuit.
+    pub async fn record_failure(&self) {
+        let count = self.consecutive_failures.fetch_add(1, Ordering::AcqRel) + 1;
+
+        if count >= FAILURE_THRESHOLD {
+            let prev = self.state.swap(STATE_OPEN, Ordering::Release);
+            *self.last_failure_time.write().await = Some(Instant::now());
+            if prev != STATE_OPEN {
+                tracing::warn!(
+                    "circuit_breaker[{}]: TRIPPED after {} consecutive failures — \
+                     failing fast for {}s",
+                    self.provider, count, RECOVERY_TIMEOUT_SECS
+                );
+            }
+        }
+    }
+}
 
 // ── Shared: SystemSnapshot ───────────────────────────────────────────────────
 /// Cached system statistics snapshot, refreshed every 5s by background task.
@@ -63,6 +173,8 @@ pub struct AppState {
     pub ready: Arc<AtomicBool>,
     /// Optional auth secret from AUTH_SECRET env. None = dev mode (no auth).
     pub auth_secret: Option<String>,
+    /// Circuit breaker for the Gemini API provider.
+    pub gemini_circuit: Arc<CircuitBreaker>,
 }
 
 // ── Shared: readiness helpers ───────────────────────────────────────────────
@@ -121,6 +233,7 @@ impl AppState {
             model_cache: Arc::new(RwLock::new(ModelCache::new())),
             start_time: Instant::now(),
             client: Client::builder()
+                .pool_max_idle_per_host(10)
                 .timeout(std::time::Duration::from_secs(120))
                 .connect_timeout(std::time::Duration::from_secs(5))
                 .build()
@@ -129,6 +242,7 @@ impl AppState {
             system_monitor: Arc::new(RwLock::new(SystemSnapshot::default())),
             ready: Arc::new(AtomicBool::new(false)),
             auth_secret,
+            gemini_circuit: Arc::new(CircuitBreaker::new("gemini")),
         }
     }
 

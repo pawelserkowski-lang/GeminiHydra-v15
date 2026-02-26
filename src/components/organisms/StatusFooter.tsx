@@ -95,11 +95,11 @@ const StatusFooterComponent = ({
   const { resolvedTheme } = useTheme();
   const isLight = resolvedTheme === 'light';
 
-  const [currentTime, setCurrentTime] = useState(() => new Date().toLocaleTimeString('pl-PL', TIME_FORMAT));
+  const [currentTime, setCurrentTime] = useState(() => new Date().toLocaleTimeString(navigator.language, TIME_FORMAT));
 
   useEffect(() => {
     const timer = setInterval(() => {
-      setCurrentTime(new Date().toLocaleTimeString('pl-PL', TIME_FORMAT));
+      setCurrentTime(new Date().toLocaleTimeString(navigator.language, TIME_FORMAT));
     }, 1000);
     return () => clearInterval(timer);
   }, []);
@@ -167,7 +167,7 @@ const StatusFooterComponent = ({
 
         {/* Date */}
         <span>
-          {new Date().toLocaleDateString('pl-PL', {
+          {new Date().toLocaleDateString(navigator.language, {
             weekday: 'short',
             day: 'numeric',
             month: '2-digit',

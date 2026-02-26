@@ -6,11 +6,20 @@
  * header region and content shimmer area. Used as `<Suspense fallback>`.
  */
 
+import { useTranslation } from 'react-i18next';
 import { Skeleton } from '@/components/atoms/Skeleton';
 
 export function ViewSkeleton() {
+  const { t } = useTranslation();
   return (
-    <div className="flex flex-col h-full w-full overflow-hidden animate-in fade-in duration-300">
+    // biome-ignore lint/a11y/useSemanticElements: div with role=status is appropriate for loading skeletons
+    <div
+      className="flex flex-col h-full w-full overflow-hidden animate-in fade-in duration-300"
+      role="status"
+      aria-busy="true"
+      aria-live="polite"
+      aria-label={t('common.loadingView', 'Loading view')}
+    >
       {/* Header skeleton */}
       <div className="px-6 py-4 border-b border-[var(--matrix-border)]/30 space-y-3">
         <Skeleton shape="line" width="40%" height="1.5rem" />

@@ -7,6 +7,7 @@
  */
 
 import { useCallback, useEffect, useRef } from 'react';
+import { toast } from 'sonner';
 import type { Session } from '@/stores/viewStore';
 import { useViewStore } from '@/stores/viewStore';
 import {
@@ -60,20 +61,37 @@ export function useSessionSync() {
     }
   }, [dbLoaded, dbSessions, sessions.length, hydrateSessions]);
 
-  /** Create a session in DB, then add to viewStore with the DB-generated UUID. */
+  /**
+   * Optimistic session creation (#16).
+   * Immediately adds a placeholder session to the store (visible in sidebar),
+   * then replaces it with real DB data when the API responds.
+   * If creation fails, removes the placeholder and shows an error toast.
+   */
   const createSessionWithSync = useCallback(
     async (title = 'New Chat') => {
+      // Step 1: Optimistically create a placeholder with a temporary UUID
+      const placeholderId = `pending-${crypto.randomUUID()}`;
+      createSessionWithId(placeholderId, title);
+
       try {
+        // Step 2: Create in DB — get the real UUID
         const created = await createMutation.mutateAsync({ title });
+
+        // Step 3: Replace placeholder with real session
+        // Delete the placeholder and create with the real ID
+        deleteSessionLocal(placeholderId);
         createSessionWithId(created.id, created.title);
         return created.id;
       } catch {
+        // Step 3 (failure): Remove placeholder, show error toast
+        deleteSessionLocal(placeholderId);
+        toast.error('Failed to create session — using local fallback');
         // Fallback: create locally only
         createSessionLocal();
         return useViewStore.getState().currentSessionId;
       }
     },
-    [createMutation, createSessionWithId, createSessionLocal],
+    [createMutation, createSessionWithId, createSessionLocal, deleteSessionLocal],
   );
 
   /** Delete from DB, then remove from viewStore. */

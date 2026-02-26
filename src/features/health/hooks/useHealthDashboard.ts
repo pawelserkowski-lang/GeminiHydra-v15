@@ -25,6 +25,13 @@ interface ModelInfo {
   [key: string]: unknown;
 }
 
+interface ResolvedModels {
+  chat: string | null;
+  thinking: string | null;
+  image: string | null;
+  [key: string]: string | null;
+}
+
 export interface HealthDashboardData {
   backendOnline: boolean;
   uptimeSeconds: number | null;
@@ -33,6 +40,12 @@ export interface HealthDashboardData {
   memoryUsedMb: number | null;
   memoryTotalMb: number | null;
   modelCount: number | null;
+  /** Active model assignments from the dynamic registry */
+  resolvedModels: ResolvedModels | null;
+  /** Last watchdog check timestamp (ISO string) */
+  watchdogLastCheck: string | null;
+  /** Watchdog status */
+  watchdogStatus: string | null;
   loading: boolean;
   error: boolean;
   refetch: () => void;
@@ -63,6 +76,23 @@ export function useHealthDashboard(): HealthDashboardData {
     retry: false, // refetchInterval handles recovery
     enabled: backendOnline, // don't poll when backend is down
   });
+
+  // Detailed health includes watchdog and resolved models
+  const detailedQuery = useQuery<{
+    resolved_models?: ResolvedModels;
+    watchdog?: { last_check?: string; status?: string };
+  }>({
+    queryKey: ['health', 'detailed'],
+    queryFn: () =>
+      apiGetPolling<{
+        resolved_models?: ResolvedModels;
+        watchdog?: { last_check?: string; status?: string };
+      }>('/api/health/detailed'),
+    refetchInterval: 30_000,
+    retry: false,
+    enabled: backendOnline,
+  });
+
   // GeminiHydra useHealthQuery returns { status: string } without uptime,
   // so we read uptime_seconds from the SystemStats endpoint instead.
   const uptimeSeconds = statsQuery.data?.uptime_seconds ?? null;
@@ -71,6 +101,9 @@ export function useHealthDashboard(): HealthDashboardData {
   const memoryUsedMb = statsQuery.data?.memory_used ?? null;
   const memoryTotalMb = statsQuery.data?.memory_total ?? null;
   const modelCount = modelsQuery.data ? modelsQuery.data.length : null;
+  const resolvedModels = detailedQuery.data?.resolved_models ?? null;
+  const watchdogLastCheck = detailedQuery.data?.watchdog?.last_check ?? null;
+  const watchdogStatus = detailedQuery.data?.watchdog?.status ?? null;
   const loading = healthQuery.isLoading || statsQuery.isLoading;
   const error = healthQuery.isError && statsQuery.isError;
 
@@ -79,6 +112,7 @@ export function useHealthDashboard(): HealthDashboardData {
     void statsQuery.refetch();
     void authQuery.refetch();
     void modelsQuery.refetch();
+    void detailedQuery.refetch();
   };
 
   return {
@@ -89,6 +123,9 @@ export function useHealthDashboard(): HealthDashboardData {
     memoryUsedMb,
     memoryTotalMb,
     modelCount,
+    resolvedModels,
+    watchdogLastCheck,
+    watchdogStatus,
     loading,
     error,
     refetch,

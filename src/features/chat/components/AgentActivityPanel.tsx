@@ -6,19 +6,9 @@
  * and execution metadata during streaming. Collapses when idle.
  */
 
-import {
-  CheckCircle2,
-  ChevronDown,
-  ChevronUp,
-  Cog,
-  Loader2,
-  Target,
-  Wrench,
-  XCircle,
-  Zap,
-} from 'lucide-react';
+import { CheckCircle2, ChevronDown, ChevronUp, Cog, Loader2, Target, Wrench, XCircle, Zap } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
-import { memo, useCallback, useState } from 'react';
+import { memo, useCallback, useMemo, useState } from 'react';
 import { useViewTheme } from '@/shared/hooks/useViewTheme';
 import { cn } from '@/shared/utils/cn';
 
@@ -64,8 +54,30 @@ export const AgentActivityPanel = memo<{ activity: AgentActivity }>(({ activity 
 
   const toggleExpanded = useCallback(() => setExpanded((p) => !p), []);
 
-  const runningTools = activity.tools.filter((t) => t.status === 'running');
-  const completedTools = activity.tools.filter((t) => t.status !== 'running');
+  const runningTools = useMemo(() => activity.tools.filter((t) => t.status === 'running'), [activity.tools]);
+  const completedTools = useMemo(() => activity.tools.filter((t) => t.status !== 'running'), [activity.tools]);
+
+  // Memoized plan steps list (#5)
+  const planStepsList = useMemo(
+    () =>
+      activity.planSteps.map((step, i) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: plan steps are append-only and have no stable ID
+        <div key={`step-${i}`} className="flex items-start gap-2">
+          <Target size={14} className={cn('mt-0.5 shrink-0', theme.accentText, 'opacity-50')} />
+          <span className={theme.textMuted}>{step}</span>
+        </div>
+      )),
+    [activity.planSteps, theme.accentText, theme.textMuted],
+  );
+
+  // Memoized tool rows list (#5)
+  const toolRowsList = useMemo(
+    () =>
+      activity.tools.map((tool, i) => (
+        <ToolRow key={`tool-${tool.iteration}-${tool.name}-${i}`} tool={tool} theme={theme} />
+      )),
+    [activity.tools, theme],
+  );
 
   // Don't render when there's nothing to show
   if (!activity.isActive && activity.tools.length === 0 && activity.planSteps.length === 0) {
@@ -101,12 +113,8 @@ export const AgentActivityPanel = memo<{ activity: AgentActivity }>(({ activity 
         )}
 
         {/* Agent + model */}
-        {activity.agent && (
-          <span className={cn('font-bold', theme.accentText)}>{activity.agent}</span>
-        )}
-        {activity.model && (
-          <span className={cn('opacity-50', theme.textMuted)}>· {activity.model}</span>
-        )}
+        {activity.agent && <span className={cn('font-bold', theme.accentText)}>{activity.agent}</span>}
+        {activity.model && <span className={cn('opacity-50', theme.textMuted)}>· {activity.model}</span>}
 
         {/* Confidence badge */}
         {activity.confidence !== null && (
@@ -134,13 +142,19 @@ export const AgentActivityPanel = memo<{ activity: AgentActivity }>(({ activity 
 
         {/* Completed count */}
         {completedTools.length > 0 && (
-          <span className={cn('flex items-center gap-1.5 text-xs', runningTools.length === 0 && 'ml-auto', theme.textMuted)}>
+          <span
+            className={cn('flex items-center gap-1.5 text-xs', runningTools.length === 0 && 'ml-auto', theme.textMuted)}
+          >
             <CheckCircle2 size={14} />
             {completedTools.length} done
           </span>
         )}
 
-        {expanded ? <ChevronUp size={14} className={theme.textMuted} /> : <ChevronDown size={14} className={theme.textMuted} />}
+        {expanded ? (
+          <ChevronUp size={14} className={theme.textMuted} />
+        ) : (
+          <ChevronDown size={14} className={theme.textMuted} />
+        )}
       </button>
 
       {/* Expandable body */}
@@ -154,26 +168,11 @@ export const AgentActivityPanel = memo<{ activity: AgentActivity }>(({ activity 
             className="overflow-hidden"
           >
             <div className="px-4 pb-3 space-y-1.5">
-              {/* Plan steps */}
-              {activity.planSteps.length > 0 && (
-                <div className="space-y-1">
-                  {activity.planSteps.map((step, i) => (
-                    <div key={`step-${i}`} className="flex items-start gap-2">
-                      <Target size={14} className={cn('mt-0.5 shrink-0', theme.accentText, 'opacity-50')} />
-                      <span className={theme.textMuted}>{step}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
+              {/* Plan steps (memoized #5) */}
+              {activity.planSteps.length > 0 && <div className="space-y-1">{planStepsList}</div>}
 
-              {/* Tool calls */}
-              {activity.tools.length > 0 && (
-                <div className="space-y-1 pt-1">
-                  {activity.tools.map((tool, i) => (
-                    <ToolRow key={`tool-${tool.iteration}-${tool.name}-${i}`} tool={tool} theme={theme} />
-                  ))}
-                </div>
-              )}
+              {/* Tool calls (memoized #5) */}
+              {activity.tools.length > 0 && <div className="space-y-1 pt-1">{toolRowsList}</div>}
             </div>
           </motion.div>
         )}
@@ -189,16 +188,10 @@ AgentActivityPanel.displayName = 'AgentActivityPanel';
 // ============================================================================
 
 const ToolRow = memo<{ tool: ToolActivity; theme: ReturnType<typeof useViewTheme> }>(({ tool, theme }) => {
-  const elapsed = tool.completedAt
-    ? `${((tool.completedAt - tool.startedAt) / 1000).toFixed(1)}s`
-    : null;
+  const elapsed = tool.completedAt ? `${((tool.completedAt - tool.startedAt) / 1000).toFixed(1)}s` : null;
 
   return (
-    <motion.div
-      initial={{ opacity: 0, x: -8 }}
-      animate={{ opacity: 1, x: 0 }}
-      className="flex items-center gap-2"
-    >
+    <motion.div initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} className="flex items-center gap-2">
       {tool.status === 'running' && <Loader2 size={14} className="animate-spin text-amber-400 shrink-0" />}
       {tool.status === 'success' && <CheckCircle2 size={14} className="text-emerald-400 shrink-0" />}
       {tool.status === 'error' && <XCircle size={14} className="text-red-400 shrink-0" />}
@@ -206,13 +199,12 @@ const ToolRow = memo<{ tool: ToolActivity; theme: ReturnType<typeof useViewTheme
       <Wrench size={14} className={cn(theme.textMuted, 'shrink-0')} />
       <span className={cn('font-bold', theme.accentText)}>{tool.name}</span>
 
-      {elapsed && (
-        <span className={cn('text-xs', theme.textMuted)}>{elapsed}</span>
-      )}
+      {elapsed && <span className={cn('text-xs', theme.textMuted)}>{elapsed}</span>}
 
       {tool.summary && tool.status !== 'running' && (
         <span className={cn('truncate max-w-[300px]', theme.textMuted)} title={tool.summary}>
-          {tool.summary.slice(0, 80)}{tool.summary.length > 80 ? '…' : ''}
+          {tool.summary.slice(0, 80)}
+          {tool.summary.length > 80 ? '…' : ''}
         </span>
       )}
     </motion.div>

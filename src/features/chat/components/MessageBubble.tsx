@@ -13,7 +13,16 @@
 
 import { Bot, Check, Copy, Cpu, Terminal, User } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
-import { isValidElement, memo, type MouseEvent as ReactMouseEvent, type ReactNode, useCallback, useState } from 'react';
+import {
+  type ImgHTMLAttributes,
+  isValidElement,
+  memo,
+  type MouseEvent as ReactMouseEvent,
+  type ReactNode,
+  useCallback,
+  useMemo,
+  useState,
+} from 'react';
 import { useTranslation } from 'react-i18next';
 import ReactMarkdown from 'react-markdown';
 import rehypeHighlight from 'rehype-highlight';
@@ -37,6 +46,35 @@ function extractText(node: ReactNode): string {
     return extractText((node.props as { children?: ReactNode }).children);
   }
   return '';
+}
+
+// ---------------------------------------------------------------------------
+// Lazy-loading image with blur placeholder (#4)
+// ---------------------------------------------------------------------------
+
+function LazyImage(props: ImgHTMLAttributes<HTMLImageElement>) {
+  const [loaded, setLoaded] = useState(false);
+
+  return (
+    <span className="relative inline-block">
+      {/* Skeleton placeholder shown while image loads */}
+      {!loaded && <span className="absolute inset-0 bg-gray-500/20 rounded-lg animate-pulse backdrop-blur-sm" />}
+      <img
+        {...props}
+        loading="lazy"
+        onLoad={(e) => {
+          setLoaded(true);
+          if (typeof props.onLoad === 'function') props.onLoad(e);
+        }}
+        className={cn(
+          props.className,
+          'rounded-lg max-w-full transition-opacity duration-300',
+          loaded ? 'opacity-100' : 'opacity-0',
+        )}
+        alt={props.alt ?? 'Image'}
+      />
+    </span>
+  );
 }
 
 // ============================================================================
@@ -71,12 +109,15 @@ const bubbleVariants = {
 // ============================================================================
 
 export const MessageBubble = memo<MessageBubbleProps>(({ message, isLast, isStreaming, onContextMenu }) => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const theme = useViewTheme();
   const [copied, setCopied] = useState(false);
 
   const isUser = message.role === 'user';
   const isSystem = message.role === 'system';
+
+  // Locale-aware formatting: prefer i18next language, fall back to navigator.language
+  const locale = useMemo(() => i18n.language || navigator.language, [i18n.language]);
 
   // ----- Copy to clipboard -------------------------------------------
 
@@ -160,6 +201,7 @@ export const MessageBubble = memo<MessageBubbleProps>(({ message, isLast, isStre
             'transform hover:scale-110',
           )}
           title={t('chat.copyMessage', 'Copy message')}
+          aria-label={t('chat.copyMessage', 'Copy message')}
         >
           <AnimatePresence mode="wait" initial={false}>
             {copied ? (
@@ -232,6 +274,9 @@ export const MessageBubble = memo<MessageBubbleProps>(({ message, isLast, isStre
               pre({ children }: { children?: ReactNode | undefined }) {
                 return <>{children}</>;
               },
+              img(imgProps: ImgHTMLAttributes<HTMLImageElement>) {
+                return <LazyImage {...imgProps} />;
+              },
             }}
           >
             {message.content}
@@ -241,7 +286,7 @@ export const MessageBubble = memo<MessageBubbleProps>(({ message, isLast, isStre
         {/* Timestamp */}
         {message.timestamp > 0 && (
           <div className={cn('text-xs mt-1.5 font-mono', theme.textMuted)}>
-            {new Date(message.timestamp).toLocaleTimeString('en-US', {
+            {new Date(message.timestamp).toLocaleTimeString(locale, {
               hour: '2-digit',
               minute: '2-digit',
             })}

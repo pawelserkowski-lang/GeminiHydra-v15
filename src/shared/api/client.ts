@@ -11,8 +11,11 @@
 import { toast } from 'sonner';
 import { env } from '../config/env';
 
-const isLocalhost = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
-const BASE_URL = env.VITE_BACKEND_URL ?? (import.meta.env.PROD && !isLocalhost ? 'https://geminihydra-v15-backend.fly.dev' : '');
+const isLocalhost =
+  typeof window !== 'undefined' &&
+  (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+const BASE_URL =
+  env.VITE_BACKEND_URL ?? (import.meta.env.PROD && !isLocalhost ? 'https://geminihydra-v15-backend.fly.dev' : '');
 const AUTH_SECRET = env.VITE_AUTH_SECRET;
 
 const MAX_RETRIES = 3;
@@ -113,20 +116,30 @@ async function fetchWithRetry(url: string, init: RequestInit, retries = MAX_RETR
 }
 
 // -------------------------------------------------------------------
+// In-flight request deduplication (#32)
+// -------------------------------------------------------------------
+// If an identical GET request is already pending, return the same promise
+// instead of making a duplicate request. Keyed by full URL.
+
+const inflightRequests = new Map<string, Promise<unknown>>();
+
+// -------------------------------------------------------------------
 // Internal fetch helper
 // -------------------------------------------------------------------
 
-async function apiFetch<T>(path: string, options: RequestInit = {}, retries?: number): Promise<T> {
-  const url = `${BASE_URL}${path}`;
-
-  const response = await fetchWithRetry(url, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(AUTH_SECRET ? { Authorization: `Bearer ${AUTH_SECRET}` } : {}),
-      ...options.headers,
+async function apiFetchInternal<T>(url: string, options: RequestInit, retries?: number): Promise<T> {
+  const response = await fetchWithRetry(
+    url,
+    {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(AUTH_SECRET ? { Authorization: `Bearer ${AUTH_SECRET}` } : {}),
+        ...options.headers,
+      },
     },
-  }, retries);
+    retries,
+  );
 
   if (!response.ok) {
     let body: unknown;
@@ -155,6 +168,27 @@ async function apiFetch<T>(path: string, options: RequestInit = {}, retries?: nu
   }
 
   return response.json() as Promise<T>;
+}
+
+async function apiFetch<T>(path: string, options: RequestInit = {}, retries?: number): Promise<T> {
+  const url = `${BASE_URL}${path}`;
+  const method = options.method?.toUpperCase() ?? 'GET';
+
+  // Deduplicate concurrent identical GET requests
+  if (method === 'GET') {
+    const existing = inflightRequests.get(url);
+    if (existing) {
+      return existing as Promise<T>;
+    }
+
+    const promise = apiFetchInternal<T>(url, options, retries).finally(() => {
+      inflightRequests.delete(url);
+    });
+    inflightRequests.set(url, promise);
+    return promise;
+  }
+
+  return apiFetchInternal<T>(url, options, retries);
 }
 
 // -------------------------------------------------------------------

@@ -12,6 +12,7 @@
  * - motion animations
  */
 
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { Check, ClipboardList, Copy, FileText, MessageSquare, Paperclip, Trash2, X } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
@@ -29,6 +30,7 @@ import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { EmptyState } from '@/components/molecules/EmptyState';
 import { useSettingsQuery } from '@/features/settings/hooks/useSettings';
+import { useOnlineStatus } from '@/shared/hooks/useOnlineStatus';
 import { useViewTheme } from '@/shared/hooks/useViewTheme';
 import { cn } from '@/shared/utils/cn';
 import { type Message, useViewStore } from '@/stores/viewStore';
@@ -37,6 +39,9 @@ import { useFileReadMutation } from '../hooks/useFiles';
 import { type AgentActivity, AgentActivityPanel } from './AgentActivityPanel';
 import { ChatInput } from './ChatInput';
 import { MessageBubble } from './MessageBubble';
+import { NewMessagesButton } from './NewMessagesButton';
+import { OfflineBanner } from './OfflineBanner';
+import { SearchOverlay } from './SearchOverlay';
 
 // ============================================================================
 // TYPES
@@ -315,16 +320,47 @@ export const ChatContainer = memo<ChatContainerProps>(({ isStreaming, onSubmit, 
   // File read mutation
   const fileReadMutation = useFileReadMutation();
 
+  // Online status (#25)
+  const isOnline = useOnlineStatus();
+
   // Local state
   const [pendingImage, setPendingImage] = useState<string | null>(null);
   const [textContext, setTextContext] = useState('');
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
 
+  // Search overlay state (#19)
+  const [searchOpen, setSearchOpen] = useState(false);
+
+  // ----- Ctrl+F search shortcut (#19) ---------------------------------
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+        e.preventDefault();
+        setSearchOpen(true);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  // ----- Virtualizer for message list -----------------------------------
+
+  const virtualizer = useVirtualizer({
+    count: messages.length,
+    getScrollElement: () => scrollContainerRef.current,
+    estimateSize: () => 120,
+    overscan: 5,
+    measureElement: (el) => el.getBoundingClientRect().height,
+  });
+
   // ----- Auto-scroll to bottom ----------------------------------------
 
   const scrollToBottom = useCallback(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, []);
+    if (messages.length > 0) {
+      virtualizer.scrollToIndex(messages.length - 1, { align: 'end', behavior: 'smooth' });
+    }
+  }, [messages.length, virtualizer]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: intentional scroll trigger on message changes
   useEffect(() => {
@@ -433,12 +469,17 @@ export const ChatContainer = memo<ChatContainerProps>(({ isStreaming, onSubmit, 
 
   const handleSubmit = useCallback(
     (prompt: string, image: string | null) => {
+      // Block submission when offline (#25)
+      if (!isOnline) {
+        toast.warning(t('chat.offlineBlocked', 'You are offline — message not sent'));
+        return;
+      }
       const finalPrompt = textContext ? `${textContext}\n\n${prompt}` : prompt;
       onSubmit(finalPrompt, image);
       setTextContext('');
       setPendingImage(null);
     },
-    [onSubmit, textContext],
+    [onSubmit, textContext, isOnline, t],
   );
 
   // ----- Prompt history for arrow-key navigation ----------------------
@@ -508,8 +549,19 @@ export const ChatContainer = memo<ChatContainerProps>(({ isStreaming, onSubmit, 
   return (
     <DragDropZone onImageDrop={handleImageDrop} onTextDrop={handleTextDrop}>
       <div className="flex-1 w-full h-full flex flex-col min-h-0 relative gap-2">
+        {/* Offline banner (#25) */}
+        <OfflineBanner />
+
         {/* Messages panel */}
         <div className={cn('flex-1 min-h-0 flex flex-col overflow-hidden rounded-xl relative', theme.glassPanel)}>
+          {/* Search overlay (#19) */}
+          <SearchOverlay
+            messages={messages}
+            scrollContainerRef={scrollContainerRef}
+            isOpen={searchOpen}
+            onClose={() => setSearchOpen(false)}
+          />
+
           {/* Copy session button */}
           {messages.length > 0 && (
             <button
@@ -517,16 +569,23 @@ export const ChatContainer = memo<ChatContainerProps>(({ isStreaming, onSubmit, 
               onClick={handleCopySession}
               title={t('chat.copySession', 'Copy entire session')}
               className={cn(
-                'absolute top-2 right-3 z-10 p-1.5 rounded-lg transition-all',
+                'absolute top-2 z-10 p-1.5 rounded-lg transition-all',
                 'opacity-40 hover:opacity-100',
                 'hover:bg-[var(--matrix-accent)]/10',
                 theme.textMuted,
+                searchOpen ? 'right-[280px]' : 'right-3',
               )}
             >
               {sessionCopied ? <Check size={16} className="text-emerald-400" /> : <ClipboardList size={16} />}
             </button>
           )}
-          <div ref={scrollContainerRef} className={cn('flex-1 min-h-0 overflow-y-auto', theme.scrollbar)}>
+          <div
+            ref={scrollContainerRef}
+            role="log"
+            aria-live="polite"
+            aria-label={t('chat.messageHistory', 'Chat message history')}
+            className={cn('flex-1 min-h-0 overflow-y-auto', theme.scrollbar)}
+          >
             {messages.length === 0 ? (
               settings?.welcome_message ? (
                 <MessageBubble
@@ -544,15 +603,40 @@ export const ChatContainer = memo<ChatContainerProps>(({ isStreaming, onSubmit, 
               )
             ) : (
               <>
-                {messages.map((message, index) => (
-                  <MessageBubble
-                    key={`${message.timestamp}-${message.role}-${index}`}
-                    message={message}
-                    isLast={index === messages.length - 1}
-                    isStreaming={isStreaming}
-                    onContextMenu={handleContextMenu}
-                  />
-                ))}
+                {/* Virtualized message list */}
+                <div
+                  style={{
+                    height: `${virtualizer.getTotalSize()}px`,
+                    width: '100%',
+                    position: 'relative',
+                  }}
+                >
+                  {virtualizer.getVirtualItems().map((virtualItem) => {
+                    const message = messages[virtualItem.index];
+                    if (!message) return null;
+                    return (
+                      <div
+                        key={virtualItem.key}
+                        data-index={virtualItem.index}
+                        ref={virtualizer.measureElement}
+                        style={{
+                          position: 'absolute',
+                          top: 0,
+                          left: 0,
+                          width: '100%',
+                          transform: `translateY(${virtualItem.start}px)`,
+                        }}
+                      >
+                        <MessageBubble
+                          message={message}
+                          isLast={virtualItem.index === messages.length - 1}
+                          isStreaming={isStreaming}
+                          onContextMenu={handleContextMenu}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
 
                 {/* Streaming typing indicator (shown when waiting for first token) */}
                 <AnimatePresence>
@@ -566,6 +650,13 @@ export const ChatContainer = memo<ChatContainerProps>(({ isStreaming, onSubmit, 
               </>
             )}
           </div>
+
+          {/* New messages floating button (#20) */}
+          <NewMessagesButton
+            scrollAnchorRef={messagesEndRef}
+            scrollContainerRef={scrollContainerRef}
+            messageCount={messages.length}
+          />
         </div>
 
         {/* Context menu */}
@@ -580,9 +671,7 @@ export const ChatContainer = memo<ChatContainerProps>(({ isStreaming, onSubmit, 
         )}
 
         {/* Agent activity panel (live tool calls, plan steps) */}
-        <AnimatePresence>
-          {agentActivity && <AgentActivityPanel activity={agentActivity} />}
-        </AnimatePresence>
+        <AnimatePresence>{agentActivity && <AgentActivityPanel activity={agentActivity} />}</AnimatePresence>
 
         {/* Text context indicator */}
         <AnimatePresence>

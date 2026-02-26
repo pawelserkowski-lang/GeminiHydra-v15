@@ -20,9 +20,10 @@ RUN cargo build --release
 
 # ── Stage 3: Minimal runtime ──
 FROM debian:trixie-slim AS runtime
-RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y ca-certificates curl && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /app/target/release/geminihydra-backend /usr/local/bin/app
 COPY migrations ./migrations
 ENV PORT=8081
 EXPOSE 8081
+HEALTHCHECK --interval=30s --timeout=5s CMD curl -f http://localhost:8081/api/health || exit 1
 CMD ["app"]

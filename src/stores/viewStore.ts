@@ -6,11 +6,14 @@
  * Refactored to use the Slice Pattern for better maintainability.
  */
 
+import { useCallback } from 'react';
 import { create } from 'zustand';
 import { devtools, persist } from 'zustand/middleware';
+import { useShallow } from 'zustand/react/shallow';
 import { type ChatSlice, createChatSlice } from './slices/chatSlice';
 import { createSessionSlice, type SessionSlice } from './slices/sessionSlice';
 import { createViewSlice, type ViewSlice } from './slices/viewSlice';
+import type { Message, Session } from './types';
 // ============================================================================
 // TYPES
 // ============================================================================
@@ -67,3 +70,27 @@ export const useViewStore = create<ViewStoreState>()(
     { name: 'GeminiHydra/ViewStore', enabled: import.meta.env.DEV },
   ),
 );
+
+// ============================================================================
+// MEMOIZED SELECTORS (#31)
+// ============================================================================
+// These selectors prevent unnecessary re-renders when unrelated store state
+// changes. Components that only need the session ID won't re-render when
+// chatHistory changes, etc.
+
+/** Returns just the current session ID string (or null). Cheapest selector. */
+export function useCurrentSessionId(): string | null {
+  return useViewStore((s) => s.currentSessionId);
+}
+
+/** Returns the current Session object (or undefined). Uses useShallow for stable reference. */
+export function useCurrentSession(): Session | undefined {
+  return useViewStore(
+    useCallback((s: ViewStoreState) => s.sessions.find((sess) => sess.id === s.currentSessionId), []),
+  );
+}
+
+/** Returns the messages array for the current session. Uses useShallow for stable array reference. */
+export function useCurrentChatHistory(): Message[] {
+  return useViewStore(useShallow((s) => (s.currentSessionId ? (s.chatHistory[s.currentSessionId] ?? []) : [])));
+}

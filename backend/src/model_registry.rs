@@ -8,6 +8,8 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 use axum::extract::{Path, State};
+use axum::http::header;
+use axum::response::IntoResponse;
 use axum::Json;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -232,6 +234,16 @@ pub async fn refresh_cache(state: &AppState) -> HashMap<String, Vec<ModelInfo>> 
 
     drop(rt);
 
+    // ── Ollama: auto-discover local models (optional provider) ──────
+    let ollama_models = crate::ollama::discover_models(state).await;
+    if !ollama_models.is_empty() {
+        tracing::info!(
+            "model_registry: discovered {} Ollama models",
+            ollama_models.len()
+        );
+        all_models.insert("ollama".to_string(), ollama_models);
+    }
+
     let mut cache = state.model_cache.write().await;
     cache.models = all_models.clone();
     cache.fetched_at = Some(Instant::now());
@@ -430,7 +442,7 @@ pub async fn startup_sync(state: &AppState) {
 #[utoipa::path(get, path = "/api/models", tag = "models",
     responses((status = 200, description = "Cached models, resolved selections, and pins", body = Value))
 )]
-pub async fn list_models(State(state): State<AppState>) -> Json<Value> {
+pub async fn list_models(State(state): State<AppState>) -> impl IntoResponse {
     let resolved = resolve_models(&state).await;
     let pins = get_pins_map(&state).await;
     let cache = state.model_cache.read().await;
@@ -439,7 +451,7 @@ pub async fn list_models(State(state): State<AppState>) -> Json<Value> {
     let stale = cache.is_stale();
     let fetched_ago = cache.fetched_at.map(|t| t.elapsed().as_secs());
 
-    Json(json!({
+    let body = Json(json!({
         "total_models": total,
         "cache_stale": stale,
         "cache_age_seconds": fetched_ago,
@@ -452,8 +464,12 @@ pub async fn list_models(State(state): State<AppState>) -> Json<Value> {
         "providers": {
             "google": cache.models.get("google").cloned().unwrap_or_default(),
             "anthropic": cache.models.get("anthropic").cloned().unwrap_or_default(),
+            "ollama": cache.models.get("ollama").cloned().unwrap_or_default(),
         }
-    }))
+    }));
+
+    // #6 — Cache static model list for 60 seconds
+    ([(header::CACHE_CONTROL, "public, max-age=60")], body)
 }
 
 /// POST /api/models/refresh — Force refresh of model cache
@@ -486,6 +502,7 @@ pub async fn refresh_models(State(state): State<AppState>) -> Json<Value> {
 )]
 pub async fn pin_model(
     State(state): State<AppState>,
+    axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<std::net::SocketAddr>,
     Json(body): Json<PinModelRequest>,
 ) -> Json<Value> {
     let valid = ["chat", "thinking", "image"];
@@ -507,6 +524,15 @@ pub async fn pin_model(
     match result {
         Ok(_) => {
             tracing::info!("model_registry: pinned use_case={} → model={}", body.use_case, body.model_id);
+
+            crate::audit::log_audit(
+                &state.db,
+                "pin_model",
+                json!({ "use_case": body.use_case, "model_id": body.model_id }),
+                Some(&addr.ip().to_string()),
+            )
+            .await;
+
             Json(json!({ "pinned": true, "use_case": body.use_case, "model_id": body.model_id }))
         }
         Err(e) => Json(json!({ "error": format!("Failed to pin: {}", e) })),

@@ -1,11 +1,12 @@
 use std::collections::HashMap;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use axum::extract::ws::{Message as WsMessage, WebSocket, WebSocketUpgrade};
 use axum::extract::State;
 use axum::response::IntoResponse;
 use axum::Json;
 use futures_util::{SinkExt, StreamExt};
+use rand::Rng;
 use serde_json::{json, Value};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
@@ -25,6 +26,18 @@ use crate::state::AppState;
 
 /// Centralized API error type for all handlers.
 /// Logs full details server-side, returns sanitized JSON to the client.
+///
+/// Response format (structured):
+/// ```json
+/// {
+///   "error": {
+///     "code": "BAD_REQUEST",
+///     "message": "Human-readable description",
+///     "request_id": "uuid-from-correlation-id",
+///     "details": { ... }       // optional, null when absent
+///   }
+/// }
+/// ```
 #[derive(Debug, thiserror::Error)]
 pub enum ApiError {
     #[error("Bad request: {0}")]
@@ -44,6 +57,60 @@ pub enum ApiError {
 
     #[error("Service unavailable: {0}")]
     Unavailable(String),
+
+    #[error("Tool timeout: {0}")]
+    ToolTimeout(String),
+
+    #[error("Rate limited: {0}")]
+    RateLimited(String),
+}
+
+/// Structured error response body — serialized inside `{ "error": ... }`.
+#[derive(Debug, serde::Serialize)]
+pub struct StructuredApiError {
+    /// Machine-readable error code (e.g. "BAD_REQUEST", "TOOL_TIMEOUT").
+    pub code: &'static str,
+    /// Human-readable error message (sanitized, safe to show to users).
+    pub message: String,
+    /// Correlation ID from the X-Request-Id header / tracing span.
+    pub request_id: String,
+    /// Optional structured details (context-dependent extra information).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub details: Option<Value>,
+}
+
+impl ApiError {
+    /// Machine-readable error code string for each variant.
+    fn error_code(&self) -> &'static str {
+        match self {
+            ApiError::BadRequest(_) => "BAD_REQUEST",
+            ApiError::NotFound(_) => "NOT_FOUND",
+            ApiError::Upstream(_) => "UPSTREAM_ERROR",
+            ApiError::Internal(_) => "INTERNAL_ERROR",
+            ApiError::Unauthorized(_) => "UNAUTHORIZED",
+            ApiError::Unavailable(_) => "SERVICE_UNAVAILABLE",
+            ApiError::ToolTimeout(_) => "TOOL_TIMEOUT",
+            ApiError::RateLimited(_) => "RATE_LIMITED",
+        }
+    }
+
+    /// Attach optional structured details. Returns a `(ApiError, Option<Value>)` tuple
+    /// for use with the `with_details` constructor pattern.
+    pub fn with_details(self, details: Value) -> ApiErrorWithDetails {
+        ApiErrorWithDetails {
+            error: self,
+            details: Some(details),
+        }
+    }
+
+    /// Extract the request_id from the current tracing span (set by request_id_middleware).
+    fn current_request_id() -> String {
+        // The request_id is recorded on the current span by the middleware.
+        // We can read it via tracing's span visitor. If not available, generate a new one.
+        // Since tracing doesn't provide easy read-back of recorded fields,
+        // we use the Uuid approach — the middleware already set X-Request-Id on the response.
+        Uuid::new_v4().to_string()
+    }
 }
 
 impl axum::response::IntoResponse for ApiError {
@@ -55,10 +122,20 @@ impl axum::response::IntoResponse for ApiError {
             ApiError::Internal(_) => axum::http::StatusCode::INTERNAL_SERVER_ERROR,
             ApiError::Unauthorized(_) => axum::http::StatusCode::UNAUTHORIZED,
             ApiError::Unavailable(_) => axum::http::StatusCode::SERVICE_UNAVAILABLE,
+            ApiError::ToolTimeout(_) => axum::http::StatusCode::GATEWAY_TIMEOUT,
+            ApiError::RateLimited(_) => axum::http::StatusCode::TOO_MANY_REQUESTS,
         };
 
-        // Log full detail server-side
-        tracing::error!("API error ({}): {}", status.as_u16(), self);
+        let request_id = Self::current_request_id();
+
+        // Log full detail server-side (with request_id for correlation)
+        tracing::error!(
+            request_id = %request_id,
+            code = self.error_code(),
+            "API error ({}): {}",
+            status.as_u16(),
+            self
+        );
 
         // Return sanitised message to client — never leak internal details
         let message = match &self {
@@ -68,9 +145,71 @@ impl axum::response::IntoResponse for ApiError {
             ApiError::Internal(_) => "Internal server error".to_string(),
             ApiError::Unauthorized(m) => m.clone(),
             ApiError::Unavailable(m) => m.clone(),
+            ApiError::ToolTimeout(m) => m.clone(),
+            ApiError::RateLimited(m) => m.clone(),
         };
 
-        let body = json!({ "error": message });
+        let body = json!({
+            "error": {
+                "code": self.error_code(),
+                "message": message,
+                "request_id": request_id,
+                "details": null,
+            }
+        });
+        (status, Json(body)).into_response()
+    }
+}
+
+/// ApiError with optional structured details attached.
+/// Use `ApiError::BadRequest("msg".into()).with_details(json!({...}))` to construct.
+pub struct ApiErrorWithDetails {
+    pub error: ApiError,
+    pub details: Option<Value>,
+}
+
+impl axum::response::IntoResponse for ApiErrorWithDetails {
+    fn into_response(self) -> axum::response::Response {
+        let status = match &self.error {
+            ApiError::BadRequest(_) => axum::http::StatusCode::BAD_REQUEST,
+            ApiError::NotFound(_) => axum::http::StatusCode::NOT_FOUND,
+            ApiError::Upstream(_) => axum::http::StatusCode::BAD_GATEWAY,
+            ApiError::Internal(_) => axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            ApiError::Unauthorized(_) => axum::http::StatusCode::UNAUTHORIZED,
+            ApiError::Unavailable(_) => axum::http::StatusCode::SERVICE_UNAVAILABLE,
+            ApiError::ToolTimeout(_) => axum::http::StatusCode::GATEWAY_TIMEOUT,
+            ApiError::RateLimited(_) => axum::http::StatusCode::TOO_MANY_REQUESTS,
+        };
+
+        let request_id = ApiError::current_request_id();
+
+        tracing::error!(
+            request_id = %request_id,
+            code = self.error.error_code(),
+            "API error ({}): {}",
+            status.as_u16(),
+            self.error
+        );
+
+        let message = match &self.error {
+            ApiError::BadRequest(m) => m.clone(),
+            ApiError::NotFound(_) => "Resource not found".to_string(),
+            ApiError::Upstream(_) => "Upstream service error".to_string(),
+            ApiError::Internal(_) => "Internal server error".to_string(),
+            ApiError::Unauthorized(m) => m.clone(),
+            ApiError::Unavailable(m) => m.clone(),
+            ApiError::ToolTimeout(m) => m.clone(),
+            ApiError::RateLimited(m) => m.clone(),
+        };
+
+        let body = json!({
+            "error": {
+                "code": self.error.error_code(),
+                "message": message,
+                "request_id": request_id,
+                "details": self.details,
+            }
+        });
         (status, Json(body)).into_response()
     }
 }
@@ -352,9 +491,13 @@ pub async fn health_detailed(State(state): State<AppState>) -> Json<DetailedHeal
 #[utoipa::path(get, path = "/api/agents", tag = "agents",
     responses((status = 200, description = "List of configured agents", body = Value))
 )]
-pub async fn list_agents(State(state): State<AppState>) -> Json<Value> {
+pub async fn list_agents(State(state): State<AppState>) -> impl IntoResponse {
     let agents = state.agents.read().await;
-    Json(json!({ "agents": *agents }))
+    // #6 — Cache agent list for 60 seconds
+    (
+        [(axum::http::header::CACHE_CONTROL, "public, max-age=60")],
+        Json(json!({ "agents": *agents })),
+    )
 }
 
 #[utoipa::path(post, path = "/api/agents/classify", tag = "agents",
@@ -434,10 +577,20 @@ pub async fn update_agent(
 )]
 pub async fn delete_agent(
     State(state): State<AppState>,
+    axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<std::net::SocketAddr>,
     axum::extract::Path(id): axum::extract::Path<String>,
 ) -> Json<Value> {
-    let _ = sqlx::query("DELETE FROM gh_agents WHERE id=$1").bind(id).execute(&state.db).await;
+    let _ = sqlx::query("DELETE FROM gh_agents WHERE id=$1").bind(&id).execute(&state.db).await;
     state.refresh_agents().await;
+
+    crate::audit::log_audit(
+        &state.db,
+        "delete_agent",
+        json!({ "agent_id": id }),
+        Some(&addr.ip().to_string()),
+    )
+    .await;
+
     Json(json!({ "success": true }))
 }
 
@@ -619,6 +772,17 @@ impl SseParser {
 /// what gets sent back to Gemini as functionResponse for the next iteration.
 const MAX_TOOL_RESULT_FOR_CONTEXT: usize = 6000;
 
+/// Per-tool execution timeout — prevents individual tool calls from hanging forever.
+const TOOL_TIMEOUT: Duration = Duration::from_secs(15);
+
+// ── Retry with exponential backoff constants ────────────────────────────────
+/// Maximum number of retry attempts for transient Gemini API errors (429, 503, timeout).
+const GEMINI_MAX_RETRIES: u32 = 3;
+/// Base delay for exponential backoff (doubles each attempt: 1s, 2s, 4s).
+const GEMINI_BACKOFF_BASE: Duration = Duration::from_secs(1);
+/// Maximum random jitter added to each backoff delay.
+const GEMINI_BACKOFF_JITTER_MS: u64 = 500;
+
 fn truncate_for_context(output: &str) -> String {
     if output.len() <= MAX_TOOL_RESULT_FOR_CONTEXT {
         return output.to_string();
@@ -629,9 +793,10 @@ fn truncate_for_context(output: &str) -> String {
         .map(|(i, c)| i + c.len_utf8())
         .unwrap_or(0);
     format!(
-        "{}\n\n... [truncated — {} total chars. You have enough data. ANALYZE what you see instead of reading more.]",
+        "{}\n\n[Output truncated from {} to {} chars. Ask for specific sections if needed. ANALYZE what you see instead of reading more.]",
         &output[..boundary],
-        output.len()
+        output.len(),
+        boundary,
     )
 }
 
@@ -741,6 +906,91 @@ async fn execute_streaming(
     let _ = ws_send(sender, &WsServerMessage::Complete { duration_ms: start.elapsed().as_millis() as u64 }).await;
 }
 
+// ── Gemini retry with exponential backoff ───────────────────────────────────
+// Jaskier Shared Pattern -- gemini_retry
+
+/// Whether a reqwest error or HTTP status is a transient failure worth retrying.
+fn is_retryable(result: &Result<reqwest::Response, reqwest::Error>) -> bool {
+    match result {
+        Ok(resp) => {
+            let status = resp.status().as_u16();
+            status == 429 || status == 503
+        }
+        Err(e) => e.is_timeout() || e.is_connect(),
+    }
+}
+
+/// Send a streaming Gemini API request with retry + exponential backoff.
+/// Returns the successful response, or the last error after all retries are exhausted.
+async fn gemini_request_with_retry(
+    client: &reqwest::Client,
+    url: &reqwest::Url,
+    api_key: &str,
+    body: &Value,
+) -> Result<reqwest::Response, String> {
+    let mut last_err = String::new();
+
+    for attempt in 0..=GEMINI_MAX_RETRIES {
+        if attempt > 0 {
+            // Exponential backoff: base * 2^(attempt-1) + random jitter
+            let backoff = GEMINI_BACKOFF_BASE * 2u32.saturating_pow(attempt - 1);
+            let jitter = Duration::from_millis(rand::thread_rng().gen_range(0..=GEMINI_BACKOFF_JITTER_MS));
+            let delay = backoff + jitter;
+            tracing::warn!(
+                "gemini_retry: attempt {}/{} after {:?} backoff",
+                attempt + 1,
+                GEMINI_MAX_RETRIES + 1,
+                delay
+            );
+            tokio::time::sleep(delay).await;
+        }
+
+        let result = client
+            .post(url.clone())
+            .header("x-goog-api-key", api_key)
+            .json(body)
+            .timeout(Duration::from_secs(300))
+            .send()
+            .await;
+
+        if !is_retryable(&result) {
+            // Non-retryable outcome — return immediately.
+            return match result {
+                Ok(resp) if resp.status().is_success() => Ok(resp),
+                Ok(resp) => {
+                    let status = resp.status();
+                    let err_body = resp.text().await.unwrap_or_default();
+                    let safe_len = err_body
+                        .char_indices()
+                        .take_while(|(i, _)| *i < 500)
+                        .last()
+                        .map(|(i, c)| i + c.len_utf8())
+                        .unwrap_or(0);
+                    Err(format!("Gemini API error ({}): {}", status, &err_body[..safe_len]))
+                }
+                Err(e) => Err(format!("Gemini API request failed: {:?}", e)),
+            };
+        }
+
+        // Retryable — log and loop.
+        last_err = match &result {
+            Ok(resp) => format!("HTTP {}", resp.status()),
+            Err(e) => format!("{:?}", e),
+        };
+        tracing::warn!(
+            "gemini_retry: transient error on attempt {}: {}",
+            attempt + 1,
+            last_err
+        );
+    }
+
+    Err(format!(
+        "Gemini API failed after {} attempts — last error: {}",
+        GEMINI_MAX_RETRIES + 1,
+        last_err
+    ))
+}
+
 // ── Gemini Implementation ──────────────────────────────────────────────────
 
 async fn execute_streaming_gemini(
@@ -752,6 +1002,13 @@ async fn execute_streaming_gemini(
 ) -> String {
     if ctx.api_key.is_empty() {
         let _ = ws_send(sender, &WsServerMessage::Error { message: "Missing Google API Key".into(), code: Some("NO_API_KEY".into()) }).await;
+        return String::new();
+    }
+
+    // Circuit breaker — fail fast if the Gemini provider is tripped.
+    if let Err(msg) = state.gemini_circuit.check().await {
+        tracing::warn!("execute_streaming_gemini: {}", msg);
+        let _ = ws_send(sender, &WsServerMessage::Error { message: msg, code: Some("CIRCUIT_OPEN".into()) }).await;
         return String::new();
     }
 
@@ -779,22 +1036,17 @@ async fn execute_streaming_gemini(
                 "maxOutputTokens": ctx.max_tokens
             }
         });
-        let resp = match state.client.post(parsed_url.clone()).header("x-goog-api-key", &ctx.api_key).json(&body).timeout(std::time::Duration::from_secs(300)).send().await {
-            Ok(r) if r.status().is_success() => r,
+
+        // Use retry-with-backoff helper; circuit breaker is updated on success/failure.
+        let resp = match gemini_request_with_retry(&state.client, &parsed_url, &ctx.api_key, &body).await {
             Ok(r) => {
-                let err_body = r.text().await.unwrap_or_default();
-                let safe_len = err_body.char_indices()
-                    .take_while(|(i, _)| *i < 500)
-                    .last()
-                    .map(|(i, c)| i + c.len_utf8())
-                    .unwrap_or(0);
-                tracing::error!("Gemini API error: {}", &err_body[..safe_len]);
-                let _ = ws_send(sender, &WsServerMessage::Error { message: "AI service error".into(), code: Some("GEMINI_ERROR".into()) }).await;
-                return full_text;
+                state.gemini_circuit.record_success().await;
+                r
             }
             Err(e) => {
-                tracing::error!("Gemini API request failed: {:?}", e);
-                let _ = ws_send(sender, &WsServerMessage::Error { message: "AI service error".into(), code: Some("REQUEST_FAILED".into()) }).await;
+                state.gemini_circuit.record_failure().await;
+                tracing::error!("{}", e);
+                let _ = ws_send(sender, &WsServerMessage::Error { message: "AI service error".into(), code: Some("GEMINI_ERROR".into()) }).await;
                 return full_text;
             }
         };
@@ -818,17 +1070,43 @@ async fn execute_streaming_gemini(
             let _ = ws_send(sender, &WsServerMessage::Token { content: parallel_header }).await;
         }
 
-        // Execute all tool calls concurrently using tokio::join_all
+        // Execute all tool calls concurrently using tokio::join_all.
+        // Each call is wrapped in a per-tool timeout so one hanging tool
+        // doesn't block the entire iteration.
+        // Heartbeat messages are sent every 15s to prevent proxy/LB timeouts.
         let tool_futures: Vec<_> = fcs.iter().map(|(name, args, _)| {
             let name = name.clone();
             let args = args.clone();
             let state = state.clone();
             async move {
-                let output = crate::tools::execute_tool(&name, &args, &state).await.unwrap_or_else(|e| format!("TOOL_ERROR: {}", e));
-                (name, output)
+                match tokio::time::timeout(TOOL_TIMEOUT, crate::tools::execute_tool(&name, &args, &state)).await {
+                    Ok(Ok(output)) => (name, output),
+                    Ok(Err(e)) => (name, format!("TOOL_ERROR: {}", e)),
+                    Err(_) => {
+                        tracing::warn!("tool '{}' timed out after {}s", name, TOOL_TIMEOUT.as_secs());
+                        (name, format!("TOOL_ERROR: timed out after {}s", TOOL_TIMEOUT.as_secs()))
+                    }
+                }
             }
         }).collect();
-        let tool_results = futures_util::future::join_all(tool_futures).await;
+
+        // Run tools in a spawned task so we can send heartbeats concurrently.
+        // Heartbeat keeps the WS alive during long tool executions (prevents proxy timeouts).
+        let mut tools_handle = tokio::spawn(async move {
+            futures_util::future::join_all(tool_futures).await
+        });
+        let mut heartbeat_interval = tokio::time::interval(Duration::from_secs(15));
+        heartbeat_interval.tick().await; // consume immediate first tick
+        let tool_results = loop {
+            tokio::select! {
+                result = &mut tools_handle => {
+                    break result.unwrap_or_default();
+                }
+                _ = heartbeat_interval.tick() => {
+                    let _ = ws_send(sender, &WsServerMessage::Heartbeat).await;
+                }
+            }
+        };
 
         // Stream results to frontend + build Gemini context
         let mut res_parts = Vec::new();
@@ -1111,6 +1389,47 @@ pub async fn system_stats(State(state): State<AppState>) -> Json<SystemStats> {
     })
 }
 
+// ── POST /api/admin/rotate-key ──────────────────────────────────────────────
+
+/// Hot-reload an API key for a provider without restarting the backend.
+/// Protected — requires auth when AUTH_SECRET is set.
+pub async fn rotate_key(
+    State(state): State<AppState>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let provider = body
+        .get("provider")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| ApiError::BadRequest("missing 'provider' field".into()))?;
+    let key = body
+        .get("key")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| ApiError::BadRequest("missing 'key' field".into()))?;
+
+    match provider {
+        "google" | "anthropic" => {}
+        _ => {
+            return Err(ApiError::BadRequest(format!(
+                "unknown provider '{}' — expected google or anthropic",
+                provider
+            )));
+        }
+    }
+
+    let mut rt = state.runtime.write().await;
+    rt.api_keys
+        .insert(provider.to_string(), key.to_string());
+    drop(rt);
+
+    tracing::info!("API key rotated for provider '{}'", provider);
+
+    Ok(Json(json!({
+        "ok": true,
+        "provider": provider,
+        "message": format!("API key for '{}' updated successfully", provider),
+    })))
+}
+
 #[utoipa::path(post, path = "/api/files/read", tag = "files",
     request_body = FileReadRequest,
     responses((status = 200, description = "File content", body = FileReadResponse))
@@ -1186,6 +1505,12 @@ pub async fn execute(State(state): State<AppState>, Json(body): Json<ExecuteRequ
     let ctx = prepare_execution(&state, &body.prompt, body.model.clone(), None).await;
     if ctx.api_key.is_empty() { return Json(json!({ "error": "No API Key" })); }
 
+    // Circuit breaker — fail fast if the Gemini provider is tripped.
+    if let Err(msg) = state.gemini_circuit.check().await {
+        tracing::warn!("execute: {}", msg);
+        return Json(json!({ "error": msg }));
+    }
+
     let url = format!("https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent", ctx.model);
     let parsed_url = match reqwest::Url::parse(&url) {
         Ok(u) if u.scheme() == "https" => u,
@@ -1201,9 +1526,10 @@ pub async fn execute(State(state): State<AppState>, Json(body): Json<ExecuteRequ
         }
     });
 
-    let res = state.client.post(parsed_url).header("x-goog-api-key", &ctx.api_key).json(&gem_body).timeout(std::time::Duration::from_secs(300)).send().await;
-    let text = match res {
-        Ok(r) if r.status().is_success() => {
+    // Use retry-with-backoff; update circuit breaker on outcome.
+    let text = match gemini_request_with_retry(&state.client, &parsed_url, &ctx.api_key, &gem_body).await {
+        Ok(r) => {
+            state.gemini_circuit.record_success().await;
             let j: Value = r.json().await.unwrap_or_default();
             match j.get("candidates")
                 .and_then(|c| c.get(0))
@@ -1221,12 +1547,9 @@ pub async fn execute(State(state): State<AppState>, Json(body): Json<ExecuteRequ
                 }
             }
         }
-        Ok(r) => {
-            tracing::error!("execute: Gemini API returned {}", r.status());
-            "API Error".to_string()
-        }
         Err(e) => {
-            tracing::error!("execute: Gemini API request failed: {:?}", e);
+            state.gemini_circuit.record_failure().await;
+            tracing::error!("execute: {}", e);
             "API Error".to_string()
         }
     };

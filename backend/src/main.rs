@@ -1,6 +1,5 @@
 use axum::http::{header, HeaderValue, Method};
 use sqlx::postgres::PgPoolOptions;
-use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
 use tower_http::cors::CorsLayer;
 use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::set_header::SetResponseHeaderLayer;
@@ -77,17 +76,19 @@ async fn build_app() -> (axum::Router, AppState) {
         header::STRICT_TRANSPORT_SECURITY,
         HeaderValue::from_static("max-age=63072000; includeSubDomains"),
     );
+    let xss_protection: SetResponseHeaderLayer<HeaderValue> = SetResponseHeaderLayer::overriding(
+        header::HeaderName::from_static("x-xss-protection"),
+        HeaderValue::from_static("1; mode=block"),
+    );
+    let permissions_policy: SetResponseHeaderLayer<HeaderValue> = SetResponseHeaderLayer::overriding(
+        header::HeaderName::from_static("permissions-policy"),
+        HeaderValue::from_static("camera=(), microphone=(), geolocation=()"),
+    );
 
-    // Rate limiting: 30 req burst, replenish 1 per 2 seconds, per IP
-    // Jaskier Shared Pattern -- rate_limit
-    let governor_conf = GovernorConfigBuilder::default()
-        .per_second(2)
-        .burst_size(30)
-        .finish()
-        .unwrap();
+    // Rate limiting is now per-endpoint inside create_router() — see lib.rs
+    // WS: 10/min, /api/execute: 30/min, other: 120/min
 
     let app = geminihydra_backend::create_router(state.clone())
-        .layer(GovernorLayer::new(governor_conf))
         .layer(RequestBodyLimitLayer::new(10 * 1024 * 1024))
         .layer(cors)
         .layer(nosniff)
@@ -95,6 +96,8 @@ async fn build_app() -> (axum::Router, AppState) {
         .layer(referrer)
         .layer(csp)
         .layer(hsts)
+        .layer(xss_protection)
+        .layer(permissions_policy)
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(|request: &axum::http::Request<_>| {
@@ -102,9 +105,12 @@ async fn build_app() -> (axum::Router, AppState) {
                         "http_request",
                         method = %request.method(),
                         uri = %request.uri(),
+                        request_id = tracing::field::Empty,
                     )
                 })
         )
+        // Correlation ID middleware — assigns UUID and returns X-Request-Id header
+        .layer(axum::middleware::from_fn(geminihydra_backend::request_id_middleware))
         .layer(CompressionLayer::new());
 
     (app, state)
@@ -143,18 +149,57 @@ async fn main() -> anyhow::Result<()> {
 
     let (app, state) = build_app().await;
 
-    // ── Non-blocking startup: model sync in background ──
+    // ── Non-blocking startup: model sync in background with retry ──
     let startup_state = state.clone();
     tokio::spawn(async move {
-        let sync_timeout = std::time::Duration::from_secs(90);
-        match tokio::time::timeout(sync_timeout, model_registry::startup_sync(&startup_state)).await
-        {
-            Ok(()) => tracing::info!("startup: model registry sync complete"),
-            Err(_) => tracing::error!(
-                "startup: model registry sync timed out after {}s — using fallback models",
-                sync_timeout.as_secs()
-            ),
+        // Retry up to 3 times with increasing delays: 5s, 15s, 30s
+        const RETRY_DELAYS_SECS: &[u64] = &[5, 15, 30];
+        const SYNC_TIMEOUT_PER_ATTEMPT: u64 = 90;
+
+        let mut last_err = String::new();
+        for (attempt, delay_secs) in RETRY_DELAYS_SECS.iter().enumerate() {
+            let attempt_num = attempt + 1;
+            tracing::info!(
+                "startup: model registry sync attempt {}/{}",
+                attempt_num,
+                RETRY_DELAYS_SECS.len()
+            );
+
+            let timeout = std::time::Duration::from_secs(SYNC_TIMEOUT_PER_ATTEMPT);
+            match tokio::time::timeout(timeout, model_registry::startup_sync(&startup_state)).await
+            {
+                Ok(()) => {
+                    tracing::info!(
+                        "startup: model registry sync complete (attempt {})",
+                        attempt_num
+                    );
+                    startup_state.mark_ready();
+                    return;
+                }
+                Err(_) => {
+                    last_err = format!(
+                        "timed out after {}s on attempt {}",
+                        SYNC_TIMEOUT_PER_ATTEMPT, attempt_num
+                    );
+                    tracing::warn!(
+                        "startup: model registry sync {} — retrying in {}s",
+                        last_err,
+                        delay_secs
+                    );
+                }
+            }
+
+            // Wait before next retry (unless this was the last attempt)
+            if attempt_num < RETRY_DELAYS_SECS.len() {
+                tokio::time::sleep(std::time::Duration::from_secs(*delay_secs)).await;
+            }
         }
+
+        tracing::error!(
+            "startup: model registry sync failed after {} attempts ({}) — using fallback models",
+            RETRY_DELAYS_SECS.len(),
+            last_err
+        );
         startup_state.mark_ready();
     });
 

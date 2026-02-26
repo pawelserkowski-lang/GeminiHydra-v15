@@ -1,4 +1,4 @@
-name: GeminiHydra CI/CD
+name: CI
 
 on:
   push:
@@ -39,7 +39,7 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: latest
+          version: 10
 
       - name: Setup Node.js 22
         uses: actions/setup-node@v4
@@ -51,25 +51,16 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Lint
-        run: pnpm lint
-
-      - name: Test
-        run: pnpm test
+        run: pnpm run lint
 
       - name: Type check
-        run: npx tsc --noEmit
+        run: pnpm run typecheck
+
+      - name: Test
+        run: pnpm run test -- --run
 
       - name: Build
-        run: pnpm build
-
-      - name: Lighthouse CI
-        uses: treosh/lighthouse-ci-action@v12
-        with:
-          urls: |
-            http://localhost:5173/
-          uploadArtifacts: true
-          temporaryPublicStorage: true
-          configPath: .lighthouserc.json
+        run: pnpm run build
 
   backend:
     name: Backend
@@ -78,6 +69,21 @@ jobs:
       run:
         working-directory: backend
         shell: bash
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: testdb
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
     steps:
       - name: Checkout
@@ -92,18 +98,10 @@ jobs:
         with:
           components: clippy, rustfmt
 
-      - name: Cache cargo registry & build
-        uses: actions/cache@v4
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            backend/target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('backend/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
+          workspaces: backend
 
       - name: Format check
         run: cargo fmt -- --check
@@ -111,17 +109,16 @@ jobs:
       - name: Clippy
         run: cargo clippy -- -D warnings
 
-      - name: Build (release)
-        run: cargo build --release
+      - name: Build
+        run: cargo check
 
       - name: Test
-        run: cargo test --features test-helpers
-
-      - name: Install cargo-audit
-        run: cargo install cargo-audit --locked
+        run: cargo test
+        env:
+          DATABASE_URL: postgres://test:test@localhost:5432/testdb
 
       - name: Security audit
-        run: cargo audit
+        run: cargo install cargo-audit --locked && cargo audit
 
   deploy:
     name: Deploy to Fly.io

@@ -351,6 +351,7 @@ export const ChatInput = memo<ChatInputProps>(
             <textarea
               ref={textareaRef}
               data-testid="chat-textarea"
+              aria-label={t('chat.messageInput', 'Type your message')}
               value={value}
               onChange={handleChange}
               onKeyDown={handleKeyDown}
@@ -423,6 +424,7 @@ export const ChatInput = memo<ChatInputProps>(
               onClick={onStop}
               className="mb-[1px]"
               title={t('chat.stopGeneration', 'Stop generation')}
+              aria-label={t('chat.stopGeneration', 'Stop generation')}
               data-testid="btn-stop"
             >
               <StopCircle size={20} className="animate-pulse" />
@@ -435,6 +437,7 @@ export const ChatInput = memo<ChatInputProps>(
               disabled={!canSubmit}
               className="mb-[1px]"
               title={t('chat.send', 'Send (Enter)')}
+              aria-label={t('chat.send', 'Send message')}
               data-testid="btn-send"
             >
               <Send size={20} strokeWidth={2.5} className="ml-0.5" />

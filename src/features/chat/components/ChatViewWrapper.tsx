@@ -28,8 +28,39 @@ export function ChatViewWrapper() {
   const httpStreamingSessionIdRef = useRef<string | null>(null);
   // Track sessions needing AI title generation (first exchange)
   const needsTitleRef = useRef<Set<string>>(new Set());
+  // Background title generation timers (#8) — delayed 2s to avoid competing with streaming
+  const titleTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   // Agent activity tracking for live panel
   const [agentActivity, setAgentActivity] = useState<AgentActivity>(EMPTY_ACTIVITY);
+
+  // Non-blocking background title generation with 2s delay (#8)
+  const scheduleBackgroundTitleGeneration = useCallback(
+    (sessionId: string) => {
+      // Clear any existing timer for this session
+      const existingTimer = titleTimersRef.current.get(sessionId);
+      if (existingTimer) clearTimeout(existingTimer);
+
+      const timer = setTimeout(() => {
+        titleTimersRef.current.delete(sessionId);
+        // Fire-and-forget — do not await inline
+        generateTitleWithSync(sessionId).catch(() => {
+          // Best-effort: substring title already set as placeholder
+        });
+      }, 2000);
+      titleTimersRef.current.set(sessionId, timer);
+    },
+    [generateTitleWithSync],
+  );
+
+  // Cleanup title timers on unmount
+  useEffect(() => {
+    return () => {
+      for (const timer of titleTimersRef.current.values()) {
+        clearTimeout(timer);
+      }
+      titleTimersRef.current.clear();
+    };
+  }, []);
 
   const wsCallbacks = useMemo<WsCallbacks>(
     () => ({
@@ -90,10 +121,10 @@ export function ChatViewWrapper() {
       onComplete: (_msg, sessionId) => {
         if (!sessionId) return;
         setAgentActivity((prev) => ({ ...prev, isActive: false }));
-        // Generate AI title after first exchange
+        // Background title generation after first exchange (#8) — delayed 2s, non-blocking
         if (needsTitleRef.current.has(sessionId)) {
           needsTitleRef.current.delete(sessionId);
-          void generateTitleWithSync(sessionId);
+          scheduleBackgroundTitleGeneration(sessionId);
         }
       },
       onError: (message, sessionId) => {
@@ -107,7 +138,7 @@ export function ChatViewWrapper() {
         });
       },
     }),
-    [addMessageToSession, updateLastMessageInSession, generateTitleWithSync],
+    [addMessageToSession, updateLastMessageInSession, scheduleBackgroundTitleGeneration],
   );
 
   const { status, streamingSessionId, connectionGaveUp, sendExecute, cancelStream, manualReconnect } =
@@ -176,10 +207,10 @@ export function ChatViewWrapper() {
                   timestamp: Date.now(),
                   ...(data.plan?.agent !== undefined && { model: data.plan.agent }),
                 });
-                // Generate AI title after first exchange
+                // Background title generation after first exchange (#8) — delayed 2s, non-blocking
                 if (needsTitleRef.current.has(sid)) {
                   needsTitleRef.current.delete(sid);
-                  void generateTitleWithSync(sid);
+                  scheduleBackgroundTitleGeneration(sid);
                 }
               }
               setHttpStreamingSessionId(null);
@@ -201,7 +232,7 @@ export function ChatViewWrapper() {
         );
       }
     },
-    [addMessageToSession, usingFallback, status, sendExecute, executeMutation, generateTitleWithSync],
+    [addMessageToSession, usingFallback, status, sendExecute, executeMutation, scheduleBackgroundTitleGeneration],
   );
 
   const handleStop = useCallback(() => {
@@ -227,7 +258,12 @@ export function ChatViewWrapper() {
           </button>
         </div>
       )}
-      <LazyChatContainer isStreaming={isStreamingCurrentSession} onSubmit={handleSubmit} onStop={handleStop} agentActivity={agentActivity} />
+      <LazyChatContainer
+        isStreaming={isStreamingCurrentSession}
+        onSubmit={handleSubmit}
+        onStop={handleStop}
+        agentActivity={agentActivity}
+      />
     </>
   );
 }

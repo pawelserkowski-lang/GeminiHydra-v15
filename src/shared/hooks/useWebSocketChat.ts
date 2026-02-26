@@ -212,7 +212,9 @@ export function useWebSocketChat(callbacks: WsCallbacks) {
           setConnectionGaveUp(true);
           return;
         }
-        const delay = Math.min(1000 * 2 ** reconnectAttemptRef.current, MAX_BACKOFF_MS);
+        // Add random jitter to prevent thundering herd on reconnect
+        const baseDelay = Math.min(1000 * 2 ** reconnectAttemptRef.current, MAX_BACKOFF_MS);
+        const delay = baseDelay + Math.random() * 1000;
         reconnectAttemptRef.current++;
         reconnectTimerRef.current = setTimeout(connect, delay);
       }

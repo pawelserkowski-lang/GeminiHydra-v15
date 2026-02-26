@@ -1,13 +1,15 @@
 /**
  * PartnerChatModal — read-only overlay showing a ClaudeHydra conversation.
+ * Focus trap: Tab cycles within modal, Escape closes.
  */
 
 import { Bot, Loader2, User, X } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useTheme } from '@/contexts/ThemeContext';
 import { usePartnerSession } from '@/features/chat/hooks/usePartnerSessions';
+import { useFocusTrap } from '@/shared/hooks/useFocusTrap';
 import { cn } from '@/shared/utils/cn';
 
 interface Props {
@@ -20,21 +22,20 @@ export default function PartnerChatModal({ sessionId, onClose }: Props) {
   const isLight = resolvedTheme === 'light';
   const { data: session, isLoading, error } = usePartnerSession(sessionId);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const modalRef = useRef<HTMLDivElement>(null);
+
+  // Focus trap: Tab cycles within modal, Escape closes
+  const handleEscape = useCallback(() => onClose(), [onClose]);
+  useFocusTrap(modalRef, {
+    active: !!sessionId,
+    onEscape: handleEscape,
+  });
 
   useEffect(() => {
     if (session && scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [session]);
-
-  // Close on Escape
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [onClose]);
 
   return createPortal(
     <AnimatePresence>
@@ -50,6 +51,7 @@ export default function PartnerChatModal({ sessionId, onClose }: Props) {
           />
           {/* Modal */}
           <motion.div
+            ref={modalRef}
             role="dialog"
             aria-modal="true"
             aria-labelledby="partner-chat-modal-title"
@@ -95,6 +97,7 @@ export default function PartnerChatModal({ sessionId, onClose }: Props) {
               <button
                 type="button"
                 onClick={onClose}
+                aria-label="Close modal"
                 className={cn('p-2 rounded-lg transition-colors', isLight ? 'hover:bg-slate-200' : 'hover:bg-white/10')}
               >
                 <X size={18} className={isLight ? 'text-slate-600' : 'text-white/60'} />
@@ -147,7 +150,12 @@ export default function PartnerChatModal({ sessionId, onClose }: Props) {
                     <p className="text-sm whitespace-pre-wrap break-words">{msg.content}</p>
                     <div className={cn('flex items-center gap-2 mt-1.5', isLight ? 'text-slate-400' : 'text-white/30')}>
                       {msg.model && <span className="text-[10px] font-mono">{msg.model}</span>}
-                      <span className="text-[10px]">{new Date(msg.timestamp).toLocaleTimeString()}</span>
+                      <span className="text-[10px]">
+                        {new Date(msg.timestamp).toLocaleTimeString(navigator.language, {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}
+                      </span>
                     </div>
                   </div>
                 </div>

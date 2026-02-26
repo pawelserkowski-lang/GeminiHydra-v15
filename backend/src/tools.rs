@@ -24,10 +24,42 @@ const COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
 /// Dangerous command patterns that are always blocked (even in sandbox, for now, or maybe relax in sandbox?)
 /// For now, keep them blocked to prevent resource exhaustion (fork bombs) even in container.
 const BLOCKED_PATTERNS: &[&str] = &[
-    "rm -rf /", // Still dangerous if volume mounted
+    // Original patterns
+    "rm -rf /",       // Still dangerous if volume mounted
     "format c:",
-    ":(){:|:&};:",
+    ":(){:|:&};:",    // Fork bomb
     "dd if=/dev/zero",
+    // Curl/wget piping to shell — remote code execution
+    "curl|sh",
+    "curl|bash",
+    "curl |sh",
+    "curl |bash",
+    "wget|sh",
+    "wget|bash",
+    "wget |sh",
+    "wget |bash",
+    "curl|zsh",
+    "curl |zsh",
+    "wget|zsh",
+    "wget |zsh",
+    // Docker volume escape — mount host root into container
+    "docker run -v /:/",
+    "docker run --volume /:/",
+    "docker run -v c:\\:/",
+    "docker run -v c:/:/",
+    // Sudo — privilege escalation
+    "sudo ",
+    // Destructive disk commands
+    "rm -rf /",
+    "fdisk ",
+    "mkfs.",
+    // Windows registry editing
+    "reg add ",
+    "reg delete ",
+    "regedit ",
+    // User account manipulation
+    "net user ",
+    "net localgroup ",
 ];
 
 /// Central dispatcher — routes tool call to the appropriate handler.
