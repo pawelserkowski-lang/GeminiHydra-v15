@@ -9,6 +9,7 @@
 
 import { lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useChatExecuteMutation } from '@/features/chat/hooks/useChat';
+import { useSessionSync } from '@/features/chat/hooks/useSessionSync';
 import type { WsCallbacks } from '@/shared/hooks/useWebSocketChat';
 import { MAX_RECONNECT_ATTEMPTS, useWebSocketChat } from '@/shared/hooks/useWebSocketChat';
 import { useViewStore } from '@/stores/viewStore';
@@ -20,9 +21,12 @@ export function ChatViewWrapper() {
   const addMessageToSession = useViewStore((s) => s.addMessageToSession);
   const updateLastMessageInSession = useViewStore((s) => s.updateLastMessageInSession);
   const currentSessionId = useViewStore((s) => s.currentSessionId);
+  const { generateTitleWithSync } = useSessionSync();
   const [usingFallback, setUsingFallback] = useState(false);
   const fallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const httpStreamingSessionIdRef = useRef<string | null>(null);
+  // Track sessions needing AI title generation (first exchange)
+  const needsTitleRef = useRef<Set<string>>(new Set());
 
   const wsCallbacks = useMemo<WsCallbacks>(
     () => ({
@@ -40,8 +44,17 @@ export function ChatViewWrapper() {
         if (!sessionId) return;
         updateLastMessageInSession(sessionId, content);
       },
+      onComplete: (_msg, sessionId) => {
+        if (!sessionId) return;
+        // Generate AI title after first exchange
+        if (needsTitleRef.current.has(sessionId)) {
+          needsTitleRef.current.delete(sessionId);
+          void generateTitleWithSync(sessionId);
+        }
+      },
       onError: (message, sessionId) => {
         if (!sessionId) return;
+        needsTitleRef.current.delete(sessionId ?? '');
         addMessageToSession(sessionId, {
           role: 'assistant',
           content: `Error: ${message}`,
@@ -49,7 +62,7 @@ export function ChatViewWrapper() {
         });
       },
     }),
-    [addMessageToSession, updateLastMessageInSession],
+    [addMessageToSession, updateLastMessageInSession, generateTitleWithSync],
   );
 
   const { status, streamingSessionId, connectionGaveUp, sendExecute, cancelStream, manualReconnect } =
@@ -89,6 +102,12 @@ export function ChatViewWrapper() {
       const sessionId = useViewStore.getState().currentSessionId;
       if (!sessionId) return;
 
+      // Mark session for AI title generation if this is the first message
+      const history = useViewStore.getState().chatHistory[sessionId];
+      if (!history || history.length === 0) {
+        needsTitleRef.current.add(sessionId);
+      }
+
       addMessageToSession(sessionId, { role: 'user', content: prompt, timestamp: Date.now() });
 
       if (!usingFallback && status === 'connected') {
@@ -110,6 +129,11 @@ export function ChatViewWrapper() {
                   timestamp: Date.now(),
                   ...(data.plan?.agent !== undefined && { model: data.plan.agent }),
                 });
+                // Generate AI title after first exchange
+                if (needsTitleRef.current.has(sid)) {
+                  needsTitleRef.current.delete(sid);
+                  void generateTitleWithSync(sid);
+                }
               }
               setHttpStreamingSessionId(null);
               httpStreamingSessionIdRef.current = null;
@@ -130,7 +154,7 @@ export function ChatViewWrapper() {
         );
       }
     },
-    [addMessageToSession, usingFallback, status, sendExecute, executeMutation],
+    [addMessageToSession, usingFallback, status, sendExecute, executeMutation, generateTitleWithSync],
   );
 
   const handleStop = useCallback(() => {

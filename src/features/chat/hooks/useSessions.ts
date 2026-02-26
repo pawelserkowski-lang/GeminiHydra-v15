@@ -57,6 +57,17 @@ export function useDeleteSessionMutation() {
   });
 }
 
+/** POST /api/sessions/:id/generate-title */
+export function useGenerateTitleMutation() {
+  const queryClient = useQueryClient();
+  return useMutation<{ title: string }, Error, string>({
+    mutationFn: (sessionId) => apiPost<{ title: string }>(`/api/sessions/${sessionId}/generate-title`),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['sessions'] });
+    },
+  });
+}
+
 /** POST /api/sessions/:id/messages */
 export function useAddMessageMutation() {
   const queryClient = useQueryClient();

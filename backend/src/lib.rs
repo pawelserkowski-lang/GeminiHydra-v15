@@ -61,6 +61,7 @@ use state::AppState;
         sessions::update_session,
         sessions::delete_session,
         sessions::add_session_message,
+        sessions::generate_session_title,
         // History
         sessions::get_history,
         sessions::search_history,

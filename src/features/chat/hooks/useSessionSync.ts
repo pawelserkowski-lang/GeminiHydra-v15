@@ -13,6 +13,7 @@ import {
   useAddMessageMutation,
   useCreateSessionMutation,
   useDeleteSessionMutation,
+  useGenerateTitleMutation,
   useSessionsQuery,
   useUpdateSessionMutation,
 } from './useSessions';
@@ -35,6 +36,7 @@ export function useSessionSync() {
   const deleteMutation = useDeleteSessionMutation();
   const updateMutation = useUpdateSessionMutation();
   const addMessageMutation = useAddMessageMutation();
+  const generateTitleMutation = useGenerateTitleMutation();
 
   // One-time hydration from DB
   const hydratedRef = useRef(false);
@@ -100,6 +102,21 @@ export function useSessionSync() {
     [updateMutation, updateSessionTitleLocal],
   );
 
+  /** Ask AI to generate a session title from the first user message. */
+  const generateTitleWithSync = useCallback(
+    async (id: string) => {
+      try {
+        const result = await generateTitleMutation.mutateAsync(id);
+        if (result.title) {
+          updateSessionTitleLocal(id, result.title);
+        }
+      } catch {
+        // Best-effort: substring title already set as placeholder
+      }
+    },
+    [generateTitleMutation, updateSessionTitleLocal],
+  );
+
   /** Persist a message to the DB for the given session. */
   const addMessageWithSync = useCallback(
     async (params: { sessionId: string; role: string; content: string; model?: string; agent?: string }) => {
@@ -119,6 +136,7 @@ export function useSessionSync() {
     createSessionWithSync,
     deleteSessionWithSync,
     renameSessionWithSync,
+    generateTitleWithSync,
     addMessageWithSync,
     isLoading: createMutation.isPending,
   };

@@ -208,6 +208,10 @@ pub fn session_routes() -> Router<AppState> {
             get(get_session).patch(update_session).delete(delete_session),
         )
         .route("/api/sessions/{id}/messages", post(add_session_message))
+        .route(
+            "/api/sessions/{id}/generate-title",
+            post(generate_session_title),
+        )
 }
 
 // ============================================================================
@@ -366,7 +370,7 @@ pub async fn list_sessions(
         })
         .collect();
 
-    Ok(Json(serde_json::to_value(summaries).unwrap()))
+    Ok(Json(serde_json::to_value(summaries).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?))
 }
 
 /// POST /api/sessions
@@ -399,7 +403,7 @@ pub async fn create_session(
         messages: Vec::new(),
     };
 
-    Ok((StatusCode::CREATED, Json(serde_json::to_value(session).unwrap())))
+    Ok((StatusCode::CREATED, Json(serde_json::to_value(session).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?)))
 }
 
 /// GET /api/sessions/:id?limit=200&offset=0
@@ -456,7 +460,7 @@ pub async fn get_session(
         messages,
     };
 
-    Ok(Json(serde_json::to_value(session).unwrap()))
+    Ok(Json(serde_json::to_value(session).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?))
 }
 
 /// PATCH /api/sessions/:id
@@ -498,7 +502,7 @@ pub async fn update_session(
         message_count: 0,
     };
 
-    Ok(Json(serde_json::to_value(summary).unwrap()))
+    Ok(Json(serde_json::to_value(summary).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?))
 }
 
 /// DELETE /api/sessions/:id
@@ -580,6 +584,126 @@ pub async fn add_session_message(
 
     let msg = row_to_message(row);
     Ok((StatusCode::CREATED, Json(json!(msg))))
+}
+
+// ============================================================================
+// AI title generation — Jaskier Shared Pattern
+// ============================================================================
+
+/// POST /api/sessions/:id/generate-title
+///
+/// Reads the first user message from the session and asks Gemini Flash
+/// to produce a concise 3-7 word title. Updates the DB and returns the title.
+#[utoipa::path(post, path = "/api/sessions/{id}/generate-title", tag = "sessions",
+    params(("id" = String, Path, description = "Session UUID")),
+    responses(
+        (status = 200, description = "AI-generated title", body = Value),
+        (status = 404, description = "Session not found or no user messages"),
+        (status = 503, description = "No API key configured")
+    )
+)]
+pub async fn generate_session_title(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<Value>, StatusCode> {
+    let session_id: uuid::Uuid = id.parse().map_err(|_| StatusCode::BAD_REQUEST)?;
+
+    // Fetch first user message
+    let first_msg = sqlx::query_scalar::<_, String>(
+        "SELECT content FROM gh_chat_messages \
+         WHERE session_id = $1 AND role = 'user' \
+         ORDER BY created_at ASC LIMIT 1",
+    )
+    .bind(session_id)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    .ok_or(StatusCode::NOT_FOUND)?;
+
+    // Get Google API key
+    let api_key = {
+        let rt = state.runtime.read().await;
+        rt.api_keys.get("google").cloned().unwrap_or_default()
+    };
+    if api_key.is_empty() {
+        tracing::warn!("generate_session_title: no Google API key");
+        return Err(StatusCode::SERVICE_UNAVAILABLE);
+    }
+
+    // Truncate message to ~500 chars for the prompt (safe UTF-8 boundary)
+    let snippet: &str = if first_msg.len() > 500 {
+        let end = first_msg.char_indices()
+            .take_while(|(i, _)| *i < 500)
+            .last()
+            .map(|(i, c)| i + c.len_utf8())
+            .unwrap_or(500.min(first_msg.len()));
+        &first_msg[..end]
+    } else {
+        &first_msg
+    };
+    let prompt = format!(
+        "Generate a concise 3-7 word title for a chat that starts with this message. \
+         Return ONLY the title text, no quotes, no explanation.\n\nMessage: {}",
+        snippet
+    );
+
+    let model = "gemini-2.0-flash";
+    let url = format!(
+        "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent?key={}",
+        model, api_key
+    );
+    let parsed_url = match reqwest::Url::parse(&url) {
+        Ok(u) if u.scheme() == "https" => u,
+        _ => return Err(StatusCode::INTERNAL_SERVER_ERROR),
+    };
+
+    let body = json!({
+        "contents": [{ "parts": [{ "text": prompt }] }],
+        "generationConfig": { "temperature": 0.7, "maxOutputTokens": 64 }
+    });
+
+    let res = state
+        .client
+        .post(parsed_url)
+        .json(&body)
+        .timeout(std::time::Duration::from_secs(15))
+        .send()
+        .await
+        .map_err(|e| {
+            tracing::error!("generate_session_title: API call failed: {}", e);
+            StatusCode::BAD_GATEWAY
+        })?;
+
+    if !res.status().is_success() {
+        tracing::error!("generate_session_title: API returned {}", res.status());
+        return Err(StatusCode::BAD_GATEWAY);
+    }
+
+    let json_resp: Value = res.json().await.map_err(|_| StatusCode::BAD_GATEWAY)?;
+    let raw_title = json_resp["candidates"][0]["content"]["parts"][0]["text"]
+        .as_str()
+        .unwrap_or("")
+        .trim()
+        .trim_matches('"')
+        .trim();
+
+    if raw_title.is_empty() {
+        return Err(StatusCode::BAD_GATEWAY);
+    }
+
+    // Sanitize: cap at MAX_TITLE_LENGTH
+    let title: String = raw_title.chars().take(MAX_TITLE_LENGTH).collect();
+
+    // Update session title in DB
+    sqlx::query("UPDATE gh_sessions SET title = $1, updated_at = NOW() WHERE id = $2")
+        .bind(&title)
+        .bind(session_id)
+        .execute(&state.db)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    tracing::info!("generate_session_title: session {} → {:?}", session_id, title);
+    Ok(Json(json!({ "title": title })))
 }
 
 // ============================================================================
