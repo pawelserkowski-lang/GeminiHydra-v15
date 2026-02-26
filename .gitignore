@@ -38,5 +38,11 @@ dist-ssr
 playwright-report/
 test-results/
 
+# Build artifacts
+*.tsbuildinfo
+vite.config.d.ts
+vite.config.d.ts.map
+structure_analysis.txt
+
 # Windows artifacts
 nul
