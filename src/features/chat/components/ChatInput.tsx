@@ -325,7 +325,7 @@ export const ChatInput = memo<ChatInputProps>(
               exit={{ opacity: 0, y: 5 }}
               className={cn(
                 'absolute bottom-full left-4 mb-2',
-                'flex items-center gap-2 text-xs',
+                'flex items-center gap-2 text-sm',
                 'text-red-400 bg-red-950/90 border border-red-500/30',
                 'px-3 py-2 rounded-lg shadow-lg backdrop-blur-sm',
               )}
@@ -379,7 +379,7 @@ export const ChatInput = memo<ChatInputProps>(
               {charCount > 0 && (
                 <div
                   className={cn(
-                    'text-xs font-mono transition-colors duration-300',
+                    'text-sm font-mono transition-colors duration-300',
                     isOverLimit ? 'text-red-500 font-bold' : 'text-[var(--matrix-text-dim)] opacity-50',
                   )}
                 >
@@ -444,11 +444,11 @@ export const ChatInput = memo<ChatInputProps>(
 
         {/* Footer hints */}
         <div className="flex justify-between px-2 mt-2">
-          <span className={cn('text-xs flex items-center gap-1 opacity-50', theme.textMuted)}>
+          <span className={cn('text-sm flex items-center gap-1 opacity-50', theme.textMuted)}>
             <Paperclip size={10} />
             Ctrl+V: paste image or file
           </span>
-          <span className={cn('text-xs font-mono opacity-50', theme.textMuted)}>Shift/Ctrl+Enter: new line</span>
+          <span className={cn('text-sm font-mono opacity-50', theme.textMuted)}>Shift/Ctrl+Enter: new line</span>
         </div>
       </form>
     );

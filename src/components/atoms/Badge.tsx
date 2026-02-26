@@ -1,5 +1,5 @@
 import { cva, type VariantProps } from 'class-variance-authority';
-import { forwardRef, memo, type HTMLAttributes, type ReactNode } from 'react';
+import { forwardRef, type HTMLAttributes, memo, type ReactNode } from 'react';
 import { cn } from '@/shared/utils/cn';
 
 // ============================================
@@ -50,19 +50,21 @@ export interface BadgeProps extends HTMLAttributes<HTMLSpanElement>, VariantProp
   children: ReactNode;
 }
 
-export const Badge = memo(forwardRef<HTMLSpanElement, BadgeProps>(
-  ({ className, variant, size, dot = false, icon, children, ...props }, ref) => {
-    const resolvedVariant = variant ?? 'default';
-    const dotColor = dotColorMap[resolvedVariant] ?? dotColorMap.default;
+export const Badge = memo(
+  forwardRef<HTMLSpanElement, BadgeProps>(
+    ({ className, variant, size, dot = false, icon, children, ...props }, ref) => {
+      const resolvedVariant = variant ?? 'default';
+      const dotColor = dotColorMap[resolvedVariant] ?? dotColorMap.default;
 
-    return (
-      <span ref={ref} className={cn(badgeVariants({ variant, size }), className)} {...props}>
-        {dot && <span className={cn('h-1.5 w-1.5 rounded-full flex-shrink-0', dotColor)} aria-hidden="true" />}
-        {!dot && icon && <span className="flex-shrink-0">{icon}</span>}
-        {children}
-      </span>
-    );
-  },
-));
+      return (
+        <span ref={ref} className={cn(badgeVariants({ variant, size }), className)} {...props}>
+          {dot && <span className={cn('h-1.5 w-1.5 rounded-full flex-shrink-0', dotColor)} aria-hidden="true" />}
+          {!dot && icon && <span className="flex-shrink-0">{icon}</span>}
+          {children}
+        </span>
+      );
+    },
+  ),
+);
 
 Badge.displayName = 'Badge';

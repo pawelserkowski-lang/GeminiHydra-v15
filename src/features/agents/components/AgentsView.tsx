@@ -26,11 +26,11 @@ import {
   Zap,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
-import { type ReactNode, memo, useCallback, useMemo, useState } from 'react';
+import { memo, type ReactNode, useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Badge, Button, Card } from '@/components/atoms';
-import { EmptyState } from '@/components/molecules/EmptyState';
 import { StatusIndicator, type StatusState } from '@/components/molecules';
+import { EmptyState } from '@/components/molecules/EmptyState';
 import { QueryError } from '@/components/molecules/QueryError';
 import { ViewSkeleton } from '@/components/molecules/ViewSkeleton';
 import {
@@ -318,13 +318,10 @@ export function AgentsView(): ReactNode {
     [deleteMutation],
   );
 
-  const handleEdit = useCallback(
-    (agent: Agent) => {
-      setEditingAgent(agent);
-      setEditorOpen(true);
-    },
-    [],
-  );
+  const handleEdit = useCallback((agent: Agent) => {
+    setEditingAgent(agent);
+    setEditorOpen(true);
+  }, []);
 
   if (isLoading) return <ViewSkeleton />;
   if (isError) return <QueryError onRetry={() => refetch()} />;
@@ -398,12 +395,7 @@ export function AgentsView(): ReactNode {
           <AnimatePresence mode="popLayout">
             <motion.div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4" layout>
               {filteredAgents.map((agent) => (
-                <AgentCard
-                  key={agent.id}
-                  agent={agent}
-                  onEdit={handleEdit}
-                  onDelete={handleDelete}
-                />
+                <AgentCard key={agent.id} agent={agent} onEdit={handleEdit} onDelete={handleDelete} />
               ))}
             </motion.div>
           </AnimatePresence>

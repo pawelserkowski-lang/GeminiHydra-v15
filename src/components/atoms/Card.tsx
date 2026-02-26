@@ -1,5 +1,5 @@
 import { cva, type VariantProps } from 'class-variance-authority';
-import { forwardRef, memo, type HTMLAttributes, type ReactNode } from 'react';
+import { forwardRef, type HTMLAttributes, memo, type ReactNode } from 'react';
 import { cn } from '@/shared/utils/cn';
 
 // ============================================
@@ -51,24 +51,26 @@ export interface CardProps extends HTMLAttributes<HTMLDivElement>, VariantProps<
   footer?: ReactNode;
 }
 
-export const Card = memo(forwardRef<HTMLDivElement, CardProps>(
-  ({ className, variant, padding, interactive, header, footer, children, ...props }, ref) => {
-    return (
-      <div ref={ref} className={cn(cardVariants({ variant, padding, interactive }), className)} {...props}>
-        {header && (
-          <div className="flex items-center justify-between pb-4 border-b border-[var(--matrix-divider)] mb-4">
-            {header}
-          </div>
-        )}
-        {children}
-        {footer && (
-          <div className="flex items-center justify-between pt-4 border-t border-[var(--matrix-divider)] mt-4">
-            {footer}
-          </div>
-        )}
-      </div>
-    );
-  },
-));
+export const Card = memo(
+  forwardRef<HTMLDivElement, CardProps>(
+    ({ className, variant, padding, interactive, header, footer, children, ...props }, ref) => {
+      return (
+        <div ref={ref} className={cn(cardVariants({ variant, padding, interactive }), className)} {...props}>
+          {header && (
+            <div className="flex items-center justify-between pb-4 border-b border-[var(--matrix-divider)] mb-4">
+              {header}
+            </div>
+          )}
+          {children}
+          {footer && (
+            <div className="flex items-center justify-between pt-4 border-t border-[var(--matrix-divider)] mt-4">
+              {footer}
+            </div>
+          )}
+        </div>
+      );
+    },
+  ),
+);
 
 Card.displayName = 'Card';

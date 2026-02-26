@@ -76,36 +76,38 @@ export interface ButtonProps
 // COMPONENT
 // ============================================
 
-export const Button = memo(forwardRef<HTMLButtonElement, ButtonProps>(
-  (
-    { className, variant, size, isLoading = false, loadingText, leftIcon, rightIcon, children, disabled, ...props },
-    ref,
-  ) => {
-    return (
-      <motion.button
-        ref={ref}
-        className={cn(buttonVariants({ variant, size }), className)}
-        disabled={disabled || isLoading}
-        whileHover={disabled || isLoading ? undefined : { scale: 1.02 }}
-        whileTap={disabled || isLoading ? undefined : { scale: 0.97 }}
-        transition={{ type: 'spring', stiffness: 400, damping: 25 }}
-        {...props}
-      >
-        {isLoading ? (
-          <>
-            <Loader2 className="h-4 w-4 animate-spin" />
-            {loadingText ?? children}
-          </>
-        ) : (
-          <>
-            {leftIcon && <span className="flex-shrink-0">{leftIcon}</span>}
-            {children}
-            {rightIcon && <span className="flex-shrink-0">{rightIcon}</span>}
-          </>
-        )}
-      </motion.button>
-    );
-  },
-));
+export const Button = memo(
+  forwardRef<HTMLButtonElement, ButtonProps>(
+    (
+      { className, variant, size, isLoading = false, loadingText, leftIcon, rightIcon, children, disabled, ...props },
+      ref,
+    ) => {
+      return (
+        <motion.button
+          ref={ref}
+          className={cn(buttonVariants({ variant, size }), className)}
+          disabled={disabled || isLoading}
+          whileHover={disabled || isLoading ? undefined : { scale: 1.02 }}
+          whileTap={disabled || isLoading ? undefined : { scale: 0.97 }}
+          transition={{ type: 'spring', stiffness: 400, damping: 25 }}
+          {...props}
+        >
+          {isLoading ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin" />
+              {loadingText ?? children}
+            </>
+          ) : (
+            <>
+              {leftIcon && <span className="flex-shrink-0">{leftIcon}</span>}
+              {children}
+              {rightIcon && <span className="flex-shrink-0">{rightIcon}</span>}
+            </>
+          )}
+        </motion.button>
+      );
+    },
+  ),
+);
 
 Button.displayName = 'Button';

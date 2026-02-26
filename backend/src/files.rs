@@ -92,34 +92,41 @@ pub fn extract_file_paths(prompt: &str) -> Vec<String> {
         // Pattern 1: Quoted/backtick paths (highest priority — captures exact path)
         (
             QUOTED_RE.get_or_init(|| {
-                Regex::new(r#"(?:["`'])((?:[A-Za-z]:\\|/)(?:[^\s"'`]*[^\s"'`.,;:!?]))["`']"#).unwrap()
+                Regex::new(r#"(?:["`'])((?:[A-Za-z]:\\|/)(?:[^\s"'`]*[^\s"'`.,;:!?]))["`']"#)
+                    .expect("QUOTED_RE pattern is valid")
             }),
             1,
         ),
         // Pattern 2: Windows file paths (unquoted) — C:\...\file.ext
         (
             WIN_FILE_RE.get_or_init(|| {
-                Regex::new(r"(?:^|\s)([A-Za-z]:\\(?:[^\s\\]+\\)*[^\s\\]+\.[A-Za-z0-9]+)").unwrap()
+                Regex::new(r"(?:^|\s)([A-Za-z]:\\(?:[^\s\\]+\\)*[^\s\\]+\.[A-Za-z0-9]+)")
+                    .expect("WIN_FILE_RE pattern is valid")
             }),
             1,
         ),
         // Pattern 3: Windows directory paths (unquoted) — C:\dir1\dir2 (at least 2 segments, no extension)
         (
             WIN_DIR_RE.get_or_init(|| {
-                Regex::new(r"(?:^|\s)([A-Za-z]:\\[^\s\\]+(?:\\[^\s\\]+)+)").unwrap()
+                Regex::new(r"(?:^|\s)([A-Za-z]:\\[^\s\\]+(?:\\[^\s\\]+)+)")
+                    .expect("WIN_DIR_RE pattern is valid")
             }),
             1,
         ),
         // Pattern 4: Unix file paths (unquoted) — /path/to/file.ext
         (
             UNIX_FILE_RE.get_or_init(|| {
-                Regex::new(r"(?:^|\s)(/(?:[^\s/]+/)+[^\s/]+\.[A-Za-z0-9]+)").unwrap()
+                Regex::new(r"(?:^|\s)(/(?:[^\s/]+/)+[^\s/]+\.[A-Za-z0-9]+)")
+                    .expect("UNIX_FILE_RE pattern is valid")
             }),
             1,
         ),
         // Pattern 5: Unix directory paths (unquoted) — /dir1/dir2 (at least 2 segments)
         (
-            UNIX_DIR_RE.get_or_init(|| Regex::new(r"(?:^|\s)(/[^\s/]+(?:/[^\s/]+)+)").unwrap()),
+            UNIX_DIR_RE.get_or_init(|| {
+                Regex::new(r"(?:^|\s)(/[^\s/]+(?:/[^\s/]+)+)")
+                    .expect("UNIX_DIR_RE pattern is valid")
+            }),
             1,
         ),
     ];

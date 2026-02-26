@@ -19,7 +19,7 @@ COPY migrations ./migrations
 RUN cargo build --release
 
 # ── Stage 3: Minimal runtime ──
-FROM debian:bookworm-slim AS runtime
+FROM debian:trixie-slim AS runtime
 RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /app/target/release/geminihydra-backend /usr/local/bin/app
 COPY migrations ./migrations

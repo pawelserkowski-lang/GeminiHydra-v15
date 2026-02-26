@@ -47,11 +47,7 @@ export class ApiError extends Error {
  * - Retryable HTTP statuses (408, 429, 500, 502, 503, 504): retried only
  *   for idempotent methods (GET, HEAD) to avoid duplicating side-effects.
  */
-async function fetchWithRetry(
-  url: string,
-  init: RequestInit,
-  retries = MAX_RETRIES,
-): Promise<Response> {
+async function fetchWithRetry(url: string, init: RequestInit, retries = MAX_RETRIES): Promise<Response> {
   const method = init.method?.toUpperCase() ?? 'GET';
   const isIdempotent = method === 'GET' || method === 'HEAD';
   let lastError: Error | undefined;
@@ -62,9 +58,7 @@ async function fetchWithRetry(
     const timeoutId = setTimeout(() => timeoutController.abort(), REQUEST_TIMEOUT_MS);
 
     // Combine with caller-provided signal (if any) so both can abort
-    const signal = init.signal
-      ? AbortSignal.any([init.signal, timeoutController.signal])
-      : timeoutController.signal;
+    const signal = init.signal ? AbortSignal.any([init.signal, timeoutController.signal]) : timeoutController.signal;
 
     try {
       const response = await fetch(url, { ...init, signal });

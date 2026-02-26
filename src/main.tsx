@@ -56,7 +56,9 @@ function ViewRouter() {
         );
       case 'brain':
         return (
-          <ErrorBoundary fallback={<FeatureErrorFallback feature="Knowledge Graph" onRetry={() => window.location.reload()} />}>
+          <ErrorBoundary
+            fallback={<FeatureErrorFallback feature="Knowledge Graph" onRetry={() => window.location.reload()} />}
+          >
             <LazyKnowledgeGraphView />
           </ErrorBoundary>
         );

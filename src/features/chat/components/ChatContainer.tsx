@@ -27,13 +27,11 @@ import {
 } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
-
+import { EmptyState } from '@/components/molecules/EmptyState';
 import { useSettingsQuery } from '@/features/settings/hooks/useSettings';
 import { useViewTheme } from '@/shared/hooks/useViewTheme';
 import { cn } from '@/shared/utils/cn';
 import { type Message, useViewStore } from '@/stores/viewStore';
-
-import { EmptyState } from '@/components/molecules/EmptyState';
 
 import { useFileReadMutation } from '../hooks/useFiles';
 import { ChatInput } from './ChatInput';

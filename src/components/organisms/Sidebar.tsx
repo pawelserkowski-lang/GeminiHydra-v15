@@ -31,7 +31,9 @@ import { AnimatePresence, motion } from 'motion/react';
 import { type KeyboardEvent, lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/contexts/ThemeContext';
+
 const PartnerChatModal = lazy(() => import('@/features/chat/components/PartnerChatModal'));
+
 import { usePartnerSessions } from '@/features/chat/hooks/usePartnerSessions';
 import { useSessionSync } from '@/features/chat/hooks/useSessionSync';
 import { cn } from '@/shared/utils/cn';

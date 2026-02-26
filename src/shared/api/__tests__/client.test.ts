@@ -90,16 +90,18 @@ describe('apiGet', () => {
   });
 
   it('throws ApiError on 500', async () => {
-    fetchMock.mockResolvedValueOnce(mockResponse('Internal Server Error', { status: 500 }));
+    // Provide a mocked response for the initial request AND all retries
+    fetchMock.mockResolvedValue(mockResponse('Internal Server Error', { status: 500 }));
 
     try {
       await apiGet('/crash');
+      expect.fail('Should have thrown an error');
     } catch (e) {
       const err = e as ApiError;
       expect(err.status).toBe(500);
       expect(err.message).toContain('500');
     }
-  });
+  }, 15000);
 });
 
 // ===========================================================================

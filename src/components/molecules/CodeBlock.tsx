@@ -82,7 +82,13 @@ const LANGUAGE_NAMES: Record<string, string> = {
 // Component
 // ---------------------------------------------------------------------------
 
-export const CodeBlock = memo(function CodeBlock({ code, language, showLineNumbers = false, maxHeight = '24rem', className }: CodeBlockProps) {
+export const CodeBlock = memo(function CodeBlock({
+  code,
+  language,
+  showLineNumbers = false,
+  maxHeight = '24rem',
+  className,
+}: CodeBlockProps) {
   const [copied, setCopied] = useState(false);
   const preRef = useRef<HTMLPreElement>(null);
 

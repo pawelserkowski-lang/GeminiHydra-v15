@@ -7,7 +7,7 @@
  * Supports forwardRef for external ref access.
  */
 
-import { forwardRef, memo, type InputHTMLAttributes, type ReactNode, useId } from 'react';
+import { forwardRef, type InputHTMLAttributes, memo, type ReactNode, useId } from 'react';
 import { cn } from '@/shared/utils/cn';
 
 // ---------------------------------------------------------------------------
@@ -63,75 +63,80 @@ const rightElementPaddingClasses: Record<InputSize, string> = {
 // Component
 // ---------------------------------------------------------------------------
 
-export const Input = memo(forwardRef<HTMLInputElement, InputProps>(
-  ({ label, icon, rightElement, error, inputSize = 'md', className = '', disabled, id: externalId, ...rest }, ref) => {
-    const autoId = useId();
-    const inputId = externalId ?? autoId;
-    const errorId = error ? `${inputId}-error` : undefined;
+export const Input = memo(
+  forwardRef<HTMLInputElement, InputProps>(
+    (
+      { label, icon, rightElement, error, inputSize = 'md', className = '', disabled, id: externalId, ...rest },
+      ref,
+    ) => {
+      const autoId = useId();
+      const inputId = externalId ?? autoId;
+      const errorId = error ? `${inputId}-error` : undefined;
 
-    const hasError = Boolean(error);
+      const hasError = Boolean(error);
 
-    return (
-      <div className={cn('flex flex-col gap-1.5', className)}>
-        {/* Label */}
-        {label && (
-          <label htmlFor={inputId} className="text-xs font-medium text-[var(--matrix-text-secondary)]">
-            {label}
-          </label>
-        )}
-
-        {/* Input wrapper */}
-        <div className="relative">
-          {/* Left icon */}
-          {icon && (
-            <span
-              className={cn(
-                'absolute top-1/2 -translate-y-1/2 text-[var(--matrix-text-secondary)] pointer-events-none',
-                iconSizeClasses[inputSize],
-              )}
-              aria-hidden="true"
-            >
-              {icon}
-            </span>
+      return (
+        <div className={cn('flex flex-col gap-1.5', className)}>
+          {/* Label */}
+          {label && (
+            <label htmlFor={inputId} className="text-xs font-medium text-[var(--matrix-text-secondary)]">
+              {label}
+            </label>
           )}
 
-          {/* Input */}
-          <input
-            ref={ref}
-            id={inputId}
-            disabled={disabled}
-            aria-invalid={hasError || undefined}
-            aria-describedby={errorId}
-            className={cn(
-              'glass-input w-full rounded-lg font-mono',
-              'text-[var(--matrix-text-primary)] placeholder:text-[var(--matrix-text-secondary)]/60',
-              'outline-none transition-all duration-200',
-              'focus-visible:border-[var(--matrix-accent)] focus-visible:ring-2 focus-visible:ring-[var(--matrix-accent)]',
-              'focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--matrix-bg-primary)]',
-              'disabled:opacity-50 disabled:cursor-not-allowed',
-              hasError && 'border-red-500 focus-visible:border-red-500 focus-visible:ring-red-500/30',
-              sizeClasses[inputSize],
-              icon && iconPaddingClasses[inputSize],
-              rightElement && rightElementPaddingClasses[inputSize],
+          {/* Input wrapper */}
+          <div className="relative">
+            {/* Left icon */}
+            {icon && (
+              <span
+                className={cn(
+                  'absolute top-1/2 -translate-y-1/2 text-[var(--matrix-text-secondary)] pointer-events-none',
+                  iconSizeClasses[inputSize],
+                )}
+                aria-hidden="true"
+              >
+                {icon}
+              </span>
             )}
-            {...rest}
-          />
 
-          {/* Right Element */}
-          {rightElement && (
-            <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center">{rightElement}</div>
+            {/* Input */}
+            <input
+              ref={ref}
+              id={inputId}
+              disabled={disabled}
+              aria-invalid={hasError || undefined}
+              aria-describedby={errorId}
+              className={cn(
+                'glass-input w-full rounded-lg font-mono',
+                'text-[var(--matrix-text-primary)] placeholder:text-[var(--matrix-text-secondary)]/60',
+                'outline-none transition-all duration-200',
+                'focus-visible:border-[var(--matrix-accent)] focus-visible:ring-2 focus-visible:ring-[var(--matrix-accent)]',
+                'focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--matrix-bg-primary)]',
+                'disabled:opacity-50 disabled:cursor-not-allowed',
+                hasError && 'border-red-500 focus-visible:border-red-500 focus-visible:ring-red-500/30',
+                sizeClasses[inputSize],
+                icon && iconPaddingClasses[inputSize],
+                rightElement && rightElementPaddingClasses[inputSize],
+              )}
+              {...rest}
+            />
+
+            {/* Right Element */}
+            {rightElement && (
+              <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center">{rightElement}</div>
+            )}
+          </div>
+
+          {/* Error message */}
+          {error && (
+            <p id={errorId} role="alert" className="text-xs text-red-500 font-mono">
+              {error}
+            </p>
           )}
         </div>
-
-        {/* Error message */}
-        {error && (
-          <p id={errorId} role="alert" className="text-xs text-red-500 font-mono">
-            {error}
-          </p>
-        )}
-      </div>
-    );
-  },
-));
+      );
+    },
+  ),
+);
 
 Input.displayName = 'Input';

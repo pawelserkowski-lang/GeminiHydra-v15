@@ -1,6 +1,7 @@
 /** Jaskier Design System */
-import { cn } from '@/shared/utils/cn';
+
 import type { LucideIcon } from 'lucide-react';
+import { cn } from '@/shared/utils/cn';
 
 interface EmptyStateProps {
   icon: LucideIcon;
@@ -18,9 +19,7 @@ export function EmptyState({ icon: Icon, title, description, action, className }
       </div>
       <div className="space-y-1">
         <h3 className="text-lg font-medium text-[var(--matrix-text-primary)]">{title}</h3>
-        {description && (
-          <p className="text-sm text-[var(--matrix-text-secondary)] max-w-sm">{description}</p>
-        )}
+        {description && <p className="text-sm text-[var(--matrix-text-secondary)] max-w-sm">{description}</p>}
       </div>
       {action && <div className="mt-2">{action}</div>}
     </div>
