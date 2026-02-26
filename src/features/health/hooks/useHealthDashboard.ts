@@ -9,7 +9,7 @@
  */
 
 import { useQuery } from '@tanstack/react-query';
-import { apiGet } from '@/shared/api/client';
+import { apiGetPolling } from '@/shared/api/client';
 import { useHealthQuery, useSystemStatsQuery } from './useHealth';
 
 // ============================================================================
@@ -44,23 +44,25 @@ export interface HealthDashboardData {
 
 export function useHealthDashboard(): HealthDashboardData {
   const healthQuery = useHealthQuery();
-  const statsQuery = useSystemStatsQuery();
+  const backendOnline = !!healthQuery.data && !healthQuery.isError;
+
+  const statsQuery = useSystemStatsQuery(backendOnline);
 
   const authQuery = useQuery<AuthMode>({
     queryKey: ['auth', 'mode'],
-    queryFn: () => apiGet<AuthMode>('/api/auth/mode'),
+    queryFn: () => apiGetPolling<AuthMode>('/api/auth/mode'),
     refetchInterval: 60_000,
-    retry: 1,
+    retry: false, // refetchInterval handles recovery
+    enabled: backendOnline, // don't poll when backend is down
   });
 
   const modelsQuery = useQuery<ModelInfo[]>({
     queryKey: ['models', 'list'],
-    queryFn: () => apiGet<ModelInfo[]>('/api/models'),
+    queryFn: () => apiGetPolling<ModelInfo[]>('/api/models'),
     refetchInterval: 60_000,
-    retry: 1,
+    retry: false, // refetchInterval handles recovery
+    enabled: backendOnline, // don't poll when backend is down
   });
-
-  const backendOnline = !!healthQuery.data && !healthQuery.isError;
   // GeminiHydra useHealthQuery returns { status: string } without uptime,
   // so we read uptime_seconds from the SystemStats endpoint instead.
   const uptimeSeconds = statsQuery.data?.uptime_seconds ?? null;

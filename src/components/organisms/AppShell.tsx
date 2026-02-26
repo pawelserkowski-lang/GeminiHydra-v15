@@ -52,8 +52,8 @@ function AppShellInner({ children, statusFooterProps }: AppShellProps) {
   const currentView = useViewStore((s) => s.currentView);
   const activeModel = useViewStore((s) => s.activeModel);
   const { data: settings } = useSettingsQuery();
-  const { data: stats } = useSystemStatsQuery();
   const healthStatus = useHealthStatus();
+  const { data: stats } = useSystemStatsQuery(healthStatus !== 'offline');
 
   let connectionHealth: ConnectionHealth;
   if (healthStatus === 'healthy') {
