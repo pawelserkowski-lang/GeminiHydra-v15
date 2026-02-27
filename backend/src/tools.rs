@@ -25,6 +25,35 @@ const MAX_COMMAND_OUTPUT: usize = 50 * 1024;
 /// Command execution timeout.
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
 
+// ---------------------------------------------------------------------------
+// Gemini 3 — Multimodal Tool Output
+// ---------------------------------------------------------------------------
+
+/// Output from a tool execution, supporting text and optional binary data (Gemini 3 multimodal function responses).
+#[derive(Debug, Clone)]
+pub struct ToolOutput {
+    /// Primary text result
+    pub text: String,
+    /// Optional binary data (e.g., image) with MIME type for Gemini multimodal function responses
+    pub inline_data: Option<InlineData>,
+}
+
+/// Binary data attachment for multimodal function responses.
+#[derive(Debug, Clone)]
+pub struct InlineData {
+    pub mime_type: String,
+    pub data: String, // base64-encoded
+}
+
+impl ToolOutput {
+    /// Create a text-only output (most common case)
+    pub fn text(s: String) -> Self {
+        Self { text: s, inline_data: None }
+    }
+}
+
+// ---------------------------------------------------------------------------
+
 /// Dangerous command patterns that are always blocked (even in sandbox, for now, or maybe relax in sandbox?)
 /// For now, keep them blocked to prevent resource exhaustion (fork bombs) even in container.
 const BLOCKED_PATTERNS: &[&str] = &[
@@ -67,19 +96,20 @@ const BLOCKED_PATTERNS: &[&str] = &[
 ];
 
 /// Central dispatcher — routes tool call to the appropriate handler.
-pub async fn execute_tool(name: &str, args: &Value, state: &AppState) -> Result<String, String> {
+/// Returns `ToolOutput` supporting text + optional multimodal data (Gemini 3).
+pub async fn execute_tool(name: &str, args: &Value, state: &AppState) -> Result<ToolOutput, String> {
     match name {
         "execute_command" => {
             let command = args["command"]
                 .as_str()
                 .ok_or("Missing required argument: command")?;
-            tool_execute_command(command, state).await
+            tool_execute_command(command, state).await.map(ToolOutput::text)
         }
         "read_file" => {
             let path = args["path"]
                 .as_str()
                 .ok_or("Missing required argument: path")?;
-            tool_read_file(path).await
+            tool_read_file(path).await.map(ToolOutput::text)
         }
         "write_file" => {
             let path = args["path"]
@@ -88,7 +118,7 @@ pub async fn execute_tool(name: &str, args: &Value, state: &AppState) -> Result<
             let content = args["content"]
                 .as_str()
                 .ok_or("Missing required argument: content")?;
-            tool_write_file(path, content).await
+            tool_write_file(path, content).await.map(ToolOutput::text)
         }
         "edit_file" => {
             let path = args["path"]
@@ -100,14 +130,14 @@ pub async fn execute_tool(name: &str, args: &Value, state: &AppState) -> Result<
             let new_text = args["new_text"]
                 .as_str()
                 .ok_or("Missing required argument: new_text")?;
-            tool_edit_file(path, old_text, new_text).await
+            tool_edit_file(path, old_text, new_text).await.map(ToolOutput::text)
         }
         "list_directory" => {
             let path = args["path"]
                 .as_str()
                 .ok_or("Missing required argument: path")?;
             let show_hidden = args["show_hidden"].as_bool().unwrap_or(false);
-            tool_list_directory(path, show_hidden).await
+            tool_list_directory(path, show_hidden).await.map(ToolOutput::text)
         }
         "search_files" => {
             let path = args["path"]
@@ -120,13 +150,13 @@ pub async fn execute_tool(name: &str, args: &Value, state: &AppState) -> Result<
             let offset = args["offset"].as_u64().unwrap_or(0) as usize;
             let limit = args["limit"].as_u64().unwrap_or(80) as usize;
             let multiline = args["multiline"].as_bool().unwrap_or(false);
-            tool_search_files(path, pattern, extensions, offset, limit, multiline).await
+            tool_search_files(path, pattern, extensions, offset, limit, multiline).await.map(ToolOutput::text)
         }
         "get_code_structure" => {
             let path = args["path"]
                 .as_str()
                 .ok_or("Missing required argument: path")?;
-            tool_get_code_structure(path).await
+            tool_get_code_structure(path).await.map(ToolOutput::text)
         }
         "read_file_section" => {
             let path = args["path"]
@@ -138,7 +168,7 @@ pub async fn execute_tool(name: &str, args: &Value, state: &AppState) -> Result<
             let end_line = args["end_line"]
                 .as_u64()
                 .ok_or("Missing required argument: end_line")? as usize;
-            tool_read_file_section(path, start_line, end_line).await
+            tool_read_file_section(path, start_line, end_line).await.map(ToolOutput::text)
         }
         "find_file" => {
             let path = args["path"]
@@ -147,7 +177,7 @@ pub async fn execute_tool(name: &str, args: &Value, state: &AppState) -> Result<
             let pattern = args["pattern"]
                 .as_str()
                 .ok_or("Missing required argument: pattern")?;
-            tool_find_file(path, pattern).await
+            tool_find_file(path, pattern).await.map(ToolOutput::text)
         }
         "diff_files" => {
             let path_a = args["path_a"]
@@ -156,7 +186,7 @@ pub async fn execute_tool(name: &str, args: &Value, state: &AppState) -> Result<
             let path_b = args["path_b"]
                 .as_str()
                 .ok_or("Missing required argument: path_b")?;
-            tool_diff_files(path_a, path_b).await
+            tool_diff_files(path_a, path_b).await.map(ToolOutput::text)
         }
         _ => Err(format!("Unknown tool: {}", name)),
     }

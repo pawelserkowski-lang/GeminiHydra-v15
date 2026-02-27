@@ -21,6 +21,9 @@ pub struct SettingsRow {
     pub response_style: String,
     #[sqlx(default)]
     pub max_iterations: i32,
+    /// Gemini 3 thinking level: 'none', 'minimal', 'low', 'medium', 'high'
+    #[sqlx(default)]
+    pub thinking_level: String,
 }
 
 #[derive(sqlx::FromRow)]
@@ -192,6 +195,8 @@ pub struct AppSettings {
     pub response_style: String,
     /// #49 — Max tool call iterations per request
     pub max_iterations: i32,
+    /// Gemini 3 thinking level: 'none', 'minimal', 'low', 'medium', 'high'
+    pub thinking_level: String,
 }
 
 impl Default for AppSettings {
@@ -207,6 +212,7 @@ impl Default for AppSettings {
             top_p: 0.95,
             response_style: "balanced".into(),
             max_iterations: 10,
+            thinking_level: "medium".into(),
         }
     }
 }

@@ -134,6 +134,9 @@ pub struct PartialSettings {
     /// #49 — Max tool call iterations per request
     #[serde(default)]
     pub max_iterations: Option<i32>,
+    /// Gemini 3 thinking level: 'none', 'minimal', 'low', 'medium', 'high'
+    #[serde(default)]
+    pub thinking_level: Option<String>,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -170,6 +173,7 @@ fn row_to_settings(row: SettingsRow) -> AppSettings {
         top_p: if row.top_p == 0.0 { 0.95 } else { row.top_p },
         response_style: if row.response_style.is_empty() { "balanced".to_string() } else { row.response_style },
         max_iterations: if row.max_iterations == 0 { 10 } else { row.max_iterations },
+        thinking_level: if row.thinking_level.is_empty() { "medium".to_string() } else { row.thinking_level },
     }
 }
 
@@ -897,7 +901,7 @@ pub async fn get_settings(
 ) -> Result<Json<AppSettings>, StatusCode> {
     let row = sqlx::query_as::<_, SettingsRow>(
         "SELECT temperature, max_tokens, default_model, language, theme, welcome_message, \
-         use_docker_sandbox, top_p, response_style, max_iterations \
+         use_docker_sandbox, top_p, response_style, max_iterations, thinking_level \
          FROM gh_settings WHERE id = 1",
     )
     .fetch_one(&state.db)
@@ -920,13 +924,14 @@ pub async fn update_settings(
     if patch.welcome_message.as_ref().is_some_and(|s| s.len() > 10_000)
         || patch.default_model.as_ref().is_some_and(|s| s.len() > 200)
         || patch.response_style.as_ref().is_some_and(|s| !["concise", "balanced", "detailed", "technical"].contains(&s.as_str()))
+        || patch.thinking_level.as_ref().is_some_and(|s| !["none", "minimal", "low", "medium", "high"].contains(&s.as_str()))
     {
         return Err(StatusCode::PAYLOAD_TOO_LARGE);
     }
 
     let current = sqlx::query_as::<_, SettingsRow>(
         "SELECT temperature, max_tokens, default_model, language, theme, welcome_message, \
-         use_docker_sandbox, top_p, response_style, max_iterations \
+         use_docker_sandbox, top_p, response_style, max_iterations, thinking_level \
          FROM gh_settings WHERE id = 1",
     )
     .fetch_one(&state.db)
@@ -943,13 +948,14 @@ pub async fn update_settings(
     let top_p = patch.top_p.unwrap_or(current.top_p);
     let response_style = patch.response_style.unwrap_or(current.response_style);
     let max_iterations = patch.max_iterations.unwrap_or(current.max_iterations);
+    let thinking_level = patch.thinking_level.unwrap_or(current.thinking_level);
 
     let row = sqlx::query_as::<_, SettingsRow>(
         "UPDATE gh_settings SET temperature=$1, max_tokens=$2, default_model=$3, \
          language=$4, theme=$5, welcome_message=$6, use_docker_sandbox=$7, \
-         top_p=$8, response_style=$9, max_iterations=$10, updated_at=NOW() WHERE id=1 \
+         top_p=$8, response_style=$9, max_iterations=$10, thinking_level=$11, updated_at=NOW() WHERE id=1 \
          RETURNING temperature, max_tokens, default_model, language, theme, welcome_message, \
-         use_docker_sandbox, top_p, response_style, max_iterations",
+         use_docker_sandbox, top_p, response_style, max_iterations, thinking_level",
     )
     .bind(temperature)
     .bind(max_tokens)
@@ -961,6 +967,7 @@ pub async fn update_settings(
     .bind(top_p)
     .bind(&response_style)
     .bind(max_iterations)
+    .bind(&thinking_level)
     .fetch_one(&state.db)
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
@@ -977,6 +984,7 @@ pub async fn update_settings(
             "top_p": top_p,
             "response_style": response_style,
             "max_iterations": max_iterations,
+            "thinking_level": thinking_level,
         }),
         Some(&addr.ip().to_string()),
     )
@@ -999,9 +1007,9 @@ pub async fn reset_settings(
          default_model=$1, language='en', theme='dark', \
          welcome_message='', use_docker_sandbox=FALSE, \
          top_p=0.95, response_style='balanced', max_iterations=10, \
-         updated_at=NOW() WHERE id=1 \
+         thinking_level='medium', updated_at=NOW() WHERE id=1 \
          RETURNING temperature, max_tokens, default_model, language, theme, welcome_message, \
-         use_docker_sandbox, top_p, response_style, max_iterations",
+         use_docker_sandbox, top_p, response_style, max_iterations, thinking_level",
     )
     .bind(&best_model)
     .fetch_one(&state.db)
@@ -1351,6 +1359,7 @@ mod tests {
             top_p: 0.9,
             response_style: "detailed".to_string(),
             max_iterations: 15,
+            thinking_level: "high".to_string(),
         };
         let settings = row_to_settings(row);
         assert!((settings.temperature - 0.7).abs() < f64::EPSILON);
@@ -1363,6 +1372,7 @@ mod tests {
         assert!((settings.top_p - 0.9).abs() < f64::EPSILON);
         assert_eq!(settings.response_style, "detailed");
         assert_eq!(settings.max_iterations, 15);
+        assert_eq!(settings.thinking_level, "high");
     }
 
     // ── row_to_memory ───────────────────────────────────────────────────

@@ -409,7 +409,7 @@ async fn classify_with_gemini(
 // System Prompt Factory
 // ---------------------------------------------------------------------------
 
-fn build_system_prompt(agent_id: &str, agents: &[WitcherAgent], language: &str, model: &str) -> String {
+pub(crate) fn build_system_prompt(agent_id: &str, agents: &[WitcherAgent], language: &str, model: &str) -> String {
     let agent = agents.iter().find(|a| a.id == agent_id).unwrap_or(&agents[0]);
 
     let roster: String = agents
@@ -639,28 +639,32 @@ pub async fn delete_agent(
 // Execution Context & Helpers
 // ---------------------------------------------------------------------------
 
-struct ExecuteContext {
-    agent_id: String,
-    confidence: f64,
-    reasoning: String,
-    model: String,
-    api_key: String,
-    system_prompt: String,
-    final_user_prompt: String,
-    files_loaded: Vec<String>,
-    steps: Vec<String>,
-    temperature: f64,
-    max_tokens: i32,
+pub(crate) struct ExecuteContext {
+    pub(crate) agent_id: String,
+    pub(crate) confidence: f64,
+    pub(crate) reasoning: String,
+    pub(crate) model: String,
+    pub(crate) api_key: String,
+    pub(crate) system_prompt: String,
+    pub(crate) final_user_prompt: String,
+    pub(crate) files_loaded: Vec<String>,
+    pub(crate) steps: Vec<String>,
+    pub(crate) temperature: f64,
+    pub(crate) max_tokens: i32,
     /// #46 — topP for Gemini generationConfig
-    top_p: f64,
+    pub(crate) top_p: f64,
     /// #47 — Response style (stored for logging/audit; hint already appended to prompt)
     #[allow(dead_code)]
-    response_style: String,
+    pub(crate) response_style: String,
     /// #49 — Max tool call iterations per request
-    max_iterations: i32,
+    pub(crate) max_iterations: i32,
+    /// Gemini 3 thinking level: 'none', 'minimal', 'low', 'medium', 'high'
+    pub(crate) thinking_level: String,
+    /// A2A — current agent call depth (0 = user-initiated, max 3)
+    pub(crate) call_depth: u32,
 }
 
-async fn prepare_execution(
+pub(crate) async fn prepare_execution(
     state: &AppState,
     prompt: &str,
     model_override: Option<String>,
@@ -729,15 +733,15 @@ async fn prepare_execution(
         String::new()
     };
 
-    let (def_model, lang, temperature, max_tokens, top_p, response_style, max_iterations) =
-        sqlx::query_as::<_, (String, String, f64, i32, f64, String, i32)>(
-            "SELECT default_model, language, temperature, max_tokens, top_p, response_style, max_iterations \
+    let (def_model, lang, temperature, max_tokens, top_p, response_style, max_iterations, thinking_level) =
+        sqlx::query_as::<_, (String, String, f64, i32, f64, String, i32, String)>(
+            "SELECT default_model, language, temperature, max_tokens, top_p, response_style, max_iterations, thinking_level \
              FROM gh_settings WHERE id = 1",
         )
         .fetch_one(&state.db)
         .await
         .unwrap_or_else(|_| (
-            "gemini-3.1-pro-preview-customtools".to_string(), "en".to_string(), 1.0, 65536, 0.95, "balanced".to_string(), 10
+            "gemini-3.1-pro-preview-customtools".to_string(), "en".to_string(), 1.0, 65536, 0.95, "balanced".to_string(), 10, "medium".to_string()
         ));
 
     // #48 — Per-agent temperature override
@@ -886,6 +890,42 @@ async fn prepare_execution(
         top_p,
         response_style,
         max_iterations,
+        thinking_level,
+        call_depth: 0,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Gemini 3 Thinking Config Helper
+// ---------------------------------------------------------------------------
+
+/// Build the thinkingConfig JSON for Gemini generationConfig.
+/// - Gemini 3+ models: use `thinkingLevel` (string enum: minimal/low/medium/high)
+/// - Gemini 2.5 models: use `thinkingBudget` (integer) mapped from thinking_level
+/// - "none" disables thinking entirely (omit thinkingConfig)
+pub(crate) fn build_thinking_config(model: &str, thinking_level: &str) -> Option<Value> {
+    if thinking_level == "none" {
+        return None;
+    }
+
+    let is_thinking_capable = model.contains("pro") || model.contains("flash");
+    if !is_thinking_capable {
+        return None;
+    }
+
+    if model.contains("gemini-3") {
+        // Gemini 3+: thinkingLevel string enum
+        Some(json!({ "thinkingLevel": thinking_level }))
+    } else {
+        // Gemini 2.5 and earlier: thinkingBudget integer mapped from level
+        let budget = match thinking_level {
+            "minimal" => 1024,
+            "low" => 2048,
+            "medium" => 4096,
+            "high" => 8192,
+            _ => 4096,
+        };
+        Some(json!({ "thinkingBudget": budget }))
     }
 }
 
@@ -1272,14 +1312,13 @@ async fn execute_streaming_gemini(
         // #35 — Send iteration counter to frontend
         let _ = ws_send(sender, &WsServerMessage::Iteration { number: iter as u32 + 1, max: max_iterations as u32 }).await;
 
-        let is_thinking_model = ctx.model.contains("pro");
         let mut gen_config = json!({
             "temperature": ctx.temperature,
             "topP": ctx.top_p,
             "maxOutputTokens": ctx.max_tokens
         });
-        if is_thinking_model {
-            gen_config["thinkingConfig"] = json!({ "thinkingBudget": 4096 });
+        if let Some(tc) = build_thinking_config(&ctx.model, &ctx.thinking_level) {
+            gen_config["thinkingConfig"] = tc;
         }
         let body = json!({
             "systemInstruction": { "parts": [{ "text": ctx.system_prompt }] },
@@ -1365,10 +1404,10 @@ async fn execute_streaming_gemini(
             async move {
                 match tokio::time::timeout(TOOL_TIMEOUT, crate::tools::execute_tool(&name, &args, &state)).await {
                     Ok(Ok(output)) => (name, output),
-                    Ok(Err(e)) => (name, format!("TOOL_ERROR: {}", e)),
+                    Ok(Err(e)) => (name, crate::tools::ToolOutput::text(format!("TOOL_ERROR: {}", e))),
                     Err(_) => {
                         tracing::warn!("tool '{}' timed out after {}s", name, TOOL_TIMEOUT.as_secs());
-                        (name, format!("TOOL_ERROR: timed out after {}s", TOOL_TIMEOUT.as_secs()))
+                        (name, crate::tools::ToolOutput::text(format!("TOOL_ERROR: timed out after {}s", TOOL_TIMEOUT.as_secs())))
                     }
                 }
             }
@@ -1392,24 +1431,45 @@ async fn execute_streaming_gemini(
             }
         };
 
+        // Gemini 3 Thought Signatures: build name→signature map from function call parts.
+        // raw_part (from SseParsedEvent::FunctionCall) is part.clone() which captures
+        // thoughtSignature if present. Must echo back on functionResponse parts (400 if missing).
+        let sig_map: std::collections::HashMap<&str, &Value> = fcs.iter()
+            .filter_map(|(name, _, raw)| {
+                raw.get("thoughtSignature").map(|sig| (name.as_str(), sig))
+            })
+            .collect();
+
         // Stream results to frontend + build Gemini context
         let mut res_parts = Vec::new();
         for (name, output) in &tool_results {
-            let success = !output.starts_with("TOOL_ERROR:");
-            let _ = ws_send(sender, &WsServerMessage::ToolResult { name: name.clone(), success, summary: output.chars().take(200).collect(), iteration: iter as u32 + 1 }).await;
+            let success = !output.text.starts_with("TOOL_ERROR:");
+            let _ = ws_send(sender, &WsServerMessage::ToolResult { name: name.clone(), success, summary: output.text.chars().take(200).collect(), iteration: iter as u32 + 1 }).await;
 
             let header = format!("\n\n---\n**🔧 Tool:** `{}`\n", name);
             full_text.push_str(&header);
             let _ = ws_send(sender, &WsServerMessage::Token { content: header }).await;
 
-            let res_md = format!("```\n{}\n```\n---\n\n", output);
+            let res_md = format!("```\n{}\n```\n---\n\n", output.text);
             full_text.push_str(&res_md);
             let _ = ws_send(sender, &WsServerMessage::Token { content: res_md }).await;
 
             // #26 — Dynamic context limit based on iteration (earlier = more generous)
             let context_limit = if iter < 3 { 25000 } else if iter < 6 { 15000 } else { 8000 };
-            let context_output = truncate_for_context_with_limit(output, context_limit);
-            res_parts.push(json!({ "functionResponse": { "name": name, "response": { "result": context_output } } }));
+            let context_output = truncate_for_context_with_limit(&output.text, context_limit);
+            let mut fn_response = json!({ "functionResponse": { "name": name, "response": { "result": context_output } } });
+            // Gemini 3 multimodal function response: attach inline data if tool returned binary
+            if let Some(ref data) = output.inline_data {
+                fn_response["functionResponse"]["response"]["inline_data"] = json!({
+                    "mimeType": data.mime_type,
+                    "data": data.data
+                });
+            }
+            // Attach thought signature from corresponding function call (Gemini 3 requirement)
+            if let Some(sig) = sig_map.get(name.as_str()) {
+                fn_response["thoughtSignature"] = (*sig).clone();
+            }
+            res_parts.push(fn_response);
         }
 
         // #27 — Approximate context usage metadata
@@ -1659,7 +1719,7 @@ pub async fn list_files(Json(body): Json<FileListRequest>) -> Json<Value> {
 
 /// Tool definitions are static and never change — compute once via OnceLock.
 /// Byte-identical tools JSON across all requests enables Gemini implicit caching.
-fn build_tools() -> Value {
+pub(crate) fn build_tools() -> Value {
     static TOOLS: OnceLock<Value> = OnceLock::new();
     TOOLS.get_or_init(|| json!([{
         "function_declarations": [
@@ -1709,6 +1769,11 @@ fn build_tools() -> Value {
                 "parameters": { "type": "object", "properties": { "path_a": { "type": "string", "description": "Absolute path to the first file" }, "path_b": { "type": "string", "description": "Absolute path to the second file" } }, "required": ["path_a", "path_b"] }
             },
             {
+                "name": "call_agent",
+                "description": "Delegate a subtask to another Witcher agent via A2A protocol. The target agent has full tool access and can read files, search code, etc. Use when the task requires specialized expertise (e.g., code analysis → Eskel, debugging → Lambert, data → Triss). Returns the agent's complete response. Max 3 delegation levels.",
+                "parameters": { "type": "object", "properties": { "agent_id": { "type": "string", "description": "Target agent ID (e.g., 'eskel', 'lambert', 'triss', 'yennefer')" }, "task": { "type": "string", "description": "The subtask to delegate. Be specific about what you need and provide context." } }, "required": ["agent_id", "task"] }
+            },
+            {
                 "name": "execute_command",
                 "description": "Execute a shell command on the local Windows machine. ONLY use for build/test/git/npm/cargo CLI operations. NEVER use for file reading (use read_file), directory listing (use list_directory), or text search (use search_files).",
                 "parameters": { "type": "object", "properties": { "command": { "type": "string", "description": "Shell command to execute (Windows cmd.exe)" } }, "required": ["command"] }
@@ -1741,14 +1806,13 @@ pub async fn execute(State(state): State<AppState>, Json(body): Json<ExecuteRequ
         Ok(u) if u.scheme() == "https" => u,
         _ => return Json(json!({ "error": "API credentials require HTTPS" })),
     };
-    let is_thinking_model = ctx.model.contains("pro");
     let mut gen_config_exec = json!({
         "temperature": ctx.temperature,
         "topP": ctx.top_p,
         "maxOutputTokens": ctx.max_tokens
     });
-    if is_thinking_model {
-        gen_config_exec["thinkingConfig"] = json!({ "thinkingBudget": 4096 });
+    if let Some(tc) = build_thinking_config(&ctx.model, &ctx.thinking_level) {
+        gen_config_exec["thinkingConfig"] = tc;
     }
     let gem_body = json!({
         "systemInstruction": { "parts": [{ "text": ctx.system_prompt }] },

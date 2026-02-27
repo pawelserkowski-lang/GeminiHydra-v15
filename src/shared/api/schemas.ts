@@ -119,6 +119,8 @@ const settingsSchema = z
     language: z.string(),
     theme: z.string(),
     welcome_message: z.string().optional().default(''),
+    /** Gemini 3 thinking level — controls reasoning depth per request */
+    thinking_level: z.enum(['none', 'minimal', 'low', 'medium', 'high']).optional().default('medium'),
   })
   .passthrough();
 
