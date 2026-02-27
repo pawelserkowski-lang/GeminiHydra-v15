@@ -11,7 +11,7 @@
  * - Atom/Molecule reuse (Button, ModelSelector)
  */
 
-import { AlertCircle, FolderOpen, Paperclip, Send, StopCircle, X } from 'lucide-react';
+import { AlertCircle, FolderOpen, Send, StopCircle, X } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
   type ChangeEvent,
@@ -149,13 +149,13 @@ export const ChatInput = memo<ChatInputProps>(
         const next = e.target.value;
         setValue(next);
         if (next.length > MAX_CHARS) {
-          setError('Message too long');
+          setError(t('chat.messageTooLong'));
         } else {
           setError(null);
         }
         requestAnimationFrame(adjustHeight);
       },
-      [adjustHeight],
+      [adjustHeight, t],
     );
 
     // ----- Submit -------------------------------------------------------
@@ -358,7 +358,7 @@ export const ChatInput = memo<ChatInputProps>(
               onPaste={handlePaste}
               disabled={isStreaming}
               rows={MIN_ROWS}
-              placeholder={pendingImage ? 'Describe the visual context...' : 'Type a message...'}
+              placeholder={pendingImage ? t('chat.describeVisualContext') : t('chat.typeMessage')}
               className={cn(
                 'w-full rounded-xl px-5 py-3 pr-24 resize-none',
                 'font-mono text-base leading-6',
@@ -443,15 +443,6 @@ export const ChatInput = memo<ChatInputProps>(
               <Send size={20} strokeWidth={2.5} className="ml-0.5" />
             </Button>
           )}
-        </div>
-
-        {/* Footer hints */}
-        <div className="flex justify-between px-2 mt-2">
-          <span className={cn('text-sm flex items-center gap-1 opacity-50', theme.textMuted)}>
-            <Paperclip size={10} />
-            Ctrl+V: paste image or file
-          </span>
-          <span className={cn('text-sm font-mono opacity-50', theme.textMuted)}>Shift/Ctrl+Enter: new line</span>
         </div>
       </form>
     );

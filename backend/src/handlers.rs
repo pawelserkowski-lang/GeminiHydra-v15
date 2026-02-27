@@ -304,6 +304,24 @@ fn keyword_match(text: &str, keyword: &str) -> bool {
     }
 }
 
+/// Compute the raw keyword confidence score for a single agent against a prompt.
+fn classify_agent_score(lower_prompt: &str, agent: &WitcherAgent) -> f64 {
+    let mut score = 0.0_f64;
+    for keyword in &agent.keywords {
+        if keyword_match(lower_prompt, keyword) {
+            let weight = if keyword.len() >= 8 { 2.0 }
+                else if keyword.len() >= 5 { 1.5 }
+                else { 1.0 };
+            score += weight;
+        }
+    }
+    if score > 0.0 {
+        (0.6 + (score / 8.0).min(0.35)).min(0.95)
+    } else {
+        0.0
+    }
+}
+
 /// Expert agent classification based on prompt analysis and agent keywords.
 fn classify_prompt(prompt: &str, agents: &[WitcherAgent]) -> (String, f64, String) {
     let lower = strip_diacritics(&prompt.to_lowercase());
@@ -334,7 +352,56 @@ fn classify_prompt(prompt: &str, agents: &[WitcherAgent]) -> (String, f64, Strin
     }
 
     best.map(|(id, conf, _, reason)| (id, conf, reason))
-        .unwrap_or_else(|| ("dijkstra".to_string(), 0.4, "Defaulting to Strategy & Planning".to_string()))
+        .unwrap_or_else(|| ("eskel".to_string(), 0.4, "Defaulting to Backend & APIs".to_string()))
+}
+
+/// Semantic classification fallback via Gemini Flash.
+/// Called when keyword-based classification gives low confidence (<0.65).
+async fn classify_with_gemini(
+    client: &reqwest::Client,
+    api_key: &str,
+    prompt: &str,
+    agents: &[WitcherAgent],
+) -> Option<(String, f64, String)> {
+    let agent_list: String = agents.iter()
+        .map(|a| format!("- {} ({}): {} [keywords: {}]", a.id, a.role, a.description, a.keywords.join(", ")))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    // Safe UTF-8 truncation to 500 chars
+    let truncated_prompt: String = prompt.char_indices()
+        .take_while(|(i, _)| *i < 500)
+        .map(|(_, c)| c)
+        .collect();
+
+    let classification_prompt = format!(
+        "Given this user prompt:\n\"{}\"\n\nWhich agent should handle it? Choose from:\n{}\n\nRespond with ONLY the agent id (lowercase, one word).",
+        truncated_prompt,
+        agent_list
+    );
+
+    let url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
+    let body = serde_json::json!({
+        "contents": [{"parts": [{"text": classification_prompt}]}],
+        "generationConfig": {"temperature": 1.0, "maxOutputTokens": 256}
+    });
+
+    let resp = client.post(url)
+        .header("x-goog-api-key", api_key)
+        .json(&body)
+        .timeout(std::time::Duration::from_secs(5))
+        .send().await.ok()?;
+
+    let j: serde_json::Value = resp.json().await.ok()?;
+    let text = j.get("candidates")?.get(0)?.get("content")?.get("parts")?.get(0)?.get("text")?.as_str()?;
+    let agent_id = text.trim().to_lowercase();
+
+    if agents.iter().any(|a| a.id == agent_id) {
+        Some((agent_id.clone(), 0.80, format!("Gemini Flash classified as '{}'", agent_id)))
+    } else {
+        tracing::debug!("classify_with_gemini: Gemini returned unknown agent '{}'", agent_id);
+        None
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -360,10 +427,15 @@ fn build_system_prompt(agent_id: &str, agents: &[WitcherAgent], language: &str, 
 **{name}** | {role} | {tier} | Powered by `{model}` | GeminiHydra v15 Wolf Swarm
 {description}
 
+## LANGUAGE RULE (ABSOLUTE — ZERO EXCEPTIONS)
+You MUST write EVERY word in {language}. Not just most words — EVERY SINGLE ONE.
+Only exceptions: code literals, file paths, error messages, technical identifiers, library names.
+Even section headers, table column names, and explanations MUST be in {language}.
+Violating this rule is the #1 most critical failure mode.
+
 ## Environment
 - LOCAL machine with FULL filesystem access. You CAN read/write/browse files. NEVER say otherwise.
 - **Windows** machine. Use Windows commands if you must use `execute_command`.
-- **ALWAYS respond in {language}.** Every message, explanation, plan, analysis, and recommendation MUST be in {language}. Only code, file paths, and technical identifiers stay in their original form. This rule is absolute — do NOT switch language based on the user's input language.
 
 ## Tools (local filesystem)
 | Tool | Use for | NEVER use execute_command for |
@@ -374,7 +446,7 @@ fn build_system_prompt(agent_id: &str, agents: &[WitcherAgent], language: &str, 
 | `get_code_structure` | AST overview (Rust, TS, JS, Py, Go) | — |
 | `write_file` | create NEW files or complete rewrites | echo, redirect |
 | `edit_file` | patch existing files (find & replace) | sed, awk, manual rewrite |
-| `execute_command` | ONLY build/test/git/npm/cargo CLI | — |
+| `execute_command` | ONLY build/test/git/npm/cargo CLI | ls, dir, cat, type, grep, npm view, pip show, cargo info, ANY version checks (read package.json instead) |
 
 ## Parallel Execution (CRITICAL)
 **You MUST request multiple tool calls simultaneously whenever possible.**
@@ -404,13 +476,47 @@ Before using `write_file` to create or modify files, you MUST first present an a
 3. `path/to/test.rs` — add test for `foo()`
 ```
 
+## Task Complexity Estimation (do this BEFORE your first tool call)
+- **SIMPLE** (list, single search, read one file): 1-2 tool calls, respond in <1000 chars
+- **MEDIUM** (analyze single file, compare versions): 2-3 tool calls, respond in 1000-3000 chars
+- **COMPLEX** (cross-file audit, architecture review, refactoring): 3-8 tool calls, respond in 3000-8000 chars
+- Estimate complexity FIRST, then plan tool calls accordingly. Do NOT over-investigate simple questions.
+
 ## Core Rules
 1. **Analyze first, modify after.** Read and understand code before changing it. Present a plan before writing files.
 2. **Be concise and direct.** No roleplay, monologue, or flavor text. Quality comes from insights, not theatrics.
 3. **Maximize parallel tool calls** — batch 3-5 independent operations per response. Speed comes from parallelism, not from fewer calls.
-4. **get_code_structure before read_file** — use AST overview first to decide which functions to read in full.
+4. **AST-first strategy**: ALWAYS call `get_code_structure` BEFORE `read_file` on any source code file. Only `read_file` for specific functions you identified.
 5. **Include code examples** when explaining programming concepts, comparing approaches, or recommending changes. Use concrete before/after snippets, not abstract descriptions. Code examples make your response immediately actionable.
 6. **Error recovery** — if a tool call fails (TOOL_ERROR), try an alternative approach: different command, different path, or different tool. Do not repeat the exact same failed call.
+
+## Context Efficiency
+- You have limited context. Every tool call adds ~1-10KB to context.
+- BEFORE calling `read_file` on a large file: use `get_code_structure` first to identify relevant sections.
+- PREFER `search_files` over `read_file` when looking for specific patterns.
+- NEVER read the same file twice in one conversation.
+- If a tool result is truncated, WORK WITH WHAT YOU HAVE — do not request the rest.
+
+## Response Length Control
+- For LIST/SEARCH tasks: return STRUCTURED TABLE, not raw tool output. 10-20 rows max.
+- NEVER dump full function bodies unless explicitly asked "show full code of X".
+- Target response length: 500-3000 chars for simple tasks, 3000-8000 for complex analysis.
+- If you catch yourself writing >5000 chars: STOP, restructure into a table.
+
+## Tool Output Protocol
+- NEVER paste raw tool output verbatim into your response.
+- Tool output is already streamed to the user separately — they can see it.
+- YOUR job is to INTERPRET and SYNTHESIZE: extract key findings, format as table/list, add analysis.
+- Example: After `search_files` returns 40 matches, write "Found 40 occurrences across 8 files" + summary table, NOT the raw 40 lines.
+
+## Response Format (MANDATORY)
+Structure EVERY response with:
+1. **## Headers** for main sections
+2. **Bold** for key findings and conclusions
+3. | Tables | for comparisons, file lists, search results
+4. `inline code` for identifiers, paths, commands
+5. Numbered lists for sequences, bullet lists for sets
+6. Short paragraphs (2-3 sentences max)
 
 ## MANDATORY: Response Quality Protocol
 THIS IS THE MOST IMPORTANT SECTION. Your response quality is measured by ANALYSIS, not by how many tools you call.
@@ -433,6 +539,30 @@ THIS IS THE MOST IMPORTANT SECTION. Your response quality is measured by ANALYSI
 3. Reference exact file paths and line numbers
 4. Provide actionable recommendations with concrete code changes
 5. Tool results are INPUT to your reasoning — your TEXT response is the actual deliverable
+
+## Response Examples
+
+**File listing task:**
+User: "List files in /src"
+✅ Good: Table with columns: File | Size | Purpose. Max 15 rows.
+❌ Bad: Raw list_directory dump + 2000-word essay about each file.
+
+**Code search task:**
+User: "Search for TODO in /src"
+✅ Good: "Found 3 TODOs:" + table: File | Line | Context | Priority
+❌ Bad: Raw search output + 500 words of commentary per match.
+
+**Code analysis task:**
+User: "Analyze auth.rs"
+✅ Good: `get_code_structure` first → table of functions → key findings → security assessment
+❌ Bad: `read_file` → paste entire 200-line file → generic commentary
+
+## Completion Rule
+- When you have ENOUGH information to answer: STOP calling tools and RESPOND IMMEDIATELY.
+- Listing directories does NOT require reading every file in them.
+- Finding 0 matches does NOT require retrying with variations.
+- After `get_code_structure` shows 15 functions: analyze what you see, don't `read_file` each one.
+- QUALITY of analysis > QUANTITY of tool calls.
 
 ## Swarm Roster
 {roster}"#,
@@ -562,8 +692,8 @@ pub async fn create_agent(
     Json(agent): Json<WitcherAgent>,
 ) -> Json<Value> {
     let _ = sqlx::query(
-        "INSERT INTO gh_agents (id, name, role, tier, status, description, system_prompt, keywords) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"
+        "INSERT INTO gh_agents (id, name, role, tier, status, description, system_prompt, keywords, temperature) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)"
     )
     .bind(&agent.id)
     .bind(&agent.name)
@@ -573,6 +703,7 @@ pub async fn create_agent(
     .bind(&agent.description)
     .bind(&agent.system_prompt)
     .bind(&agent.keywords)
+    .bind(agent.temperature)
     .execute(&state.db)
     .await;
 
@@ -591,8 +722,8 @@ pub async fn update_agent(
     Json(agent): Json<WitcherAgent>,
 ) -> Json<Value> {
     let _ = sqlx::query(
-        "UPDATE gh_agents SET name=$1, role=$2, tier=$3, status=$4, description=$5, system_prompt=$6, keywords=$7, updated_at=NOW() \
-         WHERE id=$8"
+        "UPDATE gh_agents SET name=$1, role=$2, tier=$3, status=$4, description=$5, system_prompt=$6, keywords=$7, temperature=$8, updated_at=NOW() \
+         WHERE id=$9"
     )
     .bind(&agent.name)
     .bind(&agent.role)
@@ -601,6 +732,7 @@ pub async fn update_agent(
     .bind(&agent.description)
     .bind(&agent.system_prompt)
     .bind(&agent.keywords)
+    .bind(agent.temperature)
     .bind(id)
     .execute(&state.db)
     .await;
@@ -648,6 +780,13 @@ struct ExecuteContext {
     steps: Vec<String>,
     temperature: f64,
     max_tokens: i32,
+    /// #46 — topP for Gemini generationConfig
+    top_p: f64,
+    /// #47 — Response style (stored for logging/audit; hint already appended to prompt)
+    #[allow(dead_code)]
+    response_style: String,
+    /// #49 — Max tool call iterations per request
+    max_iterations: i32,
 }
 
 async fn prepare_execution(
@@ -657,15 +796,84 @@ async fn prepare_execution(
     agent_override: Option<(String, f64, String)>,
 ) -> ExecuteContext {
     let agents_lock = state.agents.read().await;
-    
-    let (agent_id, confidence, reasoning) = agent_override.unwrap_or_else(|| classify_prompt(prompt, &agents_lock));
 
-    let (def_model, lang, temperature, max_tokens) = sqlx::query_as::<_, (String, String, f64, i32)>(
-        "SELECT default_model, language, temperature, max_tokens FROM gh_settings WHERE id = 1",
-    )
-    .fetch_one(&state.db)
-    .await
-    .unwrap_or_else(|_| ("gemini-3.1-pro-preview".to_string(), "en".to_string(), 0.7, 8192));
+    // #32 — Parse @agent prefix from prompt before classification
+    let (prompt_clean, agent_override_from_prefix) = if prompt.starts_with('@') {
+        if let Some(space_idx) = prompt.find(' ') {
+            let agent_name = prompt[1..space_idx].to_lowercase();
+            if let Some(matched_agent) = agents_lock.iter()
+                .find(|a| a.id == agent_name || a.name.to_lowercase() == agent_name)
+            {
+                let aid = matched_agent.id.clone();
+                (prompt[space_idx + 1..].trim().to_string(), Some((aid, 0.99, "User explicitly selected agent via @prefix".to_string())))
+            } else {
+                (prompt.to_string(), None)
+            }
+        } else {
+            (prompt.to_string(), None)
+        }
+    } else {
+        (prompt.to_string(), None)
+    };
+
+    // Determine classification: explicit override > @prefix > keyword + optional Gemini fallback
+    let (agent_id, confidence, reasoning) = if let Some(ov) = agent_override {
+        ov
+    } else if let Some(prefix_ov) = agent_override_from_prefix {
+        prefix_ov
+    } else {
+        let (kw_agent, kw_conf, kw_reason) = classify_prompt(&prompt_clean, &agents_lock);
+        // #28 — If keyword confidence is low, try Gemini Flash as fallback
+        if kw_conf < 0.65 {
+            let api_key_for_classify = state.runtime.read().await.api_keys.get("google").cloned().unwrap_or_default();
+            if !api_key_for_classify.is_empty() {
+                if let Some(gemini_result) = classify_with_gemini(&state.client, &api_key_for_classify, &prompt_clean, &agents_lock).await {
+                    tracing::info!("classify: Gemini Flash override — {} (keyword was {} @ {:.0}%)", gemini_result.0, kw_agent, kw_conf * 100.0);
+                    gemini_result
+                } else {
+                    (kw_agent, kw_conf, kw_reason)
+                }
+            } else {
+                (kw_agent, kw_conf, kw_reason)
+            }
+        } else {
+            (kw_agent, kw_conf, kw_reason)
+        }
+    };
+
+    // #30 — Multi-agent collaboration hint
+    let lower_prompt = strip_diacritics(&prompt_clean.to_lowercase());
+    let mut top_agents: Vec<_> = agents_lock.iter()
+        .map(|a| {
+            let score = classify_agent_score(&lower_prompt, a);
+            (a.id.clone(), a.name.clone(), score)
+        })
+        .filter(|(id, _, s)| *s > 0.65 && *id != agent_id)
+        .collect();
+    top_agents.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
+    let collab_hint = if let Some(secondary) = top_agents.first() {
+        format!("\n[SYSTEM: This task also relates to {} ({:.0}% match). Consider their perspective in your analysis.]\n",
+            secondary.1, secondary.2 * 100.0)
+    } else {
+        String::new()
+    };
+
+    let (def_model, lang, temperature, max_tokens, top_p, response_style, max_iterations) =
+        sqlx::query_as::<_, (String, String, f64, i32, f64, String, i32)>(
+            "SELECT default_model, language, temperature, max_tokens, top_p, response_style, max_iterations \
+             FROM gh_settings WHERE id = 1",
+        )
+        .fetch_one(&state.db)
+        .await
+        .unwrap_or_else(|_| (
+            "gemini-3.1-pro-preview".to_string(), "en".to_string(), 1.0, 65536, 0.95, "balanced".to_string(), 10
+        ));
+
+    // #48 — Per-agent temperature override
+    let agent_temp = agents_lock.iter()
+        .find(|a| a.id == agent_id)
+        .and_then(|a| a.temperature);
+    let effective_temperature = agent_temp.unwrap_or(temperature);
 
     let model = model_override.unwrap_or(def_model);
     let language = match lang.as_str() { "pl" => "Polish", "en" => "English", other => other };
@@ -673,11 +881,55 @@ async fn prepare_execution(
     let api_key = state.runtime.read().await.api_keys.get("google").cloned().unwrap_or_default();
     let system_prompt = build_system_prompt(&agent_id, &agents_lock, language, &model);
 
-    let detected_paths = files::extract_file_paths(prompt);
-    let (file_context, _) = if !detected_paths.is_empty() {
-        files::build_file_context(&detected_paths).await
+    let detected_paths = files::extract_file_paths(&prompt_clean);
+
+    // #25 — Sort detected paths by priority: config files first, then source, then docs
+    let mut sorted_paths = detected_paths.clone();
+    sorted_paths.sort_by_key(|p| {
+        let name = std::path::Path::new(p)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("");
+        match name {
+            "Cargo.toml" => 0,
+            "package.json" => 1,
+            "tsconfig.json" => 2,
+            "go.mod" => 3,
+            "pyproject.toml" => 4,
+            "vite.config.ts" | "vite.config.js" => 5,
+            "docker-compose.yml" | "docker-compose.yaml" => 6,
+            "Makefile" => 7,
+            "CLAUDE.md" => 8,
+            "README.md" => 90,
+            "LICENSE" | "LICENSE.md" => 91,
+            _ => 50, // source files in the middle
+        }
+    });
+
+    // #21 — Capture file context errors instead of discarding them
+    let (file_context, context_errors) = if !sorted_paths.is_empty() {
+        files::build_file_context(&sorted_paths).await
     } else {
         (String::new(), Vec::new())
+    };
+
+    let skip_warning = if !context_errors.is_empty() {
+        format!("\n[SYSTEM: {} file(s) could not be auto-loaded (size/quota exceeded). Use read_file or read_file_section to inspect them manually.]\n", context_errors.len())
+    } else {
+        String::new()
+    };
+
+    let files_loaded = if !file_context.is_empty() { sorted_paths } else { Vec::new() };
+
+    // #24 — Add file context summary
+    let context_summary = if !files_loaded.is_empty() {
+        let total_size = file_context.len();
+        format!("\n[AUTO-LOADED: {} file(s), ~{}KB total: {}]\n",
+            files_loaded.len(),
+            total_size / 1024,
+            files_loaded.join(", "))
+    } else {
+        String::new()
     };
 
     let dir_hint = detected_paths.iter()
@@ -691,9 +943,38 @@ async fn prepare_execution(
         String::new()
     };
 
-    let final_user_prompt = format!("{}{}{}", file_context, prompt, dir_hint_str);
-    let files_loaded = if !file_context.is_empty() { detected_paths } else { Vec::new() };
-    
+    // #47 — Response style hint
+    let style_hint = match response_style.as_str() {
+        "concise" => "\n[STYLE: Be extremely concise. Max 500 words. Tables over paragraphs. No filler or repetition.]\n",
+        "detailed" => "\n[STYLE: Provide thorough analysis with examples, code snippets, and detailed explanations.]\n",
+        "technical" => "\n[STYLE: Assume expert reader. Skip basics. Focus on implementation details, edge cases, and architecture.]\n",
+        _ => "", // "balanced" = default, no override
+    };
+
+    // #50 — Rating-based quality warning (fire-and-forget, don't block on failure)
+    let rating_warning = match sqlx::query_as::<_, (f64, i64)>(
+        "SELECT COALESCE(avg_rating, 5.0)::FLOAT8, COALESCE(total_ratings, 0)::BIGINT \
+         FROM gh_agent_rating_stats WHERE agent_id = $1"
+    )
+    .bind(&agent_id)
+    .fetch_optional(&state.db)
+    .await
+    {
+        Ok(Some((avg, total))) if avg < 3.0 && total >= 5 => {
+            format!(
+                "\n[QUALITY ALERT: Your recent responses received low ratings (avg {:.1}/5). \
+                 Focus on: being concise, using tables, providing actionable insights instead of generic commentary.]\n",
+                avg
+            )
+        }
+        _ => String::new(),
+    };
+
+    let final_user_prompt = format!(
+        "{}{}{}{}{}{}{}{}",
+        file_context, context_summary, prompt_clean, dir_hint_str, skip_warning, style_hint, rating_warning, collab_hint
+    );
+
     let steps = vec![
         "classify prompt".into(),
         format!("route to agent (confidence {:.0}%)", confidence * 100.0),
@@ -710,8 +991,11 @@ async fn prepare_execution(
         final_user_prompt,
         files_loaded,
         steps,
-        temperature,
+        temperature: effective_temperature,
         max_tokens,
+        top_p,
+        response_style,
+        max_iterations,
     }
 }
 
@@ -808,7 +1092,9 @@ impl SseParser {
 /// Truncate tool output for Gemini context to prevent context window overflow.
 /// Full output is still streamed to the user via WebSocket — this only affects
 /// what gets sent back to Gemini as functionResponse for the next iteration.
-const MAX_TOOL_RESULT_FOR_CONTEXT: usize = 10000;
+/// Default limit for truncate_for_context (used as fallback; dynamic limits in the loop override this).
+#[allow(dead_code)]
+const MAX_TOOL_RESULT_FOR_CONTEXT: usize = 25000;
 
 /// Per-tool execution timeout — prevents individual tool calls from hanging forever.
 const TOOL_TIMEOUT: Duration = Duration::from_secs(30);
@@ -821,12 +1107,18 @@ const GEMINI_BACKOFF_BASE: Duration = Duration::from_secs(1);
 /// Maximum random jitter added to each backoff delay.
 const GEMINI_BACKOFF_JITTER_MS: u64 = 500;
 
+/// Wrapper using the default limit (kept for potential external usage).
+#[allow(dead_code)]
 fn truncate_for_context(output: &str) -> String {
-    if output.len() <= MAX_TOOL_RESULT_FOR_CONTEXT {
+    truncate_for_context_with_limit(output, MAX_TOOL_RESULT_FOR_CONTEXT)
+}
+
+fn truncate_for_context_with_limit(output: &str, limit: usize) -> String {
+    if output.len() <= limit {
         return output.to_string();
     }
     let boundary = output.char_indices()
-        .take_while(|(i, _)| *i < MAX_TOOL_RESULT_FOR_CONTEXT)
+        .take_while(|(i, _)| *i < limit)
         .last()
         .map(|(i, c)| i + c.len_utf8())
         .unwrap_or(0);
@@ -931,7 +1223,7 @@ async fn execute_streaming(
     let resp_id = Uuid::new_v4();
 
     if !ws_send(sender, &WsServerMessage::Start { id: resp_id.to_string(), agent: ctx.agent_id.clone(), model: ctx.model.clone(), files_loaded: ctx.files_loaded.clone() }).await { return; }
-    let _ = ws_send(sender, &WsServerMessage::Plan { agent: ctx.agent_id.clone(), confidence: ctx.confidence, steps: ctx.steps.clone() }).await;
+    let _ = ws_send(sender, &WsServerMessage::Plan { agent: ctx.agent_id.clone(), confidence: ctx.confidence, steps: ctx.steps.clone(), reasoning: ctx.reasoning.clone() }).await;
 
     // Dispatch to Gemini streaming
     let full_text = execute_streaming_gemini(sender, state, &ctx, sid, cancel).await;
@@ -1058,15 +1350,45 @@ async fn execute_streaming_gemini(
     let mut contents = if let Some(s) = &sid { load_session_history(&state.db, s).await } else { Vec::new() };
     contents.push(json!({ "role": "user", "parts": [{ "text": ctx.final_user_prompt }] }));
 
+    // #36 — Dynamic max iterations based on prompt complexity, capped by #49 user setting
+    let prompt_len = ctx.final_user_prompt.len();
+    let file_count = ctx.files_loaded.len();
+    let dynamic_max: usize = if prompt_len < 200 && file_count <= 1 {
+        5  // Simple prompt
+    } else if prompt_len < 1000 && file_count <= 3 {
+        10 // Medium complexity
+    } else {
+        15 // Complex multi-file analysis
+    };
+    let max_iterations: usize = dynamic_max.min(ctx.max_iterations.max(1) as usize);
+
     let mut full_text = String::new();
-    for iter in 0..15 {
+
+    // #39 — Global execution timeout: 3 minutes
+    let execution_start = Instant::now();
+    let execution_timeout = Duration::from_secs(180);
+
+    for iter in 0..max_iterations {
+        // #39 — Check elapsed time at the start of each iteration
+        if execution_start.elapsed() >= execution_timeout {
+            tracing::warn!("execute_streaming_gemini: global timeout after {}s at iteration {}", execution_start.elapsed().as_secs(), iter);
+            let _ = ws_send(sender, &WsServerMessage::Error {
+                message: "Execution timed out after 3 minutes".to_string(),
+                code: Some("TIMEOUT".to_string()),
+            }).await;
+            break;
+        }
+
+        // #35 — Send iteration counter to frontend
+        let _ = ws_send(sender, &WsServerMessage::Iteration { number: iter as u32 + 1, max: max_iterations as u32 }).await;
+
         let body = json!({
             "systemInstruction": { "parts": [{ "text": ctx.system_prompt }] },
             "contents": contents,
             "tools": tools,
             "generationConfig": {
                 "temperature": ctx.temperature,
-                "topP": 0.95,
+                "topP": ctx.top_p,
                 "maxOutputTokens": ctx.max_tokens
             }
         });
@@ -1081,6 +1403,20 @@ async fn execute_streaming_gemini(
                 state.gemini_circuit.record_failure().await;
                 tracing::error!("{}", e);
                 let _ = ws_send(sender, &WsServerMessage::Error { message: "AI service error".into(), code: Some("GEMINI_ERROR".into()) }).await;
+
+                // #38 — Model fallback chain: try gemini-2.5-flash if primary model failed
+                if full_text.is_empty() && ctx.model != "gemini-2.5-flash" {
+                    tracing::warn!("Primary model {} failed, trying gemini-2.5-flash fallback", ctx.model);
+                    let fallback_url_str = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse";
+                    if let Ok(fallback_url) = reqwest::Url::parse(fallback_url_str) {
+                        if let Ok(fallback_resp) = gemini_request_with_retry(&state.client, &fallback_url, &ctx.api_key, &body).await {
+                            state.gemini_circuit.record_success().await;
+                            let (fallback_text, _, _) = consume_gemini_stream(fallback_resp, sender, &cancel).await;
+                            full_text.push_str(&fallback_text);
+                        }
+                    }
+                }
+
                 return full_text;
             }
         };
@@ -1089,6 +1425,21 @@ async fn execute_streaming_gemini(
         full_text.push_str(&text);
         if aborted || fcs.is_empty() { break; }
 
+        // #37 — Early termination if agent text (excluding tool output) is too small after many iterations
+        if iter >= 3 && text.trim().is_empty() {
+            // Count how many iterations produced no agent text at all
+            let meaningful_text: String = full_text.lines()
+                .filter(|l| !l.starts_with("---") && !l.starts_with("```") && !l.starts_with("**🔧 Tool:**"))
+                .collect::<Vec<_>>()
+                .join("");
+            if meaningful_text.trim().len() < 50 {
+                let _ = ws_send(sender, &WsServerMessage::Token {
+                    content: "\n\n[Agent produced no meaningful response after multiple tool calls. Please rephrase your question.]".to_string()
+                }).await;
+                break;
+            }
+        }
+
         let mut model_parts: Vec<Value> = if !text.is_empty() { vec![json!({ "text": text })] } else { vec![] };
         for (_, _, raw) in &fcs { model_parts.push(raw.clone()); }
         contents.push(json!({ "role": "model", "parts": model_parts }));
@@ -1096,12 +1447,16 @@ async fn execute_streaming_gemini(
         // Announce all tool calls first (so the frontend can show them as "in progress")
         let tool_count = fcs.len();
         for (name, args, _) in &fcs {
-            let _ = ws_send(sender, &WsServerMessage::ToolCall { name: name.clone(), args: args.clone(), iteration: iter + 1 }).await;
+            let _ = ws_send(sender, &WsServerMessage::ToolCall { name: name.clone(), args: args.clone(), iteration: iter as u32 + 1 }).await;
         }
+
+        // #40 — Send parallel tool header as ToolProgress instead of Token
         if tool_count > 1 {
-            let parallel_header = format!("\n\n---\n**⚡ Parallel execution: {} tools**\n", tool_count);
-            full_text.push_str(&parallel_header);
-            let _ = ws_send(sender, &WsServerMessage::Token { content: parallel_header }).await;
+            let _ = ws_send(sender, &WsServerMessage::ToolProgress {
+                iteration: iter as u32,
+                tools_completed: 0,
+                tools_total: tool_count as u32,
+            }).await;
         }
 
         // Execute all tool calls concurrently using tokio::join_all.
@@ -1146,7 +1501,7 @@ async fn execute_streaming_gemini(
         let mut res_parts = Vec::new();
         for (name, output) in &tool_results {
             let success = !output.starts_with("TOOL_ERROR:");
-            let _ = ws_send(sender, &WsServerMessage::ToolResult { name: name.clone(), success, summary: output.chars().take(200).collect(), iteration: iter + 1 }).await;
+            let _ = ws_send(sender, &WsServerMessage::ToolResult { name: name.clone(), success, summary: output.chars().take(200).collect(), iteration: iter as u32 + 1 }).await;
 
             let header = format!("\n\n---\n**🔧 Tool:** `{}`\n", name);
             full_text.push_str(&header);
@@ -1156,19 +1511,27 @@ async fn execute_streaming_gemini(
             full_text.push_str(&res_md);
             let _ = ws_send(sender, &WsServerMessage::Token { content: res_md }).await;
 
-            // Truncate tool output for Gemini context to prevent context overflow.
-            // Full output is already streamed to the user above.
-            let context_output = truncate_for_context(output);
+            // #26 — Dynamic context limit based on iteration (earlier = more generous)
+            let context_limit = if iter < 3 { 25000 } else if iter < 6 { 15000 } else { 8000 };
+            let context_output = truncate_for_context_with_limit(output, context_limit);
             res_parts.push(json!({ "functionResponse": { "name": name, "response": { "result": context_output } } }));
         }
-        // After tool results, add synthesis reminder to prevent endless tool-calling
-        if iter >= 2 {
-            let urgency = if iter >= 5 {
-                "[SYSTEM CRITICAL: STOP ALL TOOL CALLS IMMEDIATELY. You have exceeded 5 iterations. Write your FINAL analysis NOW with all findings so far. NO MORE TOOLS.]"
-            } else if iter >= 3 {
-                "[SYSTEM: You have made many tool calls. SYNTHESIZE your findings NOW. Provide structured analysis with specific insights, issues, and actionable recommendations. Only one more tool call if absolutely critical.]"
+
+        // #27 — Approximate context usage metadata
+        let approx_context_bytes: usize = contents.iter()
+            .map(|c| serde_json::to_string(c).map(|s| s.len()).unwrap_or(0))
+            .sum();
+        let context_hint = format!("[CONTEXT: ~{}KB used across {} messages, iteration {}/{}]",
+            approx_context_bytes / 1024, contents.len(), iter + 1, max_iterations);
+
+        // #34 — Earlier synthesis reminders: start at iteration 1 (was 2)
+        if iter >= 1 {
+            let urgency = if iter >= 4 {
+                format!("[SYSTEM CRITICAL: STOP ALL TOOL CALLS. You have used {} iterations. {} Write your FINAL analysis NOW.]", iter + 1, context_hint)
+            } else if iter >= 2 {
+                format!("[SYSTEM: {} iterations used. {} SYNTHESIZE your findings NOW. Structured analysis with specific insights.]", iter + 1, context_hint)
             } else {
-                "[SYSTEM: Multiple tool calls made. Consider synthesizing your findings soon. Provide structured analysis with specific insights.]"
+                format!("[SYSTEM: {} Consider synthesizing findings soon.]", context_hint)
             };
             res_parts.push(json!({ "text": urgency }));
         }
@@ -1247,10 +1610,36 @@ async fn resolve_session_agent(state: &AppState, sid: &Uuid, prompt: &str) -> (S
 }
 
 async fn load_session_history(db: &sqlx::PgPool, sid: &Uuid) -> Vec<Value> {
-    sqlx::query_as::<_, (String, String)>("SELECT role, content FROM gh_chat_messages WHERE session_id = $1 ORDER BY created_at DESC LIMIT 50")
+    // #22 — Reduced from 50 to 20 to save context window budget
+    let mut messages: Vec<Value> = sqlx::query_as::<_, (String, String)>(
+        "SELECT role, content FROM gh_chat_messages WHERE session_id = $1 ORDER BY created_at DESC LIMIT 20"
+    )
         .bind(sid).fetch_all(db).await.unwrap_or_default().into_iter().rev()
         .map(|(r, c)| json!({ "role": if r == "assistant" { "model" } else { "user" }, "parts": [{ "text": c }] }))
-        .collect()
+        .collect();
+
+    // #23 — Compress old messages: truncate everything except the last 6 messages
+    for i in 0..messages.len() {
+        if i < messages.len().saturating_sub(6) {
+            if let Some(text) = messages[i].get_mut("parts")
+                .and_then(|p| p.get_mut(0))
+                .and_then(|p0| p0.get_mut("text"))
+            {
+                if let Some(s) = text.as_str().map(|s| s.to_string()) {
+                    if s.len() > 500 {
+                        let boundary = s.char_indices()
+                            .take_while(|(idx, _)| *idx < 500)
+                            .last()
+                            .map(|(idx, c)| idx + c.len_utf8())
+                            .unwrap_or(500.min(s.len()));
+                        *text = json!(format!("{}... [message truncated for context efficiency]", &s[..boundary]));
+                    }
+                }
+            }
+        }
+    }
+
+    messages
 }
 
 async fn store_messages(db: &sqlx::PgPool, sid: Option<Uuid>, rid: Uuid, prompt: &str, result: &str, ctx: &ExecuteContext) {
@@ -1378,18 +1767,28 @@ fn build_tools() -> Value {
         "function_declarations": [
             {
                 "name": "list_directory",
-                "description": "List files and subdirectories in a local directory. ALWAYS use this to explore project structure — never use execute_command with dir/ls.",
+                "description": "List files and subdirectories in a local directory with sizes and line counts. ALWAYS use this to explore project structure — never use execute_command with dir/ls.",
                 "parameters": { "type": "object", "properties": { "path": { "type": "string", "description": "Absolute path to the local directory" }, "show_hidden": { "type": "boolean", "description": "Include hidden files (dotfiles)" } }, "required": ["path"] }
             },
             {
                 "name": "read_file",
-                "description": "Read a file from the local filesystem by its absolute path. ALWAYS use this to inspect code — never use execute_command with cat/type/Get-Content.",
+                "description": "Read a file from the local filesystem by its absolute path. ALWAYS use this to inspect code — never use execute_command with cat/type/Get-Content. For large files, use read_file_section instead.",
                 "parameters": { "type": "object", "properties": { "path": { "type": "string", "description": "Absolute path to the local file, e.g. C:\\Users\\...\\file.ts" } }, "required": ["path"] }
             },
             {
+                "name": "read_file_section",
+                "description": "Read specific line range from a file. Use AFTER get_code_structure to read only the functions you need — much cheaper than reading the entire file.",
+                "parameters": { "type": "object", "properties": { "path": { "type": "string", "description": "Absolute path to the file" }, "start_line": { "type": "integer", "description": "First line to read (1-indexed, inclusive)" }, "end_line": { "type": "integer", "description": "Last line to read (1-indexed, inclusive). Max range: 500 lines" } }, "required": ["path", "start_line", "end_line"] }
+            },
+            {
                 "name": "search_files",
-                "description": "Search for text or regex patterns across all files in a directory (recursive). Returns matching lines with file paths and line numbers. ALWAYS use this to search for code patterns — never use execute_command with grep/Select-String/findstr.",
-                "parameters": { "type": "object", "properties": { "path": { "type": "string", "description": "Directory to search in (absolute path)" }, "pattern": { "type": "string", "description": "Text or regex pattern to search for (case-insensitive)" }, "file_extensions": { "type": "string", "description": "Comma-separated extensions to filter, e.g. 'ts,tsx,rs'. Default: all text files" } }, "required": ["path", "pattern"] }
+                "description": "Search for text or regex patterns across all files in a directory (recursive). Returns matching lines with file paths and line numbers. Supports pagination and multiline regex. ALWAYS use this to search for code patterns — never use execute_command with grep/Select-String/findstr.",
+                "parameters": { "type": "object", "properties": { "path": { "type": "string", "description": "Directory to search in (absolute path)" }, "pattern": { "type": "string", "description": "Text or regex pattern to search for (case-insensitive)" }, "file_extensions": { "type": "string", "description": "Comma-separated extensions to filter, e.g. 'ts,tsx,rs'. Default: all text files" }, "offset": { "type": "integer", "description": "Number of matches to skip (default 0, for pagination)" }, "limit": { "type": "integer", "description": "Max matches to return (default 80)" }, "multiline": { "type": "boolean", "description": "If true, pattern matches across line boundaries with ±2 lines context (default false)" } }, "required": ["path", "pattern"] }
+            },
+            {
+                "name": "find_file",
+                "description": "Find files by name pattern (glob). Returns matching file paths with sizes. Use when you don't know exact file location.",
+                "parameters": { "type": "object", "properties": { "path": { "type": "string", "description": "Root directory to search in (absolute path)" }, "pattern": { "type": "string", "description": "Glob pattern like '*.tsx' or 'auth*'" } }, "required": ["path", "pattern"] }
             },
             {
                 "name": "get_code_structure",
@@ -1405,6 +1804,11 @@ fn build_tools() -> Value {
                 "name": "edit_file",
                 "description": "Edit an existing file by replacing a specific text section. SAFER than write_file for modifications — only changes the targeted section, preserving the rest. Use for code patches, small edits, adding/removing lines.",
                 "parameters": { "type": "object", "properties": { "path": { "type": "string", "description": "Absolute path to the file to edit" }, "old_text": { "type": "string", "description": "Exact text to find and replace (must appear exactly once in the file)" }, "new_text": { "type": "string", "description": "Replacement text" } }, "required": ["path", "old_text", "new_text"] }
+            },
+            {
+                "name": "diff_files",
+                "description": "Compare two files and show line-by-line differences in unified diff format. Max 200 diff lines output.",
+                "parameters": { "type": "object", "properties": { "path_a": { "type": "string", "description": "Absolute path to the first file" }, "path_b": { "type": "string", "description": "Absolute path to the second file" } }, "required": ["path_a", "path_b"] }
             },
             {
                 "name": "execute_command",
@@ -1444,7 +1848,7 @@ pub async fn execute(State(state): State<AppState>, Json(body): Json<ExecuteRequ
         "contents": [{ "parts": [{ "text": ctx.final_user_prompt }] }],
         "generationConfig": {
             "temperature": ctx.temperature,
-            "topP": 0.95,
+            "topP": ctx.top_p,
             "maxOutputTokens": ctx.max_tokens
         }
     });
@@ -1513,6 +1917,7 @@ mod tests {
                     "structur".to_string(),
                     "refactor".to_string(),
                 ],
+                temperature: None,
             },
             WitcherAgent {
                 id: "triss".to_string(),
@@ -1529,6 +1934,7 @@ mod tests {
                     "sql".to_string(),
                     "query".to_string(),
                 ],
+                temperature: None,
             },
             WitcherAgent {
                 id: "dijkstra".to_string(),
@@ -1544,6 +1950,27 @@ mod tests {
                     "roadmap".to_string(),
                     "priorit".to_string(),
                 ],
+                temperature: None,
+            },
+            WitcherAgent {
+                id: "eskel".to_string(),
+                name: "Eskel".to_string(),
+                role: "Backend & APIs".to_string(),
+                tier: "Coordinator".to_string(),
+                status: "active".to_string(),
+                description: "Backend & APIs".to_string(),
+                system_prompt: None,
+                keywords: vec![
+                    "backend".to_string(),
+                    "endpoint".to_string(),
+                    "rest".to_string(),
+                    "api".to_string(),
+                    "handler".to_string(),
+                    "middleware".to_string(),
+                    "route".to_string(),
+                    "websocket".to_string(),
+                ],
+                temperature: None,
             },
         ]
     }
@@ -1566,10 +1993,33 @@ mod tests {
     }
 
     #[test]
-    fn test_unknown_prompt_falls_back_to_dijkstra() {
+    fn test_unknown_prompt_falls_back_to_eskel() {
         let agents = test_agents();
         let (agent, _, _) = classify_prompt("what is the meaning of life", &agents);
-        assert_eq!(agent, "dijkstra");
+        assert_eq!(agent, "eskel");
+    }
+
+    #[test]
+    fn test_backend_routes_to_eskel() {
+        let agents = test_agents();
+        let (agent, confidence, _) = classify_prompt("add a new api endpoint for user registration", &agents);
+        assert_eq!(agent, "eskel");
+        assert!(confidence >= 0.7);
+    }
+
+    #[test]
+    fn test_classify_agent_score_returns_zero_for_no_match() {
+        let agents = test_agents();
+        let score = classify_agent_score("nothing relevant here", &agents[0]);
+        assert_eq!(score, 0.0);
+    }
+
+    #[test]
+    fn test_classify_agent_score_positive_for_match() {
+        let agents = test_agents();
+        let triss = &agents[1]; // triss has "sql", "database" etc.
+        let score = classify_agent_score("query sql database migration", triss);
+        assert!(score > 0.65);
     }
 
     #[test]

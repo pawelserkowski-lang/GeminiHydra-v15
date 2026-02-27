@@ -2,7 +2,7 @@
 /** Jaskier Design System */
 /**
  * Shared LogoButton — theme-aware logo with home navigation.
- * Collapsed: w-16 h-16 icon. Expanded: h-36 full logo.
+ * Collapsed: w-12 h-12 icon. Expanded: h-28 full logo.
  */
 import { useTheme } from '@/contexts/ThemeContext';
 import { cn } from '@/shared/utils/cn';
@@ -23,9 +23,9 @@ export function LogoButton({ collapsed, onClick, className }: LogoButtonProps) {
       data-testid="sidebar-logo"
       onClick={onClick}
       className={cn(
-        'flex items-center justify-center py-4 px-1 flex-shrink-0 cursor-pointer',
+        'flex items-center justify-center flex-shrink-0 cursor-pointer',
         'hover:opacity-80 transition-opacity',
-        collapsed ? 'w-full' : 'flex-1',
+        collapsed ? 'w-full' : '',
         className,
       )}
       title="Home"
@@ -36,7 +36,7 @@ export function LogoButton({ collapsed, onClick, className }: LogoButtonProps) {
         alt="Logo"
         width={512}
         height={425}
-        className={cn('object-contain transition-all duration-300', collapsed ? 'w-16 h-16' : 'h-36')}
+        className={cn('object-contain transition-all duration-300', collapsed ? 'w-12 h-12' : 'h-28')}
       />
     </button>
   );

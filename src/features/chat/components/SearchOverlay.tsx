@@ -12,6 +12,7 @@
 import { ChevronDown, ChevronUp, Search, X } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useViewTheme } from '@/shared/hooks/useViewTheme';
 import { cn } from '@/shared/utils/cn';
 import type { Message } from '@/stores/viewStore';
@@ -162,6 +163,7 @@ function applyHighlights(container: HTMLElement | null, query: string, activeMat
 // ============================================================================
 
 export const SearchOverlay = memo<SearchOverlayProps>(({ messages, scrollContainerRef, isOpen, onClose }) => {
+  const { t } = useTranslation();
   const theme = useViewTheme();
   const inputRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState('');
@@ -284,7 +286,7 @@ export const SearchOverlay = memo<SearchOverlayProps>(({ messages, scrollContain
               setQuery(e.target.value);
               setActiveIndex(0);
             }}
-            placeholder="Search messages..."
+            placeholder={t('chat.searchMessages')}
             className={cn(
               'w-40 sm:w-56 bg-transparent text-sm font-mono outline-none',
               'placeholder:opacity-40',
@@ -295,7 +297,9 @@ export const SearchOverlay = memo<SearchOverlayProps>(({ messages, scrollContain
           {/* Match count */}
           {query.trim() && (
             <span className={cn('text-xs font-mono whitespace-nowrap', theme.textMuted)}>
-              {totalMatches === 0 ? 'No matches' : `${activeIndex + 1} of ${totalMatches}`}
+              {totalMatches === 0
+                ? t('chat.noMatches')
+                : t('chat.matchCount', { current: activeIndex + 1, total: totalMatches })}
             </span>
           )}
 
@@ -310,7 +314,7 @@ export const SearchOverlay = memo<SearchOverlayProps>(({ messages, scrollContain
                 'disabled:opacity-30',
                 theme.isLight ? 'hover:bg-black/5' : 'hover:bg-white/10',
               )}
-              title="Previous match (Shift+Enter)"
+              title={t('chat.previousMatch')}
             >
               <ChevronUp size={14} />
             </button>
@@ -323,7 +327,7 @@ export const SearchOverlay = memo<SearchOverlayProps>(({ messages, scrollContain
                 'disabled:opacity-30',
                 theme.isLight ? 'hover:bg-black/5' : 'hover:bg-white/10',
               )}
-              title="Next match (Enter)"
+              title={t('chat.nextMatch')}
             >
               <ChevronDown size={14} />
             </button>
@@ -334,7 +338,7 @@ export const SearchOverlay = memo<SearchOverlayProps>(({ messages, scrollContain
             type="button"
             onClick={onClose}
             className={cn('p-1 rounded transition-colors', theme.isLight ? 'hover:bg-black/5' : 'hover:bg-white/10')}
-            title="Close (Escape)"
+            title={t('chat.closeSearch')}
           >
             <X size={14} />
           </button>

@@ -4,7 +4,7 @@
 CREATE TABLE IF NOT EXISTS gh_settings (
     id INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
     temperature DOUBLE PRECISION NOT NULL DEFAULT 1.0,
-    max_tokens INTEGER NOT NULL DEFAULT 8192,
+    max_tokens INTEGER NOT NULL DEFAULT 65536,
     default_model TEXT NOT NULL DEFAULT 'gemini-3-flash-preview',
     language TEXT NOT NULL DEFAULT 'en',
     theme TEXT NOT NULL DEFAULT 'dark',

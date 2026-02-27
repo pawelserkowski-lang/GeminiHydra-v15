@@ -15,6 +15,13 @@ import { MAX_RECONNECT_ATTEMPTS, useWebSocketChat } from '@/shared/hooks/useWebS
 import { useViewStore } from '@/stores/viewStore';
 import { type AgentActivity, EMPTY_ACTIVITY, type ToolActivity } from './AgentActivityPanel';
 
+// ============================================================================
+// CONSTANTS
+// ============================================================================
+
+/** Micro-batch interval for token updates (#43) — reduces store updates during streaming */
+const TOKEN_BATCH_INTERVAL_MS = 50;
+
 const LazyChatContainer = lazy(() => import('@/features/chat/components/ChatContainer'));
 
 export function ChatViewWrapper() {
@@ -32,6 +39,20 @@ export function ChatViewWrapper() {
   const titleTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   // Agent activity tracking for live panel
   const [agentActivity, setAgentActivity] = useState<AgentActivity>(EMPTY_ACTIVITY);
+
+  // Token micro-batching refs (#43) — accumulate tokens and flush every 50ms
+  const tokenBatchRef = useRef<string>('');
+  const tokenBatchSessionRef = useRef<string | null>(null);
+  const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const flushTokens = useCallback(() => {
+    if (tokenBatchRef.current && tokenBatchSessionRef.current) {
+      const batch = tokenBatchRef.current;
+      const sid = tokenBatchSessionRef.current;
+      tokenBatchRef.current = '';
+      updateLastMessageInSession(sid, batch);
+    }
+  }, [updateLastMessageInSession]);
 
   // Non-blocking background title generation with 2s delay (#8)
   const scheduleBackgroundTitleGeneration = useCallback(
@@ -52,13 +73,18 @@ export function ChatViewWrapper() {
     [generateTitleWithSync],
   );
 
-  // Cleanup title timers on unmount
+  // Cleanup title timers and flush timer on unmount
   useEffect(() => {
     return () => {
       for (const timer of titleTimersRef.current.values()) {
         clearTimeout(timer);
       }
       titleTimersRef.current.clear();
+      // Clean up token batch flush timer (#43)
+      if (flushTimerRef.current) {
+        clearTimeout(flushTimerRef.current);
+        flushTimerRef.current = null;
+      }
     };
   }, []);
 
@@ -85,7 +111,15 @@ export function ChatViewWrapper() {
       },
       onToken: (content, sessionId) => {
         if (!sessionId) return;
-        updateLastMessageInSession(sessionId, content);
+        // Micro-batch tokens: accumulate and flush every 50ms (#43)
+        tokenBatchRef.current += content;
+        tokenBatchSessionRef.current = sessionId;
+        if (!flushTimerRef.current) {
+          flushTimerRef.current = setTimeout(() => {
+            flushTokens();
+            flushTimerRef.current = null;
+          }, TOKEN_BATCH_INTERVAL_MS);
+        }
       },
       onPlan: (msg) => {
         setAgentActivity((prev) => ({
@@ -120,6 +154,12 @@ export function ChatViewWrapper() {
       },
       onComplete: (_msg, sessionId) => {
         if (!sessionId) return;
+        // Flush any remaining batched tokens immediately (#43)
+        if (flushTimerRef.current) {
+          clearTimeout(flushTimerRef.current);
+          flushTimerRef.current = null;
+        }
+        flushTokens();
         setAgentActivity((prev) => ({ ...prev, isActive: false }));
         // Background title generation after first exchange (#8) — delayed 2s, non-blocking
         if (needsTitleRef.current.has(sessionId)) {
@@ -129,6 +169,14 @@ export function ChatViewWrapper() {
       },
       onError: (message, sessionId) => {
         if (!sessionId) return;
+        // Flush any remaining batched tokens immediately (#43)
+        if (flushTimerRef.current) {
+          clearTimeout(flushTimerRef.current);
+          flushTimerRef.current = null;
+        }
+        flushTokens();
+        tokenBatchRef.current = '';
+        tokenBatchSessionRef.current = null;
         setAgentActivity((prev) => ({ ...prev, isActive: false }));
         needsTitleRef.current.delete(sessionId ?? '');
         addMessageToSession(sessionId, {
@@ -138,7 +186,7 @@ export function ChatViewWrapper() {
         });
       },
     }),
-    [addMessageToSession, updateLastMessageInSession, scheduleBackgroundTitleGeneration],
+    [addMessageToSession, flushTokens, scheduleBackgroundTitleGeneration],
   );
 
   const { status, streamingSessionId, connectionGaveUp, sendExecute, cancelStream, manualReconnect } =

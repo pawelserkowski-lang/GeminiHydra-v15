@@ -8,7 +8,8 @@
 
 import { CheckCircle2, ChevronDown, ChevronUp, Cog, Loader2, Target, Wrench, XCircle, Zap } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
-import { memo, useCallback, useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useViewTheme } from '@/shared/hooks/useViewTheme';
 import { cn } from '@/shared/utils/cn';
 
@@ -45,17 +46,46 @@ export const EMPTY_ACTIVITY: AgentActivity = {
 };
 
 // ============================================================================
+// CONFIDENCE HELPERS (#45)
+// ============================================================================
+
+function confidenceColor(confidence: number): string {
+  if (confidence >= 0.7) return 'text-emerald-400';
+  if (confidence >= 0.5) return 'text-amber-400';
+  return 'text-red-400';
+}
+
+function confidenceBgColor(confidence: number): string {
+  if (confidence >= 0.7) return 'bg-emerald-500/20';
+  if (confidence >= 0.5) return 'bg-amber-500/20';
+  return 'bg-red-500/20';
+}
+
+function confidenceLabel(confidence: number, t: (key: string) => string): string {
+  if (confidence >= 0.7) return t('chat.highConfidence');
+  if (confidence >= 0.5) return t('chat.mediumConfidence');
+  return t('chat.lowConfidence');
+}
+
+// ============================================================================
 // COMPONENT
 // ============================================================================
 
 export const AgentActivityPanel = memo<{ activity: AgentActivity }>(({ activity }) => {
+  const { t } = useTranslation();
   const theme = useViewTheme();
   const [expanded, setExpanded] = useState(true);
 
   const toggleExpanded = useCallback(() => setExpanded((p) => !p), []);
 
+  // Auto-collapse when streaming finishes
+  useEffect(() => {
+    if (!activity.isActive) setExpanded(false);
+  }, [activity.isActive]);
+
   const runningTools = useMemo(() => activity.tools.filter((t) => t.status === 'running'), [activity.tools]);
   const completedTools = useMemo(() => activity.tools.filter((t) => t.status !== 'running'), [activity.tools]);
+  const lastTool = activity.tools[activity.tools.length - 1] ?? null;
 
   // Memoized plan steps list (#5)
   const planStepsList = useMemo(
@@ -112,23 +142,42 @@ export const AgentActivityPanel = memo<{ activity: AgentActivity }>(({ activity 
           <Zap size={16} className={theme.accentText} />
         )}
 
-        {/* Agent + model */}
-        {activity.agent && <span className={cn('font-bold', theme.accentText)}>{activity.agent}</span>}
-        {activity.model && <span className={cn('opacity-50', theme.textMuted)}>· {activity.model}</span>}
+        {/* Agent + model (hidden when collapsed to save space) */}
+        {expanded && activity.agent && <span className={cn('font-bold', theme.accentText)}>{activity.agent}</span>}
+        {expanded && activity.model && <span className={cn('opacity-50', theme.textMuted)}>· {activity.model}</span>}
 
-        {/* Confidence badge */}
+        {/* Confidence badge with color coding (#45) */}
         {activity.confidence !== null && (
           <span
             className={cn(
               'px-2 py-0.5 rounded text-xs font-bold',
-              activity.confidence > 0.7
-                ? 'bg-emerald-500/20 text-emerald-400'
-                : activity.confidence > 0.4
-                  ? 'bg-amber-500/20 text-amber-400'
-                  : 'bg-red-500/20 text-red-400',
+              confidenceBgColor(activity.confidence),
+              confidenceColor(activity.confidence),
             )}
+            title={confidenceLabel(activity.confidence, t)}
           >
             {Math.round(activity.confidence * 100)}%
+          </span>
+        )}
+
+        {/* Collapsed: inline last tool preview */}
+        {!expanded && lastTool && (
+          <span className="flex items-center gap-1.5 truncate">
+            {lastTool.status === 'success' && <CheckCircle2 size={12} className="text-emerald-400 shrink-0" />}
+            {lastTool.status === 'error' && <XCircle size={12} className="text-red-400 shrink-0" />}
+            {lastTool.status === 'running' && <Loader2 size={12} className="animate-spin text-amber-400 shrink-0" />}
+            <span className={cn('font-bold', theme.accentText)}>{lastTool.name}</span>
+            {lastTool.completedAt && (
+              <span className={cn('text-xs', theme.textMuted)}>
+                {((lastTool.completedAt - lastTool.startedAt) / 1000).toFixed(1)}s
+              </span>
+            )}
+            {lastTool.summary && lastTool.status !== 'running' && (
+              <span className={cn('truncate text-xs', theme.textMuted)}>
+                {lastTool.summary.slice(0, 60)}
+                {lastTool.summary.length > 60 ? '…' : ''}
+              </span>
+            )}
           </span>
         )}
 
@@ -136,7 +185,7 @@ export const AgentActivityPanel = memo<{ activity: AgentActivity }>(({ activity 
         {runningTools.length > 0 && (
           <span className="ml-auto flex items-center gap-1.5 text-xs text-amber-400 font-bold">
             <Cog size={14} className="animate-spin" />
-            {runningTools.length} running
+            {t('chat.toolsRunning', { count: runningTools.length })}
           </span>
         )}
 
@@ -146,7 +195,7 @@ export const AgentActivityPanel = memo<{ activity: AgentActivity }>(({ activity 
             className={cn('flex items-center gap-1.5 text-xs', runningTools.length === 0 && 'ml-auto', theme.textMuted)}
           >
             <CheckCircle2 size={14} />
-            {completedTools.length} done
+            {t('chat.toolsDone', { count: completedTools.length })}
           </span>
         )}
 

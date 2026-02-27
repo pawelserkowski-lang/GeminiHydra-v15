@@ -15,6 +15,12 @@ pub struct SettingsRow {
     pub welcome_message: String,
     #[sqlx(default)]
     pub use_docker_sandbox: bool,
+    #[sqlx(default)]
+    pub top_p: f64,
+    #[sqlx(default)]
+    pub response_style: String,
+    #[sqlx(default)]
+    pub max_iterations: i32,
 }
 
 #[derive(sqlx::FromRow)]
@@ -66,6 +72,10 @@ pub struct WitcherAgent {
     pub system_prompt: Option<String>,
     #[serde(default)]
     pub keywords: Vec<String>,
+    /// #48 — Per-agent temperature override (NULL = use global setting)
+    #[serde(default)]
+    #[sqlx(default)]
+    pub temperature: Option<f64>,
 }
 
 // ---------------------------------------------------------------------------
@@ -172,21 +182,31 @@ pub struct AppSettings {
     pub theme: String,
     pub welcome_message: String,
     pub use_docker_sandbox: bool,
+    /// #46 — topP for Gemini generationConfig
+    pub top_p: f64,
+    /// #47 — Response style: 'concise', 'balanced', 'detailed', 'technical'
+    pub response_style: String,
+    /// #49 — Max tool call iterations per request
+    pub max_iterations: i32,
 }
 
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
             temperature: 1.0,
-            max_tokens: 16384,
+            max_tokens: 65536,
             default_model: "gemini-3.1-pro-preview".to_string(),
             language: "en".to_string(),
             theme: "dark".to_string(),
             welcome_message: String::new(),
             use_docker_sandbox: false,
+            top_p: 0.95,
+            response_style: "balanced".into(),
+            max_iterations: 10,
         }
     }
 }
+
 
 // ---------------------------------------------------------------------------
 // System Stats
@@ -384,6 +404,7 @@ pub enum WsServerMessage {
         agent: String,
         confidence: f64,
         steps: Vec<String>,
+        reasoning: String,
     },
     Complete {
         duration_ms: u64,
@@ -403,6 +424,10 @@ pub enum WsServerMessage {
         iteration: u32,
         tools_completed: u32,
         tools_total: u32,
+    },
+    Iteration {
+        number: u32,
+        max: u32,
     },
     AgentSuggestion {
         agent: String,

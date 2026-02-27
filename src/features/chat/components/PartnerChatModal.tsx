@@ -7,6 +7,7 @@ import { Bot, Loader2, User, X } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { useCallback, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
+import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/contexts/ThemeContext';
 import { usePartnerSession } from '@/features/chat/hooks/usePartnerSessions';
 import { useFocusTrap } from '@/shared/hooks/useFocusTrap';
@@ -18,6 +19,7 @@ interface Props {
 }
 
 export default function PartnerChatModal({ sessionId, onClose }: Props) {
+  const { t } = useTranslation();
   const { resolvedTheme } = useTheme();
   const isLight = resolvedTheme === 'light';
   const { data: session, isLoading, error } = usePartnerSession(sessionId);
@@ -87,17 +89,17 @@ export default function PartnerChatModal({ sessionId, onClose }: Props) {
                     id="partner-chat-modal-title"
                     className={cn('text-sm font-semibold', isLight ? 'text-slate-900' : 'text-white')}
                   >
-                    {session?.title ?? 'Loading...'}
+                    {session?.title ?? t('common.loading')}
                   </h2>
                   <p className={cn('text-xs', isLight ? 'text-slate-500' : 'text-white/50')}>
-                    ClaudeHydra Session {session ? `(${session.messages.length} messages)` : ''}
+                    {session ? t('chat.partnerSession', { count: session.messages.length }) : ''}
                   </p>
                 </div>
               </div>
               <button
                 type="button"
                 onClick={onClose}
-                aria-label="Close modal"
+                aria-label={t('common.closeModal')}
                 className={cn('p-2 rounded-lg transition-colors', isLight ? 'hover:bg-slate-200' : 'hover:bg-white/10')}
               >
                 <X size={18} className={isLight ? 'text-slate-600' : 'text-white/60'} />
@@ -113,7 +115,7 @@ export default function PartnerChatModal({ sessionId, onClose }: Props) {
               )}
               {error && (
                 <div className={cn('text-center py-8 text-sm', isLight ? 'text-red-600' : 'text-red-400')}>
-                  Failed to load session
+                  {t('chat.failedLoadSession')}
                 </div>
               )}
               {session?.messages.map((msg) => (
@@ -170,7 +172,7 @@ export default function PartnerChatModal({ sessionId, onClose }: Props) {
               )}
             >
               <span className={cn('text-xs', isLight ? 'text-slate-400' : 'text-white/30')}>
-                Read-only view from ClaudeHydra
+                {t('chat.readOnlyView')}
               </span>
             </div>
           </motion.div>

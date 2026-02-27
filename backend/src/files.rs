@@ -38,13 +38,31 @@ const TEXT_EXTENSIONS: &[&str] = &[
     "rs", "ts", "tsx", "js", "jsx", "py", "go", "java", "kt", "c", "cpp",
     "h", "hpp", "cs", "rb", "php", "swift", "scala", "zig", "lua", "r",
     "sql", "sh", "bash", "zsh", "ps1", "bat", "cmd",
+    // Code — additional module formats
+    "mjs", "cjs", "mts", "cts",
     // Config / Data
     "json", "yaml", "yml", "toml", "xml", "csv", "env", "ini", "cfg",
     "properties", "lock",
+    // Schema / IaC
+    "graphql", "gql", "proto", "prisma", "gradle", "tf", "hcl",
+    "dockerfile", "makefile", "cmake",
     // Web
     "html", "htm", "css", "scss", "sass", "less", "svg",
+    // Web — frameworks
+    "svelte", "vue", "astro",
+    // Templating
+    "njk", "ejs", "hbs", "pug",
     // Docs
     "md", "txt", "rst", "log", "gitignore", "dockerignore", "editorconfig",
+];
+
+/// Extension-less filenames recognized as text files.
+const TEXT_FILENAMES: &[&str] = &[
+    "Dockerfile", "Makefile", "Makefile.am", "Rakefile", "Gemfile",
+    "Procfile", "Vagrantfile", "Justfile", "Taskfile",
+    ".gitignore", ".dockerignore", ".editorconfig", ".eslintrc",
+    ".prettierrc", ".babelrc", ".npmrc", ".nvmrc", ".env.example",
+    ".env.local", ".env.production", ".env.development",
 ];
 
 // ---------------------------------------------------------------------------
@@ -151,6 +169,22 @@ pub fn extract_file_paths(prompt: &str) -> Vec<String> {
 
 pub fn is_text_extension(ext: &str) -> bool {
     TEXT_EXTENSIONS.contains(&ext.to_lowercase().as_str())
+}
+
+/// Check if a file path points to a text file — by extension OR by filename.
+/// Prefer this over `is_text_extension` when a full path is available.
+pub fn is_text_file(path: &Path) -> bool {
+    // Check extension first (fast path)
+    if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+        if is_text_extension(ext) {
+            return true;
+        }
+    }
+    // Check filename against known text filenames (handles extension-less files)
+    if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+        return TEXT_FILENAMES.contains(&name);
+    }
+    false
 }
 
 /// Backup / swap file extensions that should never be read or written.
@@ -294,17 +328,17 @@ pub async fn read_file_for_context(path: &str) -> Result<FileContext, FileError>
     // Canonicalize path BEFORE any checks to prevent traversal attacks
     let canonical = validate_and_canonicalize(path, BLOCKED_READ_PREFIXES)?;
 
-    // Check extension whitelist on canonical path
+    // Check text-file whitelist on canonical path (extension + filename)
     let ext = canonical
         .extension()
         .and_then(|e| e.to_str())
         .unwrap_or("")
         .to_lowercase();
 
-    if !is_text_extension(&ext) {
+    if !is_text_file(&canonical) {
         return Err(FileError {
             path: path.to_string(),
-            reason: format!("Extension '.{}' is not in the text-file whitelist", ext),
+            reason: format!("'{}' is not recognized as a text file", canonical.display()),
         });
     }
 
@@ -327,10 +361,10 @@ pub async fn read_file_for_context(path: &str) -> Result<FileContext, FileError>
         reason: format!("Cannot open file: {}", e),
     })?;
 
-    // Read up to MAX_FILE_SIZE + 1 to detect truncation
-    let limit = MAX_FILE_SIZE as usize;
-    let mut buffer = Vec::with_capacity(limit + 1);
-    file.take((limit + 1) as u64)
+    // Read full file (up to a generous limit for smart truncation)
+    let read_limit = (MAX_FILE_SIZE * 2) as usize; // read more so we can grab the tail
+    let mut buffer = Vec::with_capacity(read_limit.min(file_size as usize) + 1);
+    file.take(read_limit as u64)
         .read_to_end(&mut buffer)
         .await
         .map_err(|e| FileError {
@@ -338,26 +372,62 @@ pub async fn read_file_for_context(path: &str) -> Result<FileContext, FileError>
             reason: format!("Cannot read file: {}", e),
         })?;
 
-    let truncated = buffer.len() > limit;
-    
+    let limit = MAX_FILE_SIZE as usize;
+    let truncated = file_size > MAX_FILE_SIZE;
+
     // Convert to string (lossy to avoid UTF-8 errors on cut boundaries)
     let raw = String::from_utf8_lossy(&buffer).to_string();
-    
+
     let content = if truncated {
-        // Find safe char boundary for truncation
-        let end = raw
+        // Smart truncation: keep first 30% + last 10% + middle marker
+        let head_budget = (limit as f64 * 0.30) as usize;
+        let tail_budget = (limit as f64 * 0.10) as usize;
+
+        // Find safe char boundary for head
+        let head_end = raw
             .char_indices()
-            .take_while(|(i, _)| *i < limit)
+            .take_while(|(i, _)| *i < head_budget)
             .last()
             .map(|(i, c)| i + c.len_utf8())
-            .unwrap_or(limit.min(raw.len()));
-            
-        format!(
-            "{}\n\n... [TRUNCATED — file is {} bytes, showing first {} bytes]",
-            &raw[..end],
-            file_size,
-            end
-        )
+            .unwrap_or(head_budget.min(raw.len()));
+
+        // Find safe char boundary for tail (from the end of raw)
+        let tail_start = if raw.len() > tail_budget {
+            raw.char_indices()
+                .rev()
+                .take_while(|(i, _)| raw.len() - *i <= tail_budget)
+                .last()
+                .map(|(i, _)| i)
+                .unwrap_or(raw.len())
+        } else {
+            0
+        };
+
+        let middle_size = if tail_start > head_end {
+            tail_start - head_end
+        } else {
+            0
+        };
+
+        if middle_size > 0 && tail_start < raw.len() {
+            format!(
+                "{}\n\n[... first {}KB of {}KB shown above ...]\n[... {}KB of middle content truncated — use read_file_section for specific lines ...]\n[... last {}KB shown below ...]\n\n{}",
+                &raw[..head_end],
+                head_end / 1024,
+                file_size / 1024,
+                middle_size / 1024,
+                (raw.len() - tail_start) / 1024,
+                &raw[tail_start..]
+            )
+        } else {
+            // File too small for smart split — just truncate
+            format!(
+                "{}\n\n... [TRUNCATED — file is {} bytes, showing first {} bytes]",
+                &raw[..head_end],
+                file_size,
+                head_end
+            )
+        }
     } else {
         raw
     };
@@ -381,17 +451,19 @@ pub async fn read_file_raw(path: &str) -> Result<FileContext, FileError> {
 // ---------------------------------------------------------------------------
 
 /// Key project files to auto-read when a directory path is detected.
+/// Ordered by priority — config files first (most valuable for understanding a project),
+/// then build configs, then docs. Matches the sorting in prepare_execution() (#25).
 const KEY_PROJECT_FILES: &[&str] = &[
-    "package.json",
     "Cargo.toml",
-    "README.md",
-    "CLAUDE.md",
-    "pyproject.toml",
-    "go.mod",
+    "package.json",
     "tsconfig.json",
+    "go.mod",
+    "pyproject.toml",
     "vite.config.ts",
     "docker-compose.yml",
     "Makefile",
+    "CLAUDE.md",
+    "README.md",
 ];
 
 /// Build a directory context: listing + auto-read key project files.

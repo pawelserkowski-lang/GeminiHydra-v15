@@ -125,6 +125,15 @@ pub struct PartialSettings {
     pub welcome_message: Option<String>,
     #[serde(default)]
     pub use_docker_sandbox: Option<bool>,
+    /// #46 — topP for Gemini generationConfig
+    #[serde(default)]
+    pub top_p: Option<f64>,
+    /// #47 — Response style: 'concise', 'balanced', 'detailed', 'technical'
+    #[serde(default)]
+    pub response_style: Option<String>,
+    /// #49 — Max tool call iterations per request
+    #[serde(default)]
+    pub max_iterations: Option<i32>,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -158,6 +167,9 @@ fn row_to_settings(row: SettingsRow) -> AppSettings {
         theme: row.theme,
         welcome_message: row.welcome_message,
         use_docker_sandbox: row.use_docker_sandbox,
+        top_p: if row.top_p == 0.0 { 0.95 } else { row.top_p },
+        response_style: if row.response_style.is_empty() { "balanced".to_string() } else { row.response_style },
+        max_iterations: if row.max_iterations == 0 { 10 } else { row.max_iterations },
     }
 }
 
@@ -817,7 +829,7 @@ pub async fn generate_session_title(
 
     let body = json!({
         "contents": [{ "parts": [{ "text": prompt }] }],
-        "generationConfig": { "temperature": 0.7, "maxOutputTokens": 64 }
+        "generationConfig": { "temperature": 1.0, "maxOutputTokens": 256 }
     });
 
     let res = state
@@ -884,7 +896,8 @@ pub async fn get_settings(
     State(state): State<AppState>,
 ) -> Result<Json<AppSettings>, StatusCode> {
     let row = sqlx::query_as::<_, SettingsRow>(
-        "SELECT temperature, max_tokens, default_model, language, theme, welcome_message, use_docker_sandbox \
+        "SELECT temperature, max_tokens, default_model, language, theme, welcome_message, \
+         use_docker_sandbox, top_p, response_style, max_iterations \
          FROM gh_settings WHERE id = 1",
     )
     .fetch_one(&state.db)
@@ -906,12 +919,14 @@ pub async fn update_settings(
     // Limit string field sizes to prevent uncontrolled memory allocation
     if patch.welcome_message.as_ref().is_some_and(|s| s.len() > 10_000)
         || patch.default_model.as_ref().is_some_and(|s| s.len() > 200)
+        || patch.response_style.as_ref().is_some_and(|s| !["concise", "balanced", "detailed", "technical"].contains(&s.as_str()))
     {
         return Err(StatusCode::PAYLOAD_TOO_LARGE);
     }
 
     let current = sqlx::query_as::<_, SettingsRow>(
-        "SELECT temperature, max_tokens, default_model, language, theme, welcome_message, use_docker_sandbox \
+        "SELECT temperature, max_tokens, default_model, language, theme, welcome_message, \
+         use_docker_sandbox, top_p, response_style, max_iterations \
          FROM gh_settings WHERE id = 1",
     )
     .fetch_one(&state.db)
@@ -925,11 +940,16 @@ pub async fn update_settings(
     let theme = patch.theme.unwrap_or(current.theme);
     let welcome_message = patch.welcome_message.unwrap_or(current.welcome_message);
     let use_docker_sandbox = patch.use_docker_sandbox.unwrap_or(current.use_docker_sandbox);
+    let top_p = patch.top_p.unwrap_or(current.top_p);
+    let response_style = patch.response_style.unwrap_or(current.response_style);
+    let max_iterations = patch.max_iterations.unwrap_or(current.max_iterations);
 
     let row = sqlx::query_as::<_, SettingsRow>(
         "UPDATE gh_settings SET temperature=$1, max_tokens=$2, default_model=$3, \
-         language=$4, theme=$5, welcome_message=$6, use_docker_sandbox=$7, updated_at=NOW() WHERE id=1 \
-         RETURNING temperature, max_tokens, default_model, language, theme, welcome_message, use_docker_sandbox",
+         language=$4, theme=$5, welcome_message=$6, use_docker_sandbox=$7, \
+         top_p=$8, response_style=$9, max_iterations=$10, updated_at=NOW() WHERE id=1 \
+         RETURNING temperature, max_tokens, default_model, language, theme, welcome_message, \
+         use_docker_sandbox, top_p, response_style, max_iterations",
     )
     .bind(temperature)
     .bind(max_tokens)
@@ -938,6 +958,9 @@ pub async fn update_settings(
     .bind(&theme)
     .bind(&welcome_message)
     .bind(use_docker_sandbox)
+    .bind(top_p)
+    .bind(&response_style)
+    .bind(max_iterations)
     .fetch_one(&state.db)
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
@@ -951,6 +974,9 @@ pub async fn update_settings(
             "default_model": default_model,
             "language": language,
             "theme": theme,
+            "top_p": top_p,
+            "response_style": response_style,
+            "max_iterations": max_iterations,
         }),
         Some(&addr.ip().to_string()),
     )
@@ -969,10 +995,13 @@ pub async fn reset_settings(
     let best_model = crate::model_registry::get_model_id(&state, "chat").await;
 
     let row = sqlx::query_as::<_, SettingsRow>(
-        "UPDATE gh_settings SET temperature=1.0, max_tokens=8192, \
+        "UPDATE gh_settings SET temperature=1.0, max_tokens=65536, \
          default_model=$1, language='en', theme='dark', \
-         welcome_message='', use_docker_sandbox=FALSE, updated_at=NOW() WHERE id=1 \
-         RETURNING temperature, max_tokens, default_model, language, theme, welcome_message, use_docker_sandbox",
+         welcome_message='', use_docker_sandbox=FALSE, \
+         top_p=0.95, response_style='balanced', max_iterations=10, \
+         updated_at=NOW() WHERE id=1 \
+         RETURNING temperature, max_tokens, default_model, language, theme, welcome_message, \
+         use_docker_sandbox, top_p, response_style, max_iterations",
     )
     .bind(&best_model)
     .fetch_one(&state.db)
@@ -1319,6 +1348,9 @@ mod tests {
             theme: "light".to_string(),
             welcome_message: "Witaj!".to_string(),
             use_docker_sandbox: true,
+            top_p: 0.9,
+            response_style: "detailed".to_string(),
+            max_iterations: 15,
         };
         let settings = row_to_settings(row);
         assert!((settings.temperature - 0.7).abs() < f64::EPSILON);
@@ -1328,6 +1360,9 @@ mod tests {
         assert_eq!(settings.theme, "light");
         assert_eq!(settings.welcome_message, "Witaj!");
         assert!(settings.use_docker_sandbox);
+        assert!((settings.top_p - 0.9).abs() < f64::EPSILON);
+        assert_eq!(settings.response_style, "detailed");
+        assert_eq!(settings.max_iterations, 15);
     }
 
     // ── row_to_memory ───────────────────────────────────────────────────
@@ -1411,15 +1446,20 @@ mod tests {
         assert!(patch.theme.is_none());
         assert!(patch.welcome_message.is_none());
         assert!(patch.use_docker_sandbox.is_none());
+        assert!(patch.top_p.is_none());
+        assert!(patch.response_style.is_none());
+        assert!(patch.max_iterations.is_none());
     }
 
     #[test]
     fn partial_settings_picks_up_subset() {
-        let json = r#"{"temperature":0.5,"theme":"light"}"#;
+        let json = r#"{"temperature":0.5,"theme":"light","top_p":0.8,"response_style":"concise"}"#;
         let patch: PartialSettings = serde_json::from_str(json).unwrap();
         assert!((patch.temperature.unwrap() - 0.5).abs() < f64::EPSILON);
         assert_eq!(patch.theme, Some("light".to_string()));
         assert!(patch.max_tokens.is_none());
+        assert!((patch.top_p.unwrap() - 0.8).abs() < f64::EPSILON);
+        assert_eq!(patch.response_style, Some("concise".to_string()));
     }
 
     #[test]

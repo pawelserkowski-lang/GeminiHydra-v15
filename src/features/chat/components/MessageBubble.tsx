@@ -35,6 +35,44 @@ import { type Message, useCurrentSessionId } from '@/stores/viewStore';
 import { MessageRating } from './MessageRating';
 
 // ---------------------------------------------------------------------------
+// Helper: split content into text and tool-output segments (#41)
+// ---------------------------------------------------------------------------
+
+interface ContentSegment {
+  type: 'text' | 'tool';
+  name?: string;
+  content: string;
+}
+
+function splitToolOutput(content: string): ContentSegment[] {
+  const toolPattern = /\n---\n\*\*🔧 Tool:\*\* `([^`]+)`\n```\n([\s\S]*?)\n```\n---\n/g;
+  const segments: ContentSegment[] = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  // biome-ignore lint/suspicious/noAssignInExpressions: standard regex exec loop pattern
+  while ((match = toolPattern.exec(content)) !== null) {
+    if (match.index > lastIndex) {
+      segments.push({ type: 'text', content: content.slice(lastIndex, match.index) });
+    }
+    segments.push({ type: 'tool', name: match[1] ?? '', content: match[2] ?? '' });
+    lastIndex = match.index + match[0].length;
+  }
+  if (lastIndex < content.length) {
+    segments.push({ type: 'text', content: content.slice(lastIndex) });
+  }
+  return segments;
+}
+
+// ---------------------------------------------------------------------------
+// Helper: strip parallel execution header (now handled by ToolProgress) (#41)
+// ---------------------------------------------------------------------------
+
+function stripParallelHeader(content: string): string {
+  return content.replace(/⚡ Parallel execution: \d+ tools\n?/g, '');
+}
+
+// ---------------------------------------------------------------------------
 // Helper: extract plain text from React children (handles rehype-highlight spans)
 // ---------------------------------------------------------------------------
 
@@ -248,42 +286,121 @@ export const MessageBubble = memo<MessageBubbleProps>(({ message, isLast, isStre
           </div>
         )}
 
-        {/* Markdown content */}
+        {/* Markdown content with tool output separation (#41) */}
         <div className="markdown-body prose prose-sm max-w-none break-words">
-          <ReactMarkdown
-            remarkPlugins={[remarkGfm]}
-            rehypePlugins={[[rehypeHighlight, { languages: chatLanguages }]]}
-            components={{
-              code({
-                className,
-                children,
-                node,
-              }: {
-                className?: string | undefined;
-                children?: ReactNode | undefined;
-                node?: { position?: { start: { line: number }; end: { line: number } } } | undefined;
-              }) {
-                const match = /language-(\w+)/.exec(className ?? '');
-                const isInline = !node?.position || (node.position.start.line === node.position.end.line && !match);
-                const codeContent = extractText(children).replace(/\n$/, '');
-
-                if (isInline) {
-                  return <code className={cn(className, 'bg-black/20 px-1.5 py-0.5 rounded text-sm')}>{children}</code>;
-                }
-
-                return <CodeBlock {...(match?.[1] != null && { language: match[1] })} code={codeContent} />;
-              },
-              pre({ children }: { children?: ReactNode | undefined }) {
-                return <>{children}</>;
-              },
-              img(imgProps: ImgHTMLAttributes<HTMLImageElement>) {
-                return <LazyImage {...imgProps} />;
-              },
-            }}
-          >
-            {message.content}
-          </ReactMarkdown>
+          {(() => {
+            const cleaned = stripParallelHeader(message.content);
+            const segments = splitToolOutput(cleaned);
+            // If no tool segments found, render as single markdown block
+            if (segments.length <= 1 && segments[0]?.type !== 'tool') {
+              return (
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  rehypePlugins={[[rehypeHighlight, { languages: chatLanguages }]]}
+                  components={{
+                    code({
+                      className,
+                      children,
+                      node,
+                    }: {
+                      className?: string | undefined;
+                      children?: ReactNode | undefined;
+                      node?: { position?: { start: { line: number }; end: { line: number } } } | undefined;
+                    }) {
+                      const match = /language-(\w+)/.exec(className ?? '');
+                      const isInline =
+                        !node?.position || (node.position.start.line === node.position.end.line && !match);
+                      const codeContent = extractText(children).replace(/\n$/, '');
+                      if (isInline) {
+                        return (
+                          <code className={cn(className, 'bg-black/20 px-1.5 py-0.5 rounded text-sm')}>{children}</code>
+                        );
+                      }
+                      return <CodeBlock {...(match?.[1] != null && { language: match[1] })} code={codeContent} />;
+                    },
+                    pre({ children }: { children?: ReactNode | undefined }) {
+                      return <>{children}</>;
+                    },
+                    img(imgProps: ImgHTMLAttributes<HTMLImageElement>) {
+                      return <LazyImage {...imgProps} />;
+                    },
+                  }}
+                >
+                  {cleaned}
+                </ReactMarkdown>
+              );
+            }
+            // Render mixed text + tool segments
+            return segments.map((segment) => {
+              const segKey = `${segment.type}-${segment.type === 'tool' ? segment.name : segment.content.slice(0, 32)}`;
+              if (segment.type === 'tool') {
+                return (
+                  <details key={segKey} className="my-2 rounded-lg border border-white/10 bg-black/20">
+                    <summary className="cursor-pointer px-3 py-2 text-xs text-white/60 hover:text-white/80 flex items-center gap-2">
+                      <Terminal className="w-3.5 h-3.5" />
+                      <span>{t('chat.toolLabel', { name: segment.name })}</span>
+                      <span className="ml-auto text-[10px]">
+                        {t('chat.linesCount', { count: segment.content.split('\n').length })}
+                      </span>
+                    </summary>
+                    <pre className="overflow-x-auto px-3 py-2 text-xs text-white/70 border-t border-white/5 max-h-60 overflow-y-auto">
+                      <code>{segment.content}</code>
+                    </pre>
+                  </details>
+                );
+              }
+              return (
+                <ReactMarkdown
+                  key={segKey}
+                  remarkPlugins={[remarkGfm]}
+                  rehypePlugins={[[rehypeHighlight, { languages: chatLanguages }]]}
+                  components={{
+                    code({
+                      className,
+                      children,
+                      node,
+                    }: {
+                      className?: string | undefined;
+                      children?: ReactNode | undefined;
+                      node?: { position?: { start: { line: number }; end: { line: number } } } | undefined;
+                    }) {
+                      const match = /language-(\w+)/.exec(className ?? '');
+                      const isInline =
+                        !node?.position || (node.position.start.line === node.position.end.line && !match);
+                      const codeContent = extractText(children).replace(/\n$/, '');
+                      if (isInline) {
+                        return (
+                          <code className={cn(className, 'bg-black/20 px-1.5 py-0.5 rounded text-sm')}>{children}</code>
+                        );
+                      }
+                      return <CodeBlock {...(match?.[1] != null && { language: match[1] })} code={codeContent} />;
+                    },
+                    pre({ children }: { children?: ReactNode | undefined }) {
+                      return <>{children}</>;
+                    },
+                    img(imgProps: ImgHTMLAttributes<HTMLImageElement>) {
+                      return <LazyImage {...imgProps} />;
+                    },
+                  }}
+                >
+                  {segment.content}
+                </ReactMarkdown>
+              );
+            });
+          })()}
         </div>
+
+        {/* Response metadata badge (#42) */}
+        {message.role === 'assistant' && !isStreaming && (
+          <div className="mt-2 flex items-center gap-3 text-[10px] text-white/30">
+            {message.content && (
+              <span>
+                {(message.content.length / 1000).toFixed(1)}K {t('chat.charsCount')}
+              </span>
+            )}
+            {message.model && <span>{message.model}</span>}
+          </div>
+        )}
 
         {/* Timestamp */}
         {message.timestamp > 0 && (

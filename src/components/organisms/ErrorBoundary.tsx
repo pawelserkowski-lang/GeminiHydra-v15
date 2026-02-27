@@ -13,6 +13,7 @@
 import { AlertTriangle, RotateCcw } from 'lucide-react';
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { Button, Card } from '@/components/atoms';
+import i18n from '@/i18n';
 
 // ============================================================================
 // TYPES
@@ -92,10 +93,10 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
               </div>
 
               <div>
-                <h2 className="text-lg font-bold font-mono text-[var(--matrix-text-primary)]">Something went wrong</h2>
-                <p className="text-sm text-[var(--matrix-text-dim)] mt-1">
-                  An unexpected error occurred. You can try again or refresh the page.
-                </p>
+                <h2 className="text-lg font-bold font-mono text-[var(--matrix-text-primary)]">
+                  {i18n.t('common.somethingWentWrong')}
+                </h2>
+                <p className="text-sm text-[var(--matrix-text-dim)] mt-1">{i18n.t('common.unexpectedError')}</p>
               </div>
 
               {this.state.error && (
@@ -105,7 +106,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
               )}
 
               <Button variant="primary" size="md" leftIcon={<RotateCcw size={16} />} onClick={this.handleRetry}>
-                Try Again
+                {i18n.t('common.tryAgain')}
               </Button>
             </div>
           </Card>
