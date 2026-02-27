@@ -70,7 +70,6 @@ const DelegationChain = memo<{ chain: DelegationEvent[] }>(({ chain }) => {
 
   return (
     <div className="space-y-1">
-      {/* biome-ignore lint/suspicious/noArrayIndexKey: delegation events are append-only and have no stable ID */}
       {chain.map((d, i) => (
         <motion.div
           key={`del-${d.fromAgent}-${d.toAgent}-${i}`}
