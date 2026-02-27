@@ -13,8 +13,8 @@ use utoipa::ToSchema;
 
 use crate::models::{
     AppSettings, ChatMessage, ChatMessageRow, CreateSessionRequest, KnowledgeEdgeRow,
-    KnowledgeNodeRow, MemoryRow, Session, SessionRow, SessionSummary, SessionSummaryRow,
-    SettingsRow, UpdateSessionRequest,
+    KnowledgeNodeRow, MemoryRow, RatingRequest, RatingResponse, Session, SessionRow,
+    SessionSummary, SessionSummaryRow, SettingsRow, UnlockAgentResponse, UpdateSessionRequest,
 };
 use crate::state::AppState;
 
@@ -124,8 +124,6 @@ pub struct PartialSettings {
     #[serde(default)]
     pub welcome_message: Option<String>,
     #[serde(default)]
-    pub ollama_url: Option<String>,
-    #[serde(default)]
     pub use_docker_sandbox: Option<bool>,
 }
 
@@ -159,7 +157,6 @@ fn row_to_settings(row: SettingsRow) -> AppSettings {
         language: row.language,
         theme: row.theme,
         welcome_message: row.welcome_message,
-        ollama_url: row.ollama_url.unwrap_or_else(|| "http://localhost:11434".to_string()),
         use_docker_sandbox: row.use_docker_sandbox,
     }
 }
@@ -224,6 +221,11 @@ pub fn session_routes() -> Router<AppState> {
             "/api/sessions/{id}/generate-title",
             post(generate_session_title),
         )
+        .route(
+            "/api/sessions/{id}/unlock",
+            post(unlock_session_agent),
+        )
+        .route("/api/ratings", post(rate_message))
 }
 
 // ============================================================================
@@ -882,7 +884,7 @@ pub async fn get_settings(
     State(state): State<AppState>,
 ) -> Result<Json<AppSettings>, StatusCode> {
     let row = sqlx::query_as::<_, SettingsRow>(
-        "SELECT temperature, max_tokens, default_model, language, theme, welcome_message, ollama_url, use_docker_sandbox \
+        "SELECT temperature, max_tokens, default_model, language, theme, welcome_message, use_docker_sandbox \
          FROM gh_settings WHERE id = 1",
     )
     .fetch_one(&state.db)
@@ -904,13 +906,12 @@ pub async fn update_settings(
     // Limit string field sizes to prevent uncontrolled memory allocation
     if patch.welcome_message.as_ref().is_some_and(|s| s.len() > 10_000)
         || patch.default_model.as_ref().is_some_and(|s| s.len() > 200)
-        || patch.ollama_url.as_ref().is_some_and(|s| s.len() > 500)
     {
         return Err(StatusCode::PAYLOAD_TOO_LARGE);
     }
 
     let current = sqlx::query_as::<_, SettingsRow>(
-        "SELECT temperature, max_tokens, default_model, language, theme, welcome_message, ollama_url, use_docker_sandbox \
+        "SELECT temperature, max_tokens, default_model, language, theme, welcome_message, use_docker_sandbox \
          FROM gh_settings WHERE id = 1",
     )
     .fetch_one(&state.db)
@@ -923,13 +924,12 @@ pub async fn update_settings(
     let language = patch.language.unwrap_or(current.language);
     let theme = patch.theme.unwrap_or(current.theme);
     let welcome_message = patch.welcome_message.unwrap_or(current.welcome_message);
-    let ollama_url = patch.ollama_url.or(current.ollama_url).unwrap_or_else(|| "http://localhost:11434".to_string());
     let use_docker_sandbox = patch.use_docker_sandbox.unwrap_or(current.use_docker_sandbox);
 
     let row = sqlx::query_as::<_, SettingsRow>(
         "UPDATE gh_settings SET temperature=$1, max_tokens=$2, default_model=$3, \
-         language=$4, theme=$5, welcome_message=$6, ollama_url=$7, use_docker_sandbox=$8, updated_at=NOW() WHERE id=1 \
-         RETURNING temperature, max_tokens, default_model, language, theme, welcome_message, ollama_url, use_docker_sandbox",
+         language=$4, theme=$5, welcome_message=$6, use_docker_sandbox=$7, updated_at=NOW() WHERE id=1 \
+         RETURNING temperature, max_tokens, default_model, language, theme, welcome_message, use_docker_sandbox",
     )
     .bind(temperature)
     .bind(max_tokens)
@@ -937,7 +937,6 @@ pub async fn update_settings(
     .bind(&language)
     .bind(&theme)
     .bind(&welcome_message)
-    .bind(&ollama_url)
     .bind(use_docker_sandbox)
     .fetch_one(&state.db)
     .await
@@ -972,8 +971,8 @@ pub async fn reset_settings(
     let row = sqlx::query_as::<_, SettingsRow>(
         "UPDATE gh_settings SET temperature=1.0, max_tokens=8192, \
          default_model=$1, language='en', theme='dark', \
-         welcome_message='', ollama_url='http://localhost:11434', use_docker_sandbox=FALSE, updated_at=NOW() WHERE id=1 \
-         RETURNING temperature, max_tokens, default_model, language, theme, welcome_message, ollama_url, use_docker_sandbox",
+         welcome_message='', use_docker_sandbox=FALSE, updated_at=NOW() WHERE id=1 \
+         RETURNING temperature, max_tokens, default_model, language, theme, welcome_message, use_docker_sandbox",
     )
     .bind(&best_model)
     .fetch_one(&state.db)
@@ -1161,6 +1160,105 @@ pub async fn add_graph_edge(
 }
 
 // ============================================================================
+// Agent unlock & message rating
+// ============================================================================
+
+/// Unlock a session's locked agent so the next message gets reclassified.
+pub async fn unlock_session_agent(
+    State(state): State<AppState>,
+    axum::extract::Path(session_id): axum::extract::Path<String>,
+) -> Result<Json<Value>, (axum::http::StatusCode, Json<Value>)> {
+    let sid: uuid::Uuid = session_id.parse().map_err(|_| (
+        axum::http::StatusCode::BAD_REQUEST,
+        Json(serde_json::json!({"error": "Invalid session ID"})),
+    ))?;
+
+    let prev = sqlx::query_as::<_, (Option<String>,)>(
+        "SELECT agent_id FROM gh_sessions WHERE id = $1"
+    )
+    .bind(sid)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|e| (
+        axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+        Json(serde_json::json!({"error": format!("DB error: {}", e)})),
+    ))?
+    .and_then(|(a,)| a);
+
+    sqlx::query("UPDATE gh_sessions SET agent_id = NULL WHERE id = $1")
+        .bind(sid)
+        .execute(&state.db)
+        .await
+        .map_err(|e| (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"error": format!("DB error: {}", e)})),
+        ))?;
+
+    Ok(Json(serde_json::json!(UnlockAgentResponse {
+        session_id: session_id,
+        previous_agent: prev,
+        unlocked: true,
+    })))
+}
+
+/// Rate an AI message for quality feedback.
+pub async fn rate_message(
+    State(state): State<AppState>,
+    Json(body): Json<RatingRequest>,
+) -> Result<Json<Value>, (axum::http::StatusCode, Json<Value>)> {
+    if body.rating < 1 || body.rating > 5 {
+        return Err((
+            axum::http::StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "Rating must be between 1 and 5"})),
+        ));
+    }
+
+    let mid: uuid::Uuid = body.message_id.parse().map_err(|_| (
+        axum::http::StatusCode::BAD_REQUEST,
+        Json(serde_json::json!({"error": "Invalid message ID"})),
+    ))?;
+    let sid: uuid::Uuid = body.session_id.parse().map_err(|_| (
+        axum::http::StatusCode::BAD_REQUEST,
+        Json(serde_json::json!({"error": "Invalid session ID"})),
+    ))?;
+
+    // Get agent/model from the message
+    let msg_info = sqlx::query_as::<_, (Option<String>, Option<String>)>(
+        "SELECT agent, model FROM gh_chat_messages WHERE id = $1"
+    )
+    .bind(mid)
+    .fetch_optional(&state.db)
+    .await
+    .map_err(|e| (
+        axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+        Json(serde_json::json!({"error": format!("DB error: {}", e)})),
+    ))?;
+
+    let (agent_id, model) = msg_info.unwrap_or((None, None));
+
+    sqlx::query(
+        "INSERT INTO gh_ratings (message_id, session_id, rating, feedback, agent_id, model) VALUES ($1, $2, $3, $4, $5, $6)"
+    )
+    .bind(mid)
+    .bind(sid)
+    .bind(body.rating)
+    .bind(&body.feedback)
+    .bind(&agent_id)
+    .bind(&model)
+    .execute(&state.db)
+    .await
+    .map_err(|e| (
+        axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+        Json(serde_json::json!({"error": format!("DB error: {}", e)})),
+    ))?;
+
+    Ok(Json(serde_json::json!(RatingResponse {
+        success: true,
+        message_id: body.message_id,
+    })))
+}
+
+// ============================================================================
 // Unit tests — pure functions only (no DB required)
 // ============================================================================
 
@@ -1220,7 +1318,6 @@ mod tests {
             language: "pl".to_string(),
             theme: "light".to_string(),
             welcome_message: "Witaj!".to_string(),
-            ollama_url: Some("http://custom:11434".to_string()),
             use_docker_sandbox: true,
         };
         let settings = row_to_settings(row);
@@ -1230,24 +1327,7 @@ mod tests {
         assert_eq!(settings.language, "pl");
         assert_eq!(settings.theme, "light");
         assert_eq!(settings.welcome_message, "Witaj!");
-        assert_eq!(settings.ollama_url, "http://custom:11434");
         assert!(settings.use_docker_sandbox);
-    }
-
-    #[test]
-    fn row_to_settings_defaults_ollama_url_when_none() {
-        let row = SettingsRow {
-            temperature: 1.0,
-            max_tokens: 8192,
-            default_model: "test".to_string(),
-            language: "en".to_string(),
-            theme: "dark".to_string(),
-            welcome_message: String::new(),
-            ollama_url: None,
-            use_docker_sandbox: false,
-        };
-        let settings = row_to_settings(row);
-        assert_eq!(settings.ollama_url, "http://localhost:11434");
     }
 
     // ── row_to_memory ───────────────────────────────────────────────────
@@ -1330,7 +1410,6 @@ mod tests {
         assert!(patch.language.is_none());
         assert!(patch.theme.is_none());
         assert!(patch.welcome_message.is_none());
-        assert!(patch.ollama_url.is_none());
         assert!(patch.use_docker_sandbox.is_none());
     }
 

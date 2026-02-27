@@ -22,7 +22,6 @@ import { useViewStore } from '@/stores/viewStore';
 
 /** Format raw model ID (e.g. "gemini-3.1-pro-preview") into a display name ("Gemini 3.1 Pro"). */
 function formatModelName(id: string): string {
-  if (id.startsWith('ollama:')) return `Ollama: ${id.slice(7)}`;
   // Strip common suffixes; split into parts: "gemini-3.1-pro" → ["gemini", "3.1", "pro"]
   const parts = id
     .replace(/-preview$/, '')

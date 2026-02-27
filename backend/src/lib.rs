@@ -6,7 +6,6 @@ pub mod handlers;
 pub mod model_registry;
 pub mod models;
 pub mod oauth;
-pub mod ollama;
 pub mod sessions;
 pub mod state;
 pub mod system_monitor;

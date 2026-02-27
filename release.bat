@@ -1,7 +1,7 @@
 @echo off
 setlocal enabledelayedexpansion
 cd /d "%~dp0"
-set "LIB=%~dp0..\jaskier-lib.bat"
+set "LIB=C:\Users\BIURODOM\Desktop\ClaudeDesktop\jaskier-lib.bat"
 
 :: Init colors
 call "%LIB%" :init_colors

@@ -633,6 +633,12 @@ const BLOCKED_WRITE_PREFIXES: &[&str] = &[
     "C:\\Program Files (x86)",
 ];
 
+/// Validate a path for writing — checks for null bytes, UNC, ADS, blocked prefixes.
+/// Public wrapper so tools.rs can reuse the same safety logic.
+pub fn validate_write_path(path: &str) -> Result<std::path::PathBuf, FileError> {
+    validate_and_canonicalize(path, BLOCKED_WRITE_PREFIXES)
+}
+
 /// Write content to a file with safety checks.
 pub async fn write_file(path: &str, content: &str) -> Result<String, FileError> {
     if content.len() > MAX_WRITE_SIZE {

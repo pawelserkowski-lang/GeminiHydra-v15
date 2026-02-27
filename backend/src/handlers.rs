@@ -307,21 +307,34 @@ fn keyword_match(text: &str, keyword: &str) -> bool {
 /// Expert agent classification based on prompt analysis and agent keywords.
 fn classify_prompt(prompt: &str, agents: &[WitcherAgent]) -> (String, f64, String) {
     let lower = strip_diacritics(&prompt.to_lowercase());
+    let mut best: Option<(String, f64, f64, String)> = None;
 
     for agent in agents {
+        let mut score = 0.0_f64;
+        let mut matched: Vec<&str> = Vec::new();
         for keyword in &agent.keywords {
             if keyword_match(&lower, keyword) {
-                return (
-                    agent.id.clone(),
-                    0.85,
-                    format!("Prompt matches keyword '{}' for agent {}", keyword, agent.name),
-                );
+                let weight = if keyword.len() >= 8 { 2.0 }
+                    else if keyword.len() >= 5 { 1.5 }
+                    else { 1.0 };
+                score += weight;
+                matched.push(keyword);
+            }
+        }
+        if score > 0.0 {
+            let confidence = (0.6 + (score / 8.0).min(0.35)).min(0.95);
+            let reasoning = format!(
+                "Matched [{}] for {} (score: {:.1})",
+                matched.join(", "), agent.name, score
+            );
+            if best.as_ref().map_or(true, |b| score > b.2) {
+                best = Some((agent.id.clone(), confidence, score, reasoning));
             }
         }
     }
 
-    // Default fallback
-    ("dijkstra".to_string(), 0.4, "Defaulting to Strategy & Planning".to_string())
+    best.map(|(id, conf, _, reason)| (id, conf, reason))
+        .unwrap_or_else(|| ("dijkstra".to_string(), 0.4, "Defaulting to Strategy & Planning".to_string()))
 }
 
 // ---------------------------------------------------------------------------
@@ -333,7 +346,11 @@ fn build_system_prompt(agent_id: &str, agents: &[WitcherAgent], language: &str, 
 
     let roster: String = agents
         .iter()
-        .map(|a| format!("  - {} ({}) — {}", a.name, a.role, a.description))
+        .map(|a| {
+            let kw = if a.keywords.is_empty() { String::new() }
+                else { format!(" [{}]", a.keywords.iter().take(5).cloned().collect::<Vec<_>>().join(", ")) };
+            format!("  - {} ({}) — {}{}", a.name, a.role, a.description, kw)
+        })
         .collect::<Vec<_>>()
         .join("\n");
 
@@ -346,7 +363,7 @@ fn build_system_prompt(agent_id: &str, agents: &[WitcherAgent], language: &str, 
 ## Environment
 - LOCAL machine with FULL filesystem access. You CAN read/write/browse files. NEVER say otherwise.
 - **Windows** machine. Use Windows commands if you must use `execute_command`.
-- Respond in **{language}** unless the user writes differently.
+- **ALWAYS respond in {language}.** Every message, explanation, plan, analysis, and recommendation MUST be in {language}. Only code, file paths, and technical identifiers stay in their original form. This rule is absolute — do NOT switch language based on the user's input language.
 
 ## Tools (local filesystem)
 | Tool | Use for | NEVER use execute_command for |
@@ -355,7 +372,8 @@ fn build_system_prompt(agent_id: &str, agents: &[WitcherAgent], language: &str, 
 | `read_file` | read files by path | cat, type, Get-Content |
 | `search_files` | find text patterns across files | grep, Select-String, findstr |
 | `get_code_structure` | AST overview (Rust, TS, JS, Py, Go) | — |
-| `write_file` | create/edit files | echo, redirect |
+| `write_file` | create NEW files or complete rewrites | echo, redirect |
+| `edit_file` | patch existing files (find & replace) | sed, awk, manual rewrite |
 | `execute_command` | ONLY build/test/git/npm/cargo CLI | — |
 
 ## Parallel Execution (CRITICAL)
@@ -368,11 +386,31 @@ fn build_system_prompt(agent_id: &str, agents: &[WitcherAgent], language: &str, 
 - Example GOOD: one response with `[get_code_structure("src/main.rs"), get_code_structure("src/lib.rs"), search_files("TODO", "src/")]`
 - Example BAD: response 1 → `get_code_structure("src/main.rs")`, response 2 → `get_code_structure("src/lib.rs")` (wastes round-trips)
 
+## File Modification Protocol (MANDATORY)
+Before using `write_file` to create or modify files, you MUST first present an action plan:
+1. **Analyze** — read the target files/codebase with `read_file`, `get_code_structure`, `search_files`
+2. **Present plan** — list EVERY file you intend to create or modify, with a brief description of each change
+3. **Execute** — only AFTER presenting the plan, proceed with `write_file` calls
+
+**Exceptions** (no plan needed):
+- Creating small config files or scripts explicitly requested by the user
+- Single-line fixes the user specifically asked for
+
+**Plan format:**
+```
+## Plan
+1. `path/to/file.rs` — add new function `foo()` for X
+2. `path/to/other.ts` — update import and call site
+3. `path/to/test.rs` — add test for `foo()`
+```
+
 ## Core Rules
-1. **Act first, explain after.** Execute tools — never suggest commands for the user to run.
+1. **Analyze first, modify after.** Read and understand code before changing it. Present a plan before writing files.
 2. **Be concise and direct.** No roleplay, monologue, or flavor text. Quality comes from insights, not theatrics.
 3. **Maximize parallel tool calls** — batch 3-5 independent operations per response. Speed comes from parallelism, not from fewer calls.
 4. **get_code_structure before read_file** — use AST overview first to decide which functions to read in full.
+5. **Include code examples** when explaining programming concepts, comparing approaches, or recommending changes. Use concrete before/after snippets, not abstract descriptions. Code examples make your response immediately actionable.
+6. **Error recovery** — if a tool call fails (TOOL_ERROR), try an alternative approach: different command, different path, or different tool. Do not repeat the exact same failed call.
 
 ## MANDATORY: Response Quality Protocol
 THIS IS THE MOST IMPORTANT SECTION. Your response quality is measured by ANALYSIS, not by how many tools you call.
@@ -770,10 +808,10 @@ impl SseParser {
 /// Truncate tool output for Gemini context to prevent context window overflow.
 /// Full output is still streamed to the user via WebSocket — this only affects
 /// what gets sent back to Gemini as functionResponse for the next iteration.
-const MAX_TOOL_RESULT_FOR_CONTEXT: usize = 6000;
+const MAX_TOOL_RESULT_FOR_CONTEXT: usize = 10000;
 
 /// Per-tool execution timeout — prevents individual tool calls from hanging forever.
-const TOOL_TIMEOUT: Duration = Duration::from_secs(15);
+const TOOL_TIMEOUT: Duration = Duration::from_secs(30);
 
 // ── Retry with exponential backoff constants ────────────────────────────────
 /// Maximum number of retry attempts for transient Gemini API errors (429, 503, timeout).
@@ -895,12 +933,8 @@ async fn execute_streaming(
     if !ws_send(sender, &WsServerMessage::Start { id: resp_id.to_string(), agent: ctx.agent_id.clone(), model: ctx.model.clone(), files_loaded: ctx.files_loaded.clone() }).await { return; }
     let _ = ws_send(sender, &WsServerMessage::Plan { agent: ctx.agent_id.clone(), confidence: ctx.confidence, steps: ctx.steps.clone() }).await;
 
-    // Dispatch based on model provider
-    let full_text = if ctx.model.starts_with("ollama:") {
-        execute_streaming_ollama(sender, state, &ctx, sid, cancel).await
-    } else {
-        execute_streaming_gemini(sender, state, &ctx, sid, cancel).await
-    };
+    // Dispatch to Gemini streaming
+    let full_text = execute_streaming_gemini(sender, state, &ctx, sid, cancel).await;
 
     store_messages(&state.db, sid, resp_id, prompt, &full_text, &ctx).await;
     let _ = ws_send(sender, &WsServerMessage::Complete { duration_ms: start.elapsed().as_millis() as u64 }).await;
@@ -1025,7 +1059,7 @@ async fn execute_streaming_gemini(
     contents.push(json!({ "role": "user", "parts": [{ "text": ctx.final_user_prompt }] }));
 
     let mut full_text = String::new();
-    for iter in 0..10 {
+    for iter in 0..15 {
         let body = json!({
             "systemInstruction": { "parts": [{ "text": ctx.system_prompt }] },
             "contents": contents,
@@ -1129,108 +1163,17 @@ async fn execute_streaming_gemini(
         }
         // After tool results, add synthesis reminder to prevent endless tool-calling
         if iter >= 2 {
-            res_parts.push(json!({ "text": "[SYSTEM: You have made multiple tool calls. Stop gathering data and SYNTHESIZE your findings NOW. Provide structured analysis with specific insights, issues, and actionable recommendations. Reference exact files and line numbers. Do NOT call more tools unless absolutely critical.]" }));
+            let urgency = if iter >= 5 {
+                "[SYSTEM CRITICAL: STOP ALL TOOL CALLS IMMEDIATELY. You have exceeded 5 iterations. Write your FINAL analysis NOW with all findings so far. NO MORE TOOLS.]"
+            } else if iter >= 3 {
+                "[SYSTEM: You have made many tool calls. SYNTHESIZE your findings NOW. Provide structured analysis with specific insights, issues, and actionable recommendations. Only one more tool call if absolutely critical.]"
+            } else {
+                "[SYSTEM: Multiple tool calls made. Consider synthesizing your findings soon. Provide structured analysis with specific insights.]"
+            };
+            res_parts.push(json!({ "text": urgency }));
         }
         contents.push(json!({ "role": "user", "parts": res_parts }));
     }
-    full_text
-}
-
-// ── Ollama Implementation ──────────────────────────────────────────────────
-
-async fn execute_streaming_ollama(
-    sender: &mut futures_util::stream::SplitSink<WebSocket, WsMessage>,
-    state: &AppState,
-    ctx: &ExecuteContext,
-    sid: Option<Uuid>,
-    cancel: CancellationToken,
-) -> String {
-    let settings = sqlx::query_as::<_, (String,)>("SELECT ollama_url FROM gh_settings WHERE id = 1")
-        .fetch_one(&state.db)
-        .await
-        .unwrap_or(("http://localhost:11434".to_string(),));
-    
-    let ollama_base = settings.0.trim_end_matches('/');
-    let model_name = ctx.model.strip_prefix("ollama:").unwrap_or(&ctx.model);
-    let url = format!("{}/api/chat", ollama_base);
-
-    // Load history (map to Ollama format)
-    let mut messages = Vec::new();
-    if let Some(s) = &sid {
-        let history = load_session_history(&state.db, s).await;
-        for msg in history {
-            if let Some(parts) = msg["parts"].as_array()
-                && let Some(text) = parts[0]["text"].as_str() {
-                    let role = msg["role"].as_str().unwrap_or("user");
-                    messages.push(json!({ "role": if role == "model" { "assistant" } else { "user" }, "content": text }));
-                }
-        }
-    }
-    
-    // Add system prompt (Ollama supports system message)
-    messages.insert(0, json!({ "role": "system", "content": ctx.system_prompt }));
-    
-    // Add current user prompt
-    messages.push(json!({ "role": "user", "content": ctx.final_user_prompt }));
-
-    // Ollama doesn't support tools natively in the same way yet (or experimental), 
-    // so we just do a simple chat for now (no tool loops).
-    // TODO: Add Ollama tool support if available (function calling).
-
-    let body = json!({
-        "model": model_name,
-        "messages": messages,
-        "stream": true,
-    });
-
-    let resp = match state.client.post(&url).json(&body).timeout(std::time::Duration::from_secs(300)).send().await {
-        Ok(r) if r.status().is_success() => r,
-        Ok(r) => {
-            tracing::error!("Ollama API error: {}", r.status());
-            let _ = ws_send(sender, &WsServerMessage::Error { message: "AI service error".into(), code: Some("OLLAMA_ERROR".into()) }).await;
-            return String::new();
-        }
-        Err(e) => {
-            tracing::error!("Ollama connection failed: {}", e);
-            let _ = ws_send(sender, &WsServerMessage::Error { message: "AI service error".into(), code: Some("CONNECTION_ERROR".into()) }).await;
-            return String::new();
-        }
-    };
-
-    let mut stream = resp.bytes_stream();
-    let mut full_text = String::new();
-
-    loop {
-        tokio::select! {
-            _ = cancel.cancelled() => break,
-            chunk = stream.next() => {
-                match chunk {
-                    Some(Ok(b)) => {
-                        // Ollama sends multiple JSON objects in one chunk sometimes, or one per line
-                        let s = String::from_utf8_lossy(&b);
-                        for line in s.lines() {
-                            if let Ok(val) = serde_json::from_str::<Value>(line) {
-                                if let Some(content) = val["message"]["content"].as_str() {
-                                    full_text.push_str(content);
-                                    let _ = ws_send(sender, &WsServerMessage::Token { content: content.to_string() }).await;
-                                }
-                                if val["done"].as_bool().unwrap_or(false) {
-                                    return full_text;
-                                }
-                            }
-                        }
-                    }
-                    Some(Err(e)) => {
-                        tracing::error!("Ollama stream error: {}", e);
-                        let _ = ws_send(sender, &WsServerMessage::Error { message: "AI service error".into(), code: Some("STREAM_ERROR".into()) }).await;
-                        break;
-                    }
-                    None => break,
-                }
-            }
-        }
-    }
-
     full_text
 }
 
@@ -1304,7 +1247,7 @@ async fn resolve_session_agent(state: &AppState, sid: &Uuid, prompt: &str) -> (S
 }
 
 async fn load_session_history(db: &sqlx::PgPool, sid: &Uuid) -> Vec<Value> {
-    sqlx::query_as::<_, (String, String)>("SELECT role, content FROM gh_chat_messages WHERE session_id = $1 ORDER BY created_at DESC LIMIT 20")
+    sqlx::query_as::<_, (String, String)>("SELECT role, content FROM gh_chat_messages WHERE session_id = $1 ORDER BY created_at DESC LIMIT 50")
         .bind(sid).fetch_all(db).await.unwrap_or_default().into_iter().rev()
         .map(|(r, c)| json!({ "role": if r == "assistant" { "model" } else { "user" }, "parts": [{ "text": c }] }))
         .collect()
@@ -1324,7 +1267,7 @@ async fn store_messages(db: &sqlx::PgPool, sid: Option<Uuid>, rid: Uuid, prompt:
 // ---------------------------------------------------------------------------
 
 #[utoipa::path(get, path = "/api/gemini/models", tag = "models",
-    responses((status = 200, description = "Available Gemini and Ollama models", body = GeminiModelsResponse))
+    responses((status = 200, description = "Available Gemini models", body = GeminiModelsResponse))
 )]
 pub async fn gemini_models(State(state): State<AppState>) -> Json<Value> {
     let mut models = Vec::new();
@@ -1345,31 +1288,6 @@ pub async fn gemini_models(State(state): State<AppState>) -> Json<Value> {
                                 None
                             }
                         }));
-                    }
-    }
-
-    // 2. Fetch Ollama models
-    if let Ok((ollama_url,)) = sqlx::query_as::<_, (String,)>("SELECT ollama_url FROM gh_settings WHERE id = 1")
-        .fetch_one(&state.db)
-        .await
-    {
-        let url = format!("{}/api/tags", ollama_url.trim_end_matches('/'));
-        // Use an async block for the request to simplify error handling logic?
-        // Or just keep it flat.
-        
-        if let Ok(res) = state.client.get(&url).timeout(std::time::Duration::from_secs(2)).send().await
-            && res.status().is_success()
-                && let Ok(body) = res.json::<Value>().await
-                    && let Some(list) = body["models"].as_array() {
-                        for m in list {
-                            if let Some(name) = m["name"].as_str() {
-                                models.push(GeminiModelInfo {
-                                    name: format!("ollama:{}", name),
-                                    display_name: format!("Ollama: {}", name),
-                                    supported_generation_methods: vec!["generateContent".to_string()],
-                                });
-                            }
-                        }
                     }
     }
 
@@ -1480,8 +1398,13 @@ fn build_tools() -> Value {
             },
             {
                 "name": "write_file",
-                "description": "Write or create a file on the local filesystem. Use for code edits, config changes, etc.",
+                "description": "Write or create a file on the local filesystem. Use for creating NEW files or complete rewrites.",
                 "parameters": { "type": "object", "properties": { "path": { "type": "string", "description": "Absolute path for the file to write" }, "content": { "type": "string", "description": "Full file content to write" } }, "required": ["path", "content"] }
+            },
+            {
+                "name": "edit_file",
+                "description": "Edit an existing file by replacing a specific text section. SAFER than write_file for modifications — only changes the targeted section, preserving the rest. Use for code patches, small edits, adding/removing lines.",
+                "parameters": { "type": "object", "properties": { "path": { "type": "string", "description": "Absolute path to the file to edit" }, "old_text": { "type": "string", "description": "Exact text to find and replace (must appear exactly once in the file)" }, "new_text": { "type": "string", "description": "Replacement text" } }, "required": ["path", "old_text", "new_text"] }
             },
             {
                 "name": "execute_command",

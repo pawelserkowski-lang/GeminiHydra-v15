@@ -1,10 +1,11 @@
 // backend/src/tools.rs
 //! Tool execution module for Gemini function calling.
 //!
-//! Provides 6 local tools that Gemini agents can invoke:
+//! Provides 7 local tools that Gemini agents can invoke:
 //! - `execute_command` — run shell commands with timeout + safety filters
 //! - `read_file` — read file contents (reuses files::read_file_for_context)
 //! - `write_file` — create/overwrite files with size + path restrictions
+//! - `edit_file` — targeted text replacement in existing files (safer than write_file)
 //! - `list_directory` — list directory contents (reuses files::list_directory)
 //! - `search_files` — search for text/regex patterns across files in a directory
 //! - `get_code_structure` — analyze code AST without full read
@@ -85,6 +86,18 @@ pub async fn execute_tool(name: &str, args: &Value, state: &AppState) -> Result<
                 .as_str()
                 .ok_or("Missing required argument: content")?;
             tool_write_file(path, content).await
+        }
+        "edit_file" => {
+            let path = args["path"]
+                .as_str()
+                .ok_or("Missing required argument: path")?;
+            let old_text = args["old_text"]
+                .as_str()
+                .ok_or("Missing required argument: old_text")?;
+            let new_text = args["new_text"]
+                .as_str()
+                .ok_or("Missing required argument: new_text")?;
+            tool_edit_file(path, old_text, new_text).await
         }
         "list_directory" => {
             let path = args["path"]
@@ -226,6 +239,50 @@ async fn tool_write_file(path: &str, content: &str) -> Result<String, String> {
 }
 
 // ---------------------------------------------------------------------------
+// edit_file
+// ---------------------------------------------------------------------------
+
+/// Edit a file by replacing a specific text section.
+/// Safer than write_file for modifications — only changes the targeted section.
+async fn tool_edit_file(path: &str, old_text: &str, new_text: &str) -> Result<String, String> {
+    let p = std::path::Path::new(path);
+
+    if let Err(e) = crate::files::validate_write_path(path) {
+        return Err(format!("Path rejected: {}", e.reason));
+    }
+
+    if !p.exists() {
+        return Err(format!("File not found: {}", path));
+    }
+
+    let content = tokio::fs::read_to_string(p).await
+        .map_err(|e| format!("Failed to read file: {}", e))?;
+
+    let count = content.matches(old_text).count();
+    if count == 0 {
+        return Err(format!(
+            "old_text not found in {}. Make sure the text matches exactly (including whitespace).",
+            path
+        ));
+    }
+    if count > 1 {
+        return Err(format!(
+            "old_text found {} times in {}. Provide more context to make the match unique.",
+            count, path
+        ));
+    }
+
+    let new_content = content.replacen(old_text, new_text, 1);
+    tokio::fs::write(p, &new_content).await
+        .map_err(|e| format!("Failed to write file: {}", e))?;
+
+    Ok(format!(
+        "Successfully edited {} ({} bytes -> {} bytes)",
+        path, content.len(), new_content.len()
+    ))
+}
+
+// ---------------------------------------------------------------------------
 // list_directory
 // ---------------------------------------------------------------------------
 
@@ -266,10 +323,10 @@ fn format_size(bytes: u64) -> String {
 // ---------------------------------------------------------------------------
 
 /// Max search results to return.
-const MAX_SEARCH_RESULTS: usize = 80;
+const MAX_SEARCH_RESULTS: usize = 150;
 
 /// Max directory depth for recursive search.
-const MAX_SEARCH_DEPTH: usize = 8;
+const MAX_SEARCH_DEPTH: usize = 12;
 
 /// Directories to skip during search.
 const SKIP_DIRS: &[&str] = &[

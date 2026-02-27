@@ -14,8 +14,6 @@ pub struct SettingsRow {
     pub theme: String,
     pub welcome_message: String,
     #[sqlx(default)]
-    pub ollama_url: Option<String>,
-    #[sqlx(default)]
     pub use_docker_sandbox: bool,
 }
 
@@ -173,7 +171,6 @@ pub struct AppSettings {
     pub language: String,
     pub theme: String,
     pub welcome_message: String,
-    pub ollama_url: String,
     pub use_docker_sandbox: bool,
 }
 
@@ -181,12 +178,11 @@ impl Default for AppSettings {
     fn default() -> Self {
         Self {
             temperature: 1.0,
-            max_tokens: 8192,
+            max_tokens: 16384,
             default_model: "gemini-3.1-pro-preview".to_string(),
             language: "en".to_string(),
             theme: "dark".to_string(),
             welcome_message: String::new(),
-            ollama_url: "http://localhost:11434".to_string(),
             use_docker_sandbox: false,
         }
     }
@@ -275,6 +271,36 @@ pub struct ClassifyResponse {
     pub agent: String,
     pub confidence: f64,
     pub reasoning: String,
+}
+
+// ---------------------------------------------------------------------------
+// Ratings
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct RatingRequest {
+    pub message_id: String,
+    pub session_id: String,
+    pub rating: i32,
+    #[serde(default)]
+    pub feedback: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct RatingResponse {
+    pub success: bool,
+    pub message_id: String,
+}
+
+// ---------------------------------------------------------------------------
+// Agent Unlock
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct UnlockAgentResponse {
+    pub session_id: String,
+    pub previous_agent: Option<String>,
+    pub unlocked: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -372,6 +398,16 @@ pub enum WsServerMessage {
         success: bool,
         summary: String,
         iteration: u32,
+    },
+    ToolProgress {
+        iteration: u32,
+        tools_completed: u32,
+        tools_total: u32,
+    },
+    AgentSuggestion {
+        agent: String,
+        confidence: f64,
+        reasoning: String,
     },
     Error {
         message: String,

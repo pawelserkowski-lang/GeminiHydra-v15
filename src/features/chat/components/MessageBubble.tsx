@@ -31,7 +31,8 @@ import { CodeBlock } from '@/components/molecules';
 import { useViewTheme } from '@/shared/hooks/useViewTheme';
 import { cn } from '@/shared/utils/cn';
 import { chatLanguages } from '@/shared/utils/highlightLanguages';
-import type { Message } from '@/stores/viewStore';
+import { type Message, useCurrentSessionId } from '@/stores/viewStore';
+import { MessageRating } from './MessageRating';
 
 // ---------------------------------------------------------------------------
 // Helper: extract plain text from React children (handles rehype-highlight spans)
@@ -112,6 +113,7 @@ export const MessageBubble = memo<MessageBubbleProps>(({ message, isLast, isStre
   const { t, i18n } = useTranslation();
   const theme = useViewTheme();
   const [copied, setCopied] = useState(false);
+  const currentSessionId = useCurrentSessionId();
 
   const isUser = message.role === 'user';
   const isSystem = message.role === 'system';
@@ -291,6 +293,11 @@ export const MessageBubble = memo<MessageBubbleProps>(({ message, isLast, isStre
               minute: '2-digit',
             })}
           </div>
+        )}
+
+        {/* Star rating (assistant messages only, not while streaming) */}
+        {message.role === 'assistant' && !isSystem && currentSessionId && !(isStreaming && isLast) && (
+          <MessageRating messageId={String(message.timestamp)} sessionId={currentSessionId} />
         )}
 
         {/* Streaming cursor */}

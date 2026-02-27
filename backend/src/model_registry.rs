@@ -234,16 +234,6 @@ pub async fn refresh_cache(state: &AppState) -> HashMap<String, Vec<ModelInfo>> 
 
     drop(rt);
 
-    // ── Ollama: auto-discover local models (optional provider) ──────
-    let ollama_models = crate::ollama::discover_models(state).await;
-    if !ollama_models.is_empty() {
-        tracing::info!(
-            "model_registry: discovered {} Ollama models",
-            ollama_models.len()
-        );
-        all_models.insert("ollama".to_string(), ollama_models);
-    }
-
     let mut cache = state.model_cache.write().await;
     cache.models = all_models.clone();
     cache.fetched_at = Some(Instant::now());
@@ -464,7 +454,6 @@ pub async fn list_models(State(state): State<AppState>) -> impl IntoResponse {
         "providers": {
             "google": cache.models.get("google").cloned().unwrap_or_default(),
             "anthropic": cache.models.get("anthropic").cloned().unwrap_or_default(),
-            "ollama": cache.models.get("ollama").cloned().unwrap_or_default(),
         }
     }));
 

@@ -177,130 +177,132 @@ export const WelcomeScreen = memo(() => {
   );
 
   return (
-    <div className="h-full flex flex-col items-center justify-center p-8 overflow-y-auto">
-      {/* ====== Hero Card ====== */}
-      <motion.div
-        data-testid="welcome-hero"
-        className={cn('flex flex-col items-center gap-6 p-8 rounded-3xl max-w-lg w-full', theme.card)}
-        variants={heroVariants}
-        initial="hidden"
-        animate="visible"
-      >
-        {/* Logo with glow */}
-        <div className="relative">
-          <div
-            className="absolute inset-0 rounded-2xl blur-xl opacity-40"
-            style={{ background: 'var(--matrix-accent)' }}
-          />
-          <img
-            src={theme.isLight ? '/logolight.webp' : '/logodark.webp'}
-            alt={t('home.logoAlt', 'GeminiHydra Logo')}
-            width={512}
-            height={425}
-            className="relative w-56 h-56 object-contain drop-shadow-lg"
-          />
-        </div>
-
-        {/* Title */}
-        <div className="text-center">
-          <h1 className={cn('text-3xl font-bold font-mono tracking-tight', theme.title)}>
-            {t('home.title', 'GeminiHydra')}
-          </h1>
-          <p className={cn('text-sm mt-1.5 max-w-xs', theme.textMuted)}>
-            {t('home.subtitle', 'AI Swarm Control Center — start a new chat or continue a previous conversation.')}
-          </p>
-        </div>
-
-        {/* Feature Badges */}
+    <div className="h-full flex flex-col items-center p-8 overflow-y-auto">
+      <div className="my-auto flex flex-col items-center w-full">
+        {/* ====== Hero Card ====== */}
         <motion.div
-          className="flex flex-wrap justify-center gap-2"
-          variants={badgeContainerVariants}
+          data-testid="welcome-hero"
+          className={cn('flex flex-col items-center gap-6 p-8 rounded-3xl max-w-lg w-full', theme.card)}
+          variants={heroVariants}
           initial="hidden"
           animate="visible"
         >
-          {FEATURE_BADGES.map(({ key, fallback, icon: Icon }) => (
-            <motion.div key={key} variants={badgeItemVariants}>
-              <Badge variant="accent" size="sm" icon={<Icon size={12} />}>
-                {t(key, fallback)}
-              </Badge>
-            </motion.div>
-          ))}
-        </motion.div>
+          {/* Logo with glow */}
+          <div className="relative">
+            <div
+              className="absolute inset-0 rounded-2xl blur-xl opacity-40"
+              style={{ background: 'var(--matrix-accent)' }}
+            />
+            <img
+              src={theme.isLight ? '/logolight.webp' : '/logodark.webp'}
+              alt={t('home.logoAlt', 'GeminiHydra Logo')}
+              width={512}
+              height={425}
+              className="relative w-56 h-56 object-contain drop-shadow-lg"
+            />
+          </div>
 
-        {/* CTA Button */}
-        <motion.div className="w-full mt-2" variants={ctaVariants} initial="hidden" animate="visible">
-          <Button
-            variant="primary"
-            size="md"
-            leftIcon={<Plus size={16} />}
-            onClick={handleNewChat}
-            className="w-full"
-            data-testid="btn-new-chat"
-          >
-            {t('home.newChat', 'New Chat')}
-          </Button>
-        </motion.div>
-      </motion.div>
+          {/* Title */}
+          <div className="text-center">
+            <h1 className={cn('text-3xl font-bold font-mono tracking-tight', theme.title)}>
+              {t('home.title', 'GeminiHydra')}
+            </h1>
+            <p className={cn('text-sm mt-1.5 max-w-xs', theme.textMuted)}>
+              {t('home.subtitle', 'AI Swarm Control Center — start a new chat or continue a previous conversation.')}
+            </p>
+          </div>
 
-      {/* ====== Recent Sessions ====== */}
-      <AnimatePresence>
-        {recentSessions.length > 0 && (
+          {/* Feature Badges */}
           <motion.div
-            className="w-full max-w-lg mt-8"
-            variants={recentVariants}
+            className="flex flex-wrap justify-center gap-2"
+            variants={badgeContainerVariants}
             initial="hidden"
             animate="visible"
-            exit="hidden"
           >
-            <div className="flex items-center gap-2 mb-3">
-              <Clock size={14} className={theme.iconMuted} />
-              <span className={cn('text-xs uppercase tracking-wider font-mono', theme.textMuted)}>
-                {t('home.recentChats', 'Recent Chats')}
-              </span>
-            </div>
-
-            <div className="space-y-2">
-              {recentSessions.map((session) => (
-                <SessionRow
-                  key={session.id}
-                  session={session}
-                  messageCount={chatHistory[session.id]?.length ?? 0}
-                  onOpen={handleOpenSession}
-                  theme={theme}
-                />
-              ))}
-            </div>
+            {FEATURE_BADGES.map(({ key, fallback, icon: Icon }) => (
+              <motion.div key={key} variants={badgeItemVariants}>
+                <Badge variant="accent" size="sm" icon={<Icon size={12} />}>
+                  {t(key, fallback)}
+                </Badge>
+              </motion.div>
+            ))}
           </motion.div>
-        )}
-      </AnimatePresence>
 
-      {/* ====== Empty State ====== */}
-      <AnimatePresence>
-        {recentSessions.length === 0 && (
-          <motion.div
-            className="flex flex-col items-center gap-3 mt-8 text-center"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ delay: 0.35 }}
-          >
-            <Sparkles size={32} className={cn(theme.iconMuted, 'opacity-40')} />
-            <p className={cn('text-sm', theme.textMuted)}>
-              {t('home.noChats', 'No chats yet. Start a new conversation!')}
-            </p>
+          {/* CTA Button */}
+          <motion.div className="w-full mt-2" variants={ctaVariants} initial="hidden" animate="visible">
+            <Button
+              variant="primary"
+              size="md"
+              leftIcon={<Plus size={16} />}
+              onClick={handleNewChat}
+              className="w-full"
+              data-testid="btn-new-chat"
+            >
+              {t('home.newChat', 'New Chat')}
+            </Button>
           </motion.div>
-        )}
-      </AnimatePresence>
+        </motion.div>
 
-      {/* ====== Health Dashboard ====== */}
-      <motion.div
-        className="w-full max-w-lg mt-8"
-        initial={{ opacity: 0, y: 8 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.45, duration: 0.4 }}
-      >
-        <HealthDashboard />
-      </motion.div>
+        {/* ====== Recent Sessions ====== */}
+        <AnimatePresence>
+          {recentSessions.length > 0 && (
+            <motion.div
+              className="w-full max-w-lg mt-8"
+              variants={recentVariants}
+              initial="hidden"
+              animate="visible"
+              exit="hidden"
+            >
+              <div className="flex items-center gap-2 mb-3">
+                <Clock size={14} className={theme.iconMuted} />
+                <span className={cn('text-xs uppercase tracking-wider font-mono', theme.textMuted)}>
+                  {t('home.recentChats', 'Recent Chats')}
+                </span>
+              </div>
+
+              <div className="space-y-2">
+                {recentSessions.map((session) => (
+                  <SessionRow
+                    key={session.id}
+                    session={session}
+                    messageCount={chatHistory[session.id]?.length ?? 0}
+                    onOpen={handleOpenSession}
+                    theme={theme}
+                  />
+                ))}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* ====== Empty State ====== */}
+        <AnimatePresence>
+          {recentSessions.length === 0 && (
+            <motion.div
+              className="flex flex-col items-center gap-3 mt-8 text-center"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ delay: 0.35 }}
+            >
+              <Sparkles size={32} className={cn(theme.iconMuted, 'opacity-40')} />
+              <p className={cn('text-sm', theme.textMuted)}>
+                {t('home.noChats', 'No chats yet. Start a new conversation!')}
+              </p>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* ====== Health Dashboard ====== */}
+        <motion.div
+          className="w-full max-w-lg mt-8"
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.45, duration: 0.4 }}
+        >
+          <HealthDashboard />
+        </motion.div>
+      </div>
     </div>
   );
 });
