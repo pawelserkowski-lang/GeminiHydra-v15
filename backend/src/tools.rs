@@ -103,7 +103,8 @@ pub async fn execute_tool(name: &str, args: &Value, state: &AppState) -> Result<
             let command = args["command"]
                 .as_str()
                 .ok_or("Missing required argument: command")?;
-            tool_execute_command(command, state).await.map(ToolOutput::text)
+            let working_directory = args["working_directory"].as_str();
+            tool_execute_command(command, working_directory, state).await.map(ToolOutput::text)
         }
         "read_file" => {
             let path = args["path"]
@@ -196,13 +197,24 @@ pub async fn execute_tool(name: &str, args: &Value, state: &AppState) -> Result<
 // execute_command
 // ---------------------------------------------------------------------------
 
-async fn tool_execute_command(command: &str, state: &AppState) -> Result<String, String> {
+async fn tool_execute_command(command: &str, working_directory: Option<&str>, state: &AppState) -> Result<String, String> {
     let lower = command.to_lowercase();
     for pattern in BLOCKED_PATTERNS {
         if lower.contains(pattern) {
             return Err(format!("Blocked dangerous command pattern: {}", pattern));
         }
     }
+
+    // Validate and resolve working directory
+    let cwd = if let Some(dir) = working_directory {
+        let p = std::path::Path::new(dir);
+        if !p.is_dir() {
+            return Err(format!("working_directory '{}' does not exist or is not a directory", dir));
+        }
+        Some(p.to_path_buf())
+    } else {
+        None
+    };
 
     // Check sandbox setting
     let use_sandbox = sqlx::query_scalar::<_, bool>("SELECT use_docker_sandbox FROM gh_settings WHERE id = 1")
@@ -211,26 +223,25 @@ async fn tool_execute_command(command: &str, state: &AppState) -> Result<String,
         .unwrap_or(false);
 
     let output_res = if use_sandbox {
-        // Run in Docker
-        // Mount current directory to /app
-        let current_dir = std::env::current_dir()
-            .map_err(|e| format!("Cannot determines current dir: {}", e))?
-            .to_string_lossy()
-            .to_string();
+        // Run in Docker — mount working dir (or cwd) to /app
+        let mount_dir = cwd.as_ref()
+            .map(|p| p.to_string_lossy().to_string())
+            .or_else(|| std::env::current_dir().ok().map(|p| p.to_string_lossy().to_string()))
+            .ok_or_else(|| "Cannot determine working directory".to_string())?;
 
         let docker_args = [
             "run",
             "--rm",
-            "-v", &format!("{}:/app", current_dir),
+            "-v", &format!("{}:/app", mount_dir),
             "-w", "/app",
-            "alpine:latest", // Lightweight base image
+            "alpine:latest",
             "sh", "-c", command
         ];
 
         tokio::time::timeout(COMMAND_TIMEOUT, Command::new("docker").args(docker_args).output()).await
     } else {
-        // Run locally
-        tokio::time::timeout(COMMAND_TIMEOUT, run_command(command)).await
+        // Run locally with optional working directory
+        tokio::time::timeout(COMMAND_TIMEOUT, run_command(command, cwd.as_deref())).await
     };
 
     let output = output_res
@@ -270,12 +281,20 @@ async fn tool_execute_command(command: &str, state: &AppState) -> Result<String,
     }
 }
 
-async fn run_command(command: &str) -> std::io::Result<std::process::Output> {
-    if cfg!(target_os = "windows") {
-        Command::new("cmd").args(["/C", command]).output().await
+async fn run_command(command: &str, cwd: Option<&std::path::Path>) -> std::io::Result<std::process::Output> {
+    let mut cmd = if cfg!(target_os = "windows") {
+        let mut c = Command::new("cmd");
+        c.args(["/C", command]);
+        c
     } else {
-        Command::new("sh").args(["-c", command]).output().await
+        let mut c = Command::new("sh");
+        c.args(["-c", command]);
+        c
+    };
+    if let Some(dir) = cwd {
+        cmd.current_dir(dir);
     }
+    cmd.output().await
 }
 
 // ---------------------------------------------------------------------------

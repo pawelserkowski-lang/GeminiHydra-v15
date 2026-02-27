@@ -438,6 +438,12 @@ pub(crate) fn build_system_prompt(agent_id: &str, agents: &[WitcherAgent], langu
 - Stop after 3-5 tool calls and write structured analysis with headers, tables, code refs.
 - Use `call_agent` to delegate subtasks to specialized agents (e.g., code analysis → Eskel, debugging → Lambert).
 
+## execute_command Rules
+- ALWAYS set `working_directory` to the project root when running cargo/npm/git commands.
+- Do NOT use `cd` inside the command — use `working_directory` parameter instead.
+- Example: `{{"command": "cargo check", "working_directory": "C:\\Users\\BIURODOM\\Desktop\\GeminiHydra-v15\\backend"}}`
+- Do NOT quote paths in `--manifest-path` or similar flags — pass them unquoted.
+
 ## Swarm
 {roster}"#,
         name = agent.name,
@@ -2054,8 +2060,8 @@ pub(crate) fn build_tools() -> Value {
             },
             {
                 "name": "execute_command",
-                "description": "Execute a shell command on the local Windows machine. ONLY use for build/test/git/npm/cargo CLI operations. NEVER use for file reading (use read_file), directory listing (use list_directory), or text search (use search_files).",
-                "parameters": { "type": "object", "properties": { "command": { "type": "string", "description": "Shell command to execute (Windows cmd.exe)" } }, "required": ["command"] }
+                "description": "Execute a shell command on the local Windows machine. ONLY use for build/test/git/npm/cargo CLI operations. NEVER use for file reading (use read_file), directory listing (use list_directory), or text search (use search_files). ALWAYS set working_directory when running project commands (cargo, npm, git).",
+                "parameters": { "type": "object", "properties": { "command": { "type": "string", "description": "Shell command to execute (Windows cmd.exe). Do NOT include 'cd' — use working_directory instead." }, "working_directory": { "type": "string", "description": "Absolute path to set as the working directory before executing the command. REQUIRED for cargo/npm/git commands. Example: C:\\Users\\BIURODOM\\Desktop\\GeminiHydra-v15\\backend" } }, "required": ["command"] }
             }
         ]
     }])).clone()
