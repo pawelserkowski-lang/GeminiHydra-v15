@@ -4,6 +4,7 @@ use std::time::{Duration, Instant};
 
 use axum::extract::ws::{Message as WsMessage, WebSocket, WebSocketUpgrade};
 use axum::extract::State;
+use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::Json;
 use futures_util::{SinkExt, StreamExt};
@@ -938,6 +939,8 @@ pub(crate) fn build_thinking_config(model: &str, thinking_level: &str) -> Option
 enum SseParsedEvent {
     TextToken(String),
     FunctionCall { name: String, args: Value, raw_part: Value },
+    /// Gemini returned MALFORMED_FUNCTION_CALL — tool schema issue, retry without tools
+    MalformedFunctionCall,
 }
 
 struct SseParser { buffer: String }
@@ -979,7 +982,10 @@ impl SseParser {
                 .and_then(|c0| c0.get("finishReason"))
                 .and_then(|v| v.as_str())
             {
-                if reason != "STOP" {
+                if reason == "MALFORMED_FUNCTION_CALL" {
+                    tracing::warn!("stream: MALFORMED_FUNCTION_CALL — will retry without tools");
+                    events.push(SseParsedEvent::MalformedFunctionCall);
+                } else if reason != "STOP" {
                     tracing::warn!("stream: Gemini chunk has no 'parts' (finishReason={})", reason);
                 }
             }
@@ -1139,8 +1145,8 @@ async fn handle_ws(socket: WebSocket, state: AppState) {
                         match client_msg {
                             WsClientMessage::Ping => { let _ = ws_send(&mut sender, &WsServerMessage::Pong).await; }
                             WsClientMessage::Cancel => { cancel.cancel(); }
-                            WsClientMessage::Execute { prompt, model, session_id, .. } => {
-                                execute_streaming(&mut sender, &state, &prompt, model, session_id, cancel.child_token()).await;
+                            WsClientMessage::Execute { prompt, mode, model, session_id } => {
+                                execute_streaming(&mut sender, &state, &prompt, mode, model, session_id, cancel.child_token()).await;
                             }
                             WsClientMessage::Orchestrate { prompt, pattern, agents, session_id } => {
                                 execute_orchestrated(&mut sender, &state, &prompt, &pattern, agents.as_deref(), session_id, cancel.child_token()).await;
@@ -1362,20 +1368,26 @@ async fn execute_streaming(
     sender: &mut futures_util::stream::SplitSink<WebSocket, WsMessage>,
     state: &AppState,
     prompt: &str,
+    mode: String,
     model_override: Option<String>,
     session_id: Option<String>,
     cancel: CancellationToken,
 ) {
     let start = Instant::now();
     let sid = session_id.as_deref().and_then(|s| Uuid::parse_str(s).ok());
-    
-    // Resolve agent (check session lock or classify)
-    let agent_info = if let Some(s) = &sid { 
-        Some(resolve_session_agent(state, s, prompt).await) 
-    } else { 
-        None 
+
+    // Resolve agent: explicit mode > session lock > classify
+    let agent_info = if !mode.is_empty() && mode != "auto" {
+        let agents = state.agents.read().await;
+        agents.iter()
+            .find(|a| a.id == mode || a.name.to_lowercase() == mode.to_lowercase())
+            .map(|a| (a.id.clone(), 0.99_f64, "User explicitly selected agent via mode field".to_string()))
+    } else if let Some(s) = &sid {
+        Some(resolve_session_agent(state, s, prompt).await)
+    } else {
+        None
     };
-    
+
     let ctx = prepare_execution(state, prompt, model_override, agent_info).await;
     let resp_id = Uuid::new_v4();
 
@@ -1572,7 +1584,7 @@ async fn execute_streaming_gemini(
                     if let Ok(fallback_url) = reqwest::Url::parse(fallback_url_str) {
                         if let Ok(fallback_resp) = gemini_request_with_retry(&state.client, &fallback_url, &ctx.api_key, &body).await {
                             state.gemini_circuit.record_success().await;
-                            let (fallback_text, _, _) = consume_gemini_stream(fallback_resp, sender, &cancel).await;
+                            let (fallback_text, _, _, _) = consume_gemini_stream(fallback_resp, sender, &cancel).await;
                             full_text.push_str(&fallback_text);
                         }
                     }
@@ -1582,8 +1594,31 @@ async fn execute_streaming_gemini(
             }
         };
 
-        let (text, fcs, aborted) = consume_gemini_stream(resp, sender, &cancel).await;
+        let (text, fcs, aborted, malformed) = consume_gemini_stream(resp, sender, &cancel).await;
         full_text.push_str(&text);
+
+        // Retry without tools if Gemini generated a malformed function call
+        if malformed && full_text.trim().is_empty() {
+            tracing::warn!("MALFORMED_FUNCTION_CALL on iter {}, retrying without tools", iter);
+            let mut gen_config_retry = json!({
+                "temperature": ctx.temperature,
+                "topP": ctx.top_p,
+                "maxOutputTokens": ctx.max_tokens
+            });
+            if let Some(tc) = build_thinking_config(&ctx.model, &ctx.thinking_level) {
+                gen_config_retry["thinkingConfig"] = tc;
+            }
+            let retry_body = json!({
+                "systemInstruction": { "parts": [{ "text": format!("{}\n\nIMPORTANT: Answer this question directly using your knowledge. Do NOT attempt to call any tools or functions.", ctx.system_prompt) }] },
+                "contents": contents,
+                "generationConfig": gen_config_retry
+            });
+            if let Ok(retry_resp) = gemini_request_with_retry(&state.client, &parsed_url, &ctx.api_key, &retry_body).await {
+                let (retry_text, _, _, _) = consume_gemini_stream(retry_resp, sender, &cancel).await;
+                full_text.push_str(&retry_text);
+            }
+            break;
+        }
         if aborted || fcs.is_empty() { break; }
 
         // #37 — Early termination if agent text (excluding tool output) is too small after many iterations
@@ -1735,19 +1770,21 @@ async fn execute_streaming_gemini(
     full_text
 }
 
+/// Returns (text, function_calls, aborted, malformed_tool_call)
 async fn consume_gemini_stream(
     resp: reqwest::Response,
     sender: &mut futures_util::stream::SplitSink<WebSocket, WsMessage>,
     cancel: &CancellationToken,
-) -> (String, Vec<(String, Value, Value)>, bool) {
+) -> (String, Vec<(String, Value, Value)>, bool, bool) {
     let mut parser = SseParser::new();
     let mut stream = resp.bytes_stream();
     let mut full_text = String::new();
     let mut fcs = Vec::new();
+    let mut malformed = false;
 
     loop {
         tokio::select! {
-            _ = cancel.cancelled() => return (full_text, fcs, true),
+            _ = cancel.cancelled() => return (full_text, fcs, true, malformed),
             chunk = stream.next() => {
                 match chunk {
                     Some(Ok(b)) => {
@@ -1758,6 +1795,7 @@ async fn consume_gemini_stream(
                                     let _ = ws_send(sender, &WsServerMessage::Token { content: t }).await;
                                 }
                                 SseParsedEvent::FunctionCall { name, args, raw_part } => fcs.push((name, args, raw_part)),
+                                SseParsedEvent::MalformedFunctionCall => malformed = true,
                             }
                         }
                     }
@@ -1769,6 +1807,7 @@ async fn consume_gemini_stream(
                                     let _ = ws_send(sender, &WsServerMessage::Token { content: t }).await;
                                 }
                                 SseParsedEvent::FunctionCall { name, args, raw_part } => fcs.push((name, args, raw_part)),
+                                SseParsedEvent::MalformedFunctionCall => malformed = true,
                             }
                         }
                         break;
@@ -1777,7 +1816,7 @@ async fn consume_gemini_stream(
             }
         }
     }
-    (full_text, fcs, false)
+    (full_text, fcs, false, malformed)
 }
 
 // ---------------------------------------------------------------------------
@@ -2030,21 +2069,34 @@ pub(crate) fn build_tools() -> Value {
     request_body = ExecuteRequest,
     responses((status = 200, description = "Execution result", body = ExecuteResponse))
 )]
-pub async fn execute(State(state): State<AppState>, Json(body): Json<ExecuteRequest>) -> Json<Value> {
+pub async fn execute(State(state): State<AppState>, Json(body): Json<ExecuteRequest>) -> (StatusCode, Json<Value>) {
+    if body.prompt.trim().is_empty() {
+        return (StatusCode::BAD_REQUEST, Json(json!({ "error": "Prompt cannot be empty" })));
+    }
     let start = Instant::now();
-    let ctx = prepare_execution(&state, &body.prompt, body.model.clone(), None).await;
-    if ctx.api_key.is_empty() { return Json(json!({ "error": "No API Key" })); }
+
+    // Translate body.mode into agent_override so the user's explicit choice is respected.
+    let mode_override = if !body.mode.is_empty() && body.mode != "auto" {
+        let agents = state.agents.read().await;
+        agents.iter()
+            .find(|a| a.id == body.mode || a.name.to_lowercase() == body.mode.to_lowercase())
+            .map(|a| (a.id.clone(), 0.99_f64, "User explicitly selected agent via mode field".to_string()))
+    } else {
+        None
+    };
+    let ctx = prepare_execution(&state, &body.prompt, body.model.clone(), mode_override).await;
+    if ctx.api_key.is_empty() { return (StatusCode::UNAUTHORIZED, Json(json!({ "error": "No API Key" }))); }
 
     // Circuit breaker — fail fast if the Gemini provider is tripped.
     if let Err(msg) = state.gemini_circuit.check().await {
         tracing::warn!("execute: {}", msg);
-        return Json(json!({ "error": msg }));
+        return (StatusCode::SERVICE_UNAVAILABLE, Json(json!({ "error": msg })));
     }
 
     let url = format!("https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent", ctx.model);
     let parsed_url = match reqwest::Url::parse(&url) {
         Ok(u) if u.scheme() == "https" => u,
-        _ => return Json(json!({ "error": "API credentials require HTTPS" })),
+        _ => return (StatusCode::BAD_REQUEST, Json(json!({ "error": "API credentials require HTTPS" }))),
     };
     let mut gen_config_exec = json!({
         "temperature": ctx.temperature,
@@ -2060,25 +2112,59 @@ pub async fn execute(State(state): State<AppState>, Json(body): Json<ExecuteRequ
         "generationConfig": gen_config_exec
     });
 
+    // Helper to extract text from a Gemini generateContent response.
+    let extract_text = |j: &Value| -> Option<String> {
+        j.get("candidates")
+            .and_then(|c| c.get(0))
+            .and_then(|c0| c0.get("content"))
+            .and_then(|ct| ct.get("parts"))
+            .and_then(|p| p.get(0))
+            .and_then(|p0| p0.get("text"))
+            .and_then(|t| t.as_str())
+            .map(|s| s.to_string())
+    };
+
+    let is_malformed = |j: &Value| -> bool {
+        j.get("candidates")
+            .and_then(|c| c.get(0))
+            .and_then(|c0| c0.get("finishReason"))
+            .and_then(|v| v.as_str())
+            == Some("MALFORMED_FUNCTION_CALL")
+    };
+
     // Use retry-with-backoff; update circuit breaker on outcome.
     let text = match gemini_request_with_retry(&state.client, &parsed_url, &ctx.api_key, &gem_body).await {
         Ok(r) => {
             state.gemini_circuit.record_success().await;
             let j: Value = r.json().await.unwrap_or_default();
-            match j.get("candidates")
-                .and_then(|c| c.get(0))
-                .and_then(|c0| c0.get("content"))
-                .and_then(|ct| ct.get("parts"))
-                .and_then(|p| p.get(0))
-                .and_then(|p0| p0.get("text"))
-                .and_then(|t| t.as_str())
-            {
-                Some(text) => text.to_string(),
-                None => {
-                    let diag = gemini_diagnose(&j);
-                    tracing::error!("execute: Gemini response missing text ({})", diag);
-                    format!("Gemini API returned no text — {}", diag)
+            if let Some(text) = extract_text(&j) {
+                text
+            } else if is_malformed(&j) {
+                // MALFORMED_FUNCTION_CALL: agent system prompt mentions tools but HTTP path
+                // doesn't declare them. Retry with explicit "text only" instruction.
+                tracing::warn!("execute: MALFORMED_FUNCTION_CALL, retrying without tool references");
+                let retry_body = json!({
+                    "systemInstruction": { "parts": [{ "text": format!("{}\n\nIMPORTANT: You are running in text-only mode. Do NOT attempt to call any tools or functions. Answer the user's question directly using your knowledge.", ctx.system_prompt) }] },
+                    "contents": [{ "parts": [{ "text": ctx.final_user_prompt }] }],
+                    "generationConfig": gen_config_exec
+                });
+                match gemini_request_with_retry(&state.client, &parsed_url, &ctx.api_key, &retry_body).await {
+                    Ok(r2) => {
+                        let j2: Value = r2.json().await.unwrap_or_default();
+                        extract_text(&j2).unwrap_or_else(|| {
+                            let diag = gemini_diagnose(&j2);
+                            format!("Gemini API returned no text — {}", diag)
+                        })
+                    }
+                    Err(e) => {
+                        tracing::error!("execute retry: {}", e);
+                        "API Error on retry".to_string()
+                    }
                 }
+            } else {
+                let diag = gemini_diagnose(&j);
+                tracing::error!("execute: Gemini response missing text ({})", diag);
+                format!("Gemini API returned no text — {}", diag)
             }
         }
         Err(e) => {
@@ -2088,14 +2174,14 @@ pub async fn execute(State(state): State<AppState>, Json(body): Json<ExecuteRequ
         }
     };
 
-    Json(json!(ExecuteResponse {
+    (StatusCode::OK, Json(json!(ExecuteResponse {
         id: Uuid::new_v4().to_string(),
         result: text,
         plan: Some(ExecutePlan { agent: Some(ctx.agent_id), steps: ctx.steps, estimated_time: None }),
         duration_ms: start.elapsed().as_millis() as u64,
         mode: body.mode,
         files_loaded: ctx.files_loaded,
-    }))
+    })))
 }
 
 // ---------------------------------------------------------------------------
