@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
 use axum::extract::ws::{Message as WsMessage, WebSocket, WebSocketUpgrade};
@@ -736,7 +737,7 @@ async fn prepare_execution(
         .fetch_one(&state.db)
         .await
         .unwrap_or_else(|_| (
-            "gemini-3.1-pro-preview".to_string(), "en".to_string(), 1.0, 65536, 0.95, "balanced".to_string(), 10
+            "gemini-3.1-pro-preview-customtools".to_string(), "en".to_string(), 1.0, 65536, 0.95, "balanced".to_string(), 10
         ));
 
     // #48 — Per-agent temperature override
@@ -753,7 +754,22 @@ async fn prepare_execution(
     let language = match lang.as_str() { "pl" => "Polish", "en" => "English", other => other };
 
     let api_key = state.runtime.read().await.api_keys.get("google").cloned().unwrap_or_default();
-    let system_prompt = build_system_prompt(&agent_id, &agents_lock, language, &model);
+
+    // Cached system prompt — byte-identical across requests enables Gemini implicit caching
+    let prompt_cache_key = format!("{}:{}:{}", agent_id, language, model);
+    let system_prompt = {
+        let cache = state.prompt_cache.read().await;
+        cache.get(&prompt_cache_key).cloned()
+    }.unwrap_or_else(|| {
+        let prompt = build_system_prompt(&agent_id, &agents_lock, language, &model);
+        let cache_clone = prompt.clone();
+        let state_clone = state.prompt_cache.clone();
+        let key_clone = prompt_cache_key.clone();
+        tokio::spawn(async move {
+            state_clone.write().await.insert(key_clone, cache_clone);
+        });
+        prompt
+    });
 
     let detected_paths = files::extract_file_paths(&prompt_clean);
 
@@ -1641,8 +1657,11 @@ pub async fn list_files(Json(body): Json<FileListRequest>) -> Json<Value> {
     }
 }
 
+/// Tool definitions are static and never change — compute once via OnceLock.
+/// Byte-identical tools JSON across all requests enables Gemini implicit caching.
 fn build_tools() -> Value {
-    json!([{
+    static TOOLS: OnceLock<Value> = OnceLock::new();
+    TOOLS.get_or_init(|| json!([{
         "function_declarations": [
             {
                 "name": "list_directory",
@@ -1695,7 +1714,7 @@ fn build_tools() -> Value {
                 "parameters": { "type": "object", "properties": { "command": { "type": "string", "description": "Shell command to execute (Windows cmd.exe)" } }, "required": ["command"] }
             }
         ]
-    }])
+    }])).clone()
 }
 
 // ---------------------------------------------------------------------------
@@ -1802,6 +1821,7 @@ mod tests {
                     "refactor".to_string(),
                 ],
                 temperature: None,
+                model_override: None,
             },
             WitcherAgent {
                 id: "triss".to_string(),
@@ -1819,6 +1839,7 @@ mod tests {
                     "query".to_string(),
                 ],
                 temperature: None,
+                model_override: None,
             },
             WitcherAgent {
                 id: "dijkstra".to_string(),
@@ -1835,6 +1856,7 @@ mod tests {
                     "priorit".to_string(),
                 ],
                 temperature: None,
+                model_override: None,
             },
             WitcherAgent {
                 id: "eskel".to_string(),
@@ -1855,6 +1877,7 @@ mod tests {
                     "websocket".to_string(),
                 ],
                 temperature: None,
+                model_override: None,
             },
         ]
     }

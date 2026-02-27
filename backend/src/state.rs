@@ -175,6 +175,9 @@ pub struct AppState {
     pub auth_secret: Option<String>,
     /// Circuit breaker for the Gemini API provider.
     pub gemini_circuit: Arc<CircuitBreaker>,
+    /// Cached system prompts keyed by "agent_id:language:model".
+    /// Cleared on agent refresh for byte-identical Gemini API requests.
+    pub prompt_cache: Arc<RwLock<HashMap<String, String>>>,
 }
 
 // ── Shared: readiness helpers ───────────────────────────────────────────────
@@ -243,6 +246,7 @@ impl AppState {
             ready: Arc::new(AtomicBool::new(false)),
             auth_secret,
             gemini_circuit: Arc::new(CircuitBreaker::new("gemini")),
+            prompt_cache: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -255,5 +259,7 @@ impl AppState {
             let mut lock = self.agents.write().await;
             *lock = new_list;
         }
+        // Invalidate system prompt cache — agent roster changed
+        self.prompt_cache.write().await.clear();
     }
 }

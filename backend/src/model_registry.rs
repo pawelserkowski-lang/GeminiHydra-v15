@@ -308,13 +308,13 @@ pub async fn resolve_models(state: &AppState) -> ResolvedModels {
     let cache = state.model_cache.read().await;
     let google = cache.models.get("google").cloned().unwrap_or_default();
 
-    // Chat: latest gemini pro (not image, not lite, not latest alias)
+    // Chat: prefer customtools variant (optimized for agent tool-calling workloads)
     let chat = select_best(
         &google,
-        &["pro"],
-        &["lite", "latest", "image", "tts", "computer", "robotics", "customtools", "thinking"],
+        &["pro", "customtools"],
+        &["lite", "latest", "image", "tts", "computer", "robotics", "thinking"],
     )
-    .or_else(|| select_best(&google, &["pro"], &["lite", "latest", "thinking"]));
+    .or_else(|| select_best(&google, &["pro"], &["lite", "latest", "image", "tts", "computer", "robotics", "thinking"]));
 
     // Thinking: highest version_key (Gemini 3+ has dynamic thinking built-in)
     let thinking = select_best(&google, &[], &["lite", "latest", "image", "tts", "computer", "robotics", "audio"])
@@ -353,10 +353,10 @@ pub async fn get_model_id(state: &AppState, use_case: &str) -> String {
     let resolved = resolve_models(state).await;
 
     let (model, fallback) = match use_case {
-        "chat" => (resolved.chat, "gemini-3.1-pro-preview"),
-        "thinking" => (resolved.thinking, "gemini-3.1-pro-preview"),
+        "chat" => (resolved.chat, "gemini-3.1-pro-preview-customtools"),
+        "thinking" => (resolved.thinking, "gemini-3.1-pro-preview-customtools"),
         "image" => (resolved.image, "gemini-3-pro-image-preview"),
-        _ => (resolved.chat, "gemini-3.1-pro-preview"),
+        _ => (resolved.chat, "gemini-3.1-pro-preview-customtools"),
     };
 
     let id = model.as_ref().map(|m| m.id.as_str()).unwrap_or(fallback);
@@ -729,5 +729,40 @@ mod tests {
     fn model_cache_empty_models_by_default() {
         let cache = ModelCache::new();
         assert!(cache.models.is_empty());
+    }
+
+    // ── customtools model ───────────────────────────────────────────────
+
+    #[test]
+    fn version_key_gemini_3_1_pro_customtools() {
+        let (v, _) = version_key("gemini-3.1-pro-preview-customtools");
+        assert_eq!(v, 3001);
+    }
+
+    #[test]
+    fn select_best_prefers_customtools() {
+        let models = vec![
+            model("gemini-3.1-pro-preview", "google"),
+            model("gemini-3.1-pro-preview-customtools", "google"),
+        ];
+
+        let best = select_best(&models, &["pro", "customtools"], &[]);
+        assert_eq!(best.unwrap().id, "gemini-3.1-pro-preview-customtools");
+    }
+
+    #[test]
+    fn select_best_falls_back_to_standard_pro_when_no_customtools() {
+        let models = vec![
+            model("gemini-3.1-pro-preview", "google"),
+            model("gemini-3-flash-preview", "google"),
+        ];
+
+        // customtools filter matches nothing
+        let best = select_best(&models, &["pro", "customtools"], &[]);
+        assert!(best.is_none());
+
+        // fallback to any pro
+        let fallback = select_best(&models, &["pro"], &["lite", "latest", "image", "tts", "computer", "robotics", "thinking"]);
+        assert_eq!(fallback.unwrap().id, "gemini-3.1-pro-preview");
     }
 }
