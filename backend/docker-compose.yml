@@ -24,10 +24,29 @@ services:
     environment:
       DATABASE_URL: postgres://gemini:gemini_local@db:5432/geminihydra
       GOOGLE_API_KEY: ${GOOGLE_API_KEY}
+      ADK_SIDECAR_URL: http://adk:8000
       PORT: "8081"
     depends_on:
       db:
         condition: service_healthy
+
+  adk:
+    build: ./adk
+    ports:
+      - "8000:8000"
+    environment:
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY}
+      DATABASE_URL: postgres://gemini:gemini_local@db:5432/geminihydra
+      RUST_BACKEND_URL: http://backend:8081
+      PORT: "8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
 
 volumes:
   pgdata:

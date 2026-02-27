@@ -1,0 +1,1 @@
+"""GeminiHydra ADK Orchestration Sidecar."""

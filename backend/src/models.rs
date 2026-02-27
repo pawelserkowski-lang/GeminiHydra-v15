@@ -394,6 +394,16 @@ pub enum WsClientMessage {
         #[serde(default)]
         session_id: Option<String>,
     },
+    /// Orchestrated multi-agent execution via ADK sidecar.
+    Orchestrate {
+        prompt: String,
+        /// Pattern: "sequential", "parallel", "loop", "hierarchical", "review", "security"
+        pattern: String,
+        #[serde(default)]
+        agents: Option<Vec<String>>,
+        #[serde(default)]
+        session_id: Option<String>,
+    },
     Cancel,
     Ping,
 }
@@ -451,4 +461,42 @@ pub enum WsServerMessage {
     },
     Pong,
     Heartbeat,
+    // ── ADK Orchestration messages ──────────────────────────────────
+    /// Orchestration pipeline started
+    OrchestrationStart {
+        pattern: String,
+        agents: Vec<String>,
+    },
+    /// Agent delegated work to another agent (hierarchical)
+    AgentDelegation {
+        from_agent: String,
+        to_agent: String,
+        reason: String,
+    },
+    /// Output from an individual agent in the pipeline
+    AgentOutput {
+        agent: String,
+        content: String,
+        is_final: bool,
+    },
+    /// Progress through a sequential pipeline
+    PipelineProgress {
+        current_step: u32,
+        total_steps: u32,
+        current_agent: String,
+        status: String,
+    },
+    /// Status of all agents in a parallel pipeline
+    ParallelStatus {
+        agents: Vec<ParallelAgentStatus>,
+    },
+}
+
+/// Status of a single agent in a parallel orchestration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ParallelAgentStatus {
+    pub agent: String,
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_preview: Option<String>,
 }

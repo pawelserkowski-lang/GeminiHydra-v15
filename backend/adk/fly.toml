@@ -1,0 +1,30 @@
+app = 'geminihydra-v15-adk'
+primary_region = 'waw'
+
+[build]
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  auto_stop_machines = 'stop'
+  auto_start_machines = true
+  min_machines_running = 0
+
+[checks]
+  [checks.health]
+    port = 8000
+    type = "http"
+    interval = "15s"
+    timeout = "5s"
+    grace_period = "30s"
+    method = "GET"
+    path = "/list-apps"
+
+[env]
+  RUST_BACKEND_URL = "https://geminihydra-v15-backend.fly.dev"
+  DEFAULT_MODEL = "gemini-2.0-flash"
+
+[[vm]]
+  memory = '512mb'
+  cpu_kind = 'shared'
+  cpus = 1

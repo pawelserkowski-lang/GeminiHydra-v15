@@ -9,6 +9,7 @@ use std::time::Instant;
 use reqwest::Client;
 use sqlx::PgPool;
 use tokio::sync::RwLock;
+use tokio_util::sync::CancellationToken;
 
 use crate::model_registry::ModelCache;
 use crate::models::WitcherAgent;
@@ -178,6 +179,8 @@ pub struct AppState {
     /// Cached system prompts keyed by "agent_id:language:model".
     /// Cleared on agent refresh for byte-identical Gemini API requests.
     pub prompt_cache: Arc<RwLock<HashMap<String, String>>>,
+    /// A2A — cancellation tokens for running tasks (task_id → token).
+    pub a2a_cancel_tokens: Arc<RwLock<HashMap<String, CancellationToken>>>,
 }
 
 // ── Shared: readiness helpers ───────────────────────────────────────────────
@@ -247,6 +250,7 @@ impl AppState {
             auth_secret,
             gemini_circuit: Arc::new(CircuitBreaker::new("gemini")),
             prompt_cache: Arc::new(RwLock::new(HashMap::new())),
+            a2a_cancel_tokens: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 

@@ -1,3 +1,4 @@
+pub mod a2a;
 pub mod analysis;
 pub mod audit;
 pub mod auth;
@@ -206,7 +207,11 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/auth/login", post(oauth::auth_login))
         .route("/api/auth/callback", post(oauth::auth_callback))
         .route("/api/auth/logout", post(oauth::auth_logout))
-        .route("/api/auth/mode", get(handlers::auth_mode));
+        .route("/api/auth/mode", get(handlers::auth_mode))
+        // A2A v0.3 — Agent Card discovery (public, no auth)
+        .route("/.well-known/agent-card.json", get(a2a::agent_card))
+        // ADK sidecar internal tool bridge (localhost only, no auth)
+        .route("/api/internal/tool", post(handlers::internal_tool_execute));
 
     // WebSocket with its own stricter rate limit (10 per minute)
     let ws_routes = Router::new()
@@ -235,6 +240,11 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/system/stats", get(handlers::system_stats))
         // Admin — hot-reload API keys
         .route("/api/admin/rotate-key", post(handlers::rotate_key))
+        // A2A v0.3 — Agent-to-Agent protocol endpoints
+        .route("/a2a/message/send", post(a2a::message_send))
+        .route("/a2a/message/stream", post(a2a::message_stream))
+        .route("/a2a/tasks/{id}", get(a2a::tasks_get))
+        .route("/a2a/tasks/{id}/cancel", post(a2a::tasks_cancel))
         .route_layer(middleware::from_fn_with_state(state.clone(), auth::require_auth));
 
     // ── Metrics endpoint (public, no auth) ─────────────────────────

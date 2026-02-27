@@ -11,7 +11,7 @@
  * - Atom/Molecule reuse (Button, ModelSelector)
  */
 
-import { AlertCircle, FolderOpen, Send, StopCircle, X } from 'lucide-react';
+import { AlertCircle, ChevronDown, FolderOpen, Network, Send, StopCircle, X } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
   type ChangeEvent,
@@ -33,11 +33,16 @@ import { cn } from '@/shared/utils/cn';
 // TYPES
 // ============================================================================
 
+export type OrchestrationMode = 'direct' | 'orchestrate';
+export type OrchestrationPattern = 'auto' | 'sequential' | 'parallel' | 'loop' | 'hierarchical' | 'review' | 'security';
+
 interface ChatInputProps {
   /** Whether the assistant is currently streaming a response. */
   isStreaming: boolean;
   /** Callback fired when the user submits a message. */
   onSubmit: (prompt: string, image: string | null) => void;
+  /** Callback fired for orchestrated submissions. */
+  onOrchestrate?: (prompt: string, pattern: string) => void;
   /** Callback fired to stop an active stream. */
   onStop?: () => void;
   /** Base64 pending image (set externally via drag-drop). */
@@ -109,14 +114,39 @@ ImagePreview.displayName = 'ImagePreview';
 // CHAT INPUT COMPONENT
 // ============================================================================
 
+const PATTERN_OPTIONS: Array<{ value: OrchestrationPattern; label: string }> = [
+  { value: 'auto', label: 'Auto' },
+  { value: 'hierarchical', label: 'Hierarchical' },
+  { value: 'sequential', label: 'Sequential' },
+  { value: 'parallel', label: 'Parallel' },
+  { value: 'loop', label: 'Loop' },
+  { value: 'review', label: 'Code Review' },
+  { value: 'security', label: 'Security Review' },
+];
+
 export const ChatInput = memo<ChatInputProps>(
-  ({ isStreaming, onSubmit, onStop, pendingImage, onClearImage, onPasteImage, onPasteFile, promptHistory = [] }) => {
+  ({
+    isStreaming,
+    onSubmit,
+    onOrchestrate,
+    onStop,
+    pendingImage,
+    onClearImage,
+    onPasteImage,
+    onPasteFile,
+    promptHistory = [],
+  }) => {
     const { t } = useTranslation();
     const theme = useViewTheme();
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [value, setValue] = useState('');
     const [error, setError] = useState<string | null>(null);
+
+    // Orchestration mode state
+    const [orchMode, setOrchMode] = useState<OrchestrationMode>('direct');
+    const [orchPattern, setOrchPattern] = useState<OrchestrationPattern>('auto');
+    const [showPatternPicker, setShowPatternPicker] = useState(false);
 
     // Prompt history navigation
     const [historyIndex, setHistoryIndex] = useState(-1);
@@ -162,15 +192,22 @@ export const ChatInput = memo<ChatInputProps>(
 
     const handleSubmit = useCallback(() => {
       if (!canSubmit) return;
-      onSubmit(value.trim(), pendingImage);
+      const trimmed = value.trim();
+      if (orchMode === 'orchestrate' && onOrchestrate) {
+        const pattern = orchPattern === 'auto' ? 'hierarchical' : orchPattern;
+        onOrchestrate(trimmed, pattern);
+      } else {
+        onSubmit(trimmed, pendingImage);
+      }
       setValue('');
       setError(null);
+      setShowPatternPicker(false);
       requestAnimationFrame(() => {
         if (textareaRef.current) {
           textareaRef.current.style.height = 'auto';
         }
       });
-    }, [canSubmit, onSubmit, value, pendingImage]);
+    }, [canSubmit, onSubmit, onOrchestrate, value, pendingImage, orchMode, orchPattern]);
 
     // ----- Key handling (Enter to send, Shift/Ctrl+Enter for newline) ----
 
@@ -389,6 +426,71 @@ export const ChatInput = memo<ChatInputProps>(
               )}
             </div>
           </div>
+
+          {/* Orchestration mode toggle */}
+          {onOrchestrate && (
+            <div className="relative">
+              <Button
+                type="button"
+                variant={orchMode === 'orchestrate' ? 'primary' : 'ghost'}
+                size="md"
+                onClick={() => {
+                  if (orchMode === 'direct') {
+                    setOrchMode('orchestrate');
+                    setShowPatternPicker(true);
+                  } else {
+                    setOrchMode('direct');
+                    setShowPatternPicker(false);
+                  }
+                }}
+                className="mb-[1px]"
+                title={
+                  orchMode === 'orchestrate'
+                    ? t('chat.switchToDirect', 'Switch to direct mode')
+                    : t('chat.switchToOrchestrate', 'Switch to orchestrate mode')
+                }
+                data-testid="btn-orchestrate-toggle"
+              >
+                <Network size={18} />
+                <ChevronDown size={12} className="ml-0.5" />
+              </Button>
+              {/* Pattern picker dropdown */}
+              <AnimatePresence>
+                {showPatternPicker && orchMode === 'orchestrate' && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 4, scale: 0.95 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: 4, scale: 0.95 }}
+                    className={cn(
+                      'absolute bottom-full right-0 mb-2 z-50',
+                      'min-w-[160px] py-1 rounded-lg shadow-lg',
+                      'border border-white/10',
+                      theme.dropdown,
+                    )}
+                  >
+                    {PATTERN_OPTIONS.map((opt) => (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => {
+                          setOrchPattern(opt.value);
+                          setShowPatternPicker(false);
+                        }}
+                        className={cn(
+                          'w-full text-left px-3 py-1.5 text-sm font-mono transition-colors',
+                          theme.dropdownItem,
+                          orchPattern === opt.value && 'font-bold',
+                        )}
+                      >
+                        {orchPattern === opt.value && '> '}
+                        {opt.label}
+                      </button>
+                    ))}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          )}
 
           {/* Attach file via native picker */}
           {(onPasteImage || onPasteFile) && (

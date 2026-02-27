@@ -808,6 +808,7 @@ dependencies = [
  "sysinfo",
  "thiserror 2.0.18",
  "tokio",
+ "tokio-stream",
  "tokio-util",
  "tower",
  "tower-http",

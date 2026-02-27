@@ -435,6 +435,7 @@ pub(crate) fn build_system_prompt(agent_id: &str, agents: &[WitcherAgent], langu
 - Request MULTIPLE tool calls in PARALLEL when independent.
 - Synthesize tool output into tables/lists — don't dump raw output.
 - Stop after 3-5 tool calls and write structured analysis with headers, tables, code refs.
+- Use `call_agent` to delegate subtasks to specialized agents (e.g., code analysis → Eskel, debugging → Lambert).
 
 ## Swarm
 {roster}"#,
@@ -1060,6 +1061,33 @@ fn truncate_for_context_with_limit(output: &str, limit: usize) -> String {
     )
 }
 
+// ---------------------------------------------------------------------------
+// ADK Internal Tool Bridge
+// ---------------------------------------------------------------------------
+
+/// POST /api/internal/tool — Internal tool execution bridge for ADK sidecar.
+/// Only reachable from localhost (ADK sidecar). Exposes tools::execute_tool via HTTP.
+pub async fn internal_tool_execute(
+    State(state): State<AppState>,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let name = body["name"]
+        .as_str()
+        .ok_or_else(|| ApiError::BadRequest("missing 'name' field".into()))?;
+    let args = body.get("args").cloned().unwrap_or(json!({}));
+
+    match crate::tools::execute_tool(name, &args, &state).await {
+        Ok(output) => Ok(Json(json!({
+            "status": "success",
+            "result": output.text
+        }))),
+        Err(e) => Ok(Json(json!({
+            "status": "error",
+            "result": e
+        }))),
+    }
+}
+
 async fn ws_send(sender: &mut futures_util::stream::SplitSink<WebSocket, WsMessage>, msg: &WsServerMessage) -> bool {
     if let Ok(json) = serde_json::to_string(msg) {
         sender.send(WsMessage::Text(json.into())).await.is_ok()
@@ -1114,6 +1142,9 @@ async fn handle_ws(socket: WebSocket, state: AppState) {
                             WsClientMessage::Execute { prompt, model, session_id, .. } => {
                                 execute_streaming(&mut sender, &state, &prompt, model, session_id, cancel.child_token()).await;
                             }
+                            WsClientMessage::Orchestrate { prompt, pattern, agents, session_id } => {
+                                execute_orchestrated(&mut sender, &state, &prompt, &pattern, agents.as_deref(), session_id, cancel.child_token()).await;
+                            }
                         }
                     }
                     Some(Ok(WsMessage::Ping(data))) => {
@@ -1124,6 +1155,202 @@ async fn handle_ws(socket: WebSocket, state: AppState) {
                 }
             }
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ADK Orchestrated Execution (proxy to Python sidecar)
+// ---------------------------------------------------------------------------
+
+/// Proxy orchestration requests to the ADK Python sidecar's /run_sse endpoint.
+/// Translates SSE events from ADK into WsServerMessage variants and forwards to the WS client.
+async fn execute_orchestrated(
+    sender: &mut futures_util::stream::SplitSink<WebSocket, WsMessage>,
+    state: &AppState,
+    prompt: &str,
+    pattern: &str,
+    agents: Option<&[String]>,
+    session_id: Option<String>,
+    cancel: CancellationToken,
+) {
+    let start = Instant::now();
+    let adk_url = std::env::var("ADK_SIDECAR_URL")
+        .unwrap_or_else(|_| "http://localhost:8000".into());
+
+    // Announce orchestration start
+    let agent_list = agents.map(|a| a.to_vec()).unwrap_or_default();
+    let _ = ws_send(sender, &WsServerMessage::OrchestrationStart {
+        pattern: pattern.to_string(),
+        agents: agent_list,
+    }).await;
+
+    // Build ADK request
+    let sid = session_id.unwrap_or_else(|| Uuid::new_v4().to_string());
+    let adk_body = json!({
+        "appName": "geminihydra",
+        "userId": "default",
+        "sessionId": sid,
+        "newMessage": {
+            "role": "user",
+            "parts": [{ "text": prompt }]
+        },
+        "streaming": true,
+        "config": {
+            "pattern": pattern,
+        }
+    });
+
+    // Stream SSE from ADK sidecar
+    let resp = match state.client
+        .post(format!("{}/run_sse", adk_url))
+        .json(&adk_body)
+        .send()
+        .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::warn!("ADK sidecar unreachable ({}), falling back to direct execution", e);
+            let _ = ws_send(sender, &WsServerMessage::Error {
+                message: format!("ADK sidecar unavailable: {}. Use direct mode.", e),
+                code: Some("ADK_UNAVAILABLE".into()),
+            }).await;
+            return;
+        }
+    };
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body_text = resp.text().await.unwrap_or_default();
+        let _ = ws_send(sender, &WsServerMessage::Error {
+            message: format!("ADK returned {}: {}", status, &body_text[..body_text.len().min(200)]),
+            code: Some("ADK_ERROR".into()),
+        }).await;
+        return;
+    }
+
+    // Parse SSE stream and translate to WS messages
+    let mut stream = resp.bytes_stream();
+    let mut buffer = String::new();
+    let mut last_author = String::new();
+    let mut step_count: u32 = 0;
+    let mut heartbeat = tokio::time::interval(Duration::from_secs(15));
+
+    loop {
+        tokio::select! {
+            _ = cancel.cancelled() => {
+                tracing::info!("Orchestration cancelled by client");
+                break;
+            }
+            _ = heartbeat.tick() => {
+                let _ = ws_send(sender, &WsServerMessage::Heartbeat).await;
+            }
+            chunk = stream.next() => {
+                match chunk {
+                    Some(Ok(bytes)) => {
+                        buffer.push_str(&String::from_utf8_lossy(&bytes));
+
+                        // Parse SSE events from buffer
+                        while let Some(pos) = buffer.find("\n\n") {
+                            let event_text = buffer[..pos].to_string();
+                            buffer = buffer[pos + 2..].to_string();
+
+                            // Extract data: lines
+                            for line in event_text.lines() {
+                                if let Some(data) = line.strip_prefix("data: ") {
+                                    if let Ok(event) = serde_json::from_str::<Value>(data) {
+                                        translate_adk_event(sender, &event, &mut last_author, &mut step_count).await;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Some(Err(e)) => {
+                        tracing::error!("ADK SSE stream error: {}", e);
+                        break;
+                    }
+                    None => break, // stream ended
+                }
+            }
+        }
+    }
+
+    let _ = ws_send(sender, &WsServerMessage::Complete {
+        duration_ms: start.elapsed().as_millis() as u64,
+    }).await;
+}
+
+/// Translate a single ADK SSE event into WsServerMessage(s).
+async fn translate_adk_event(
+    sender: &mut futures_util::stream::SplitSink<WebSocket, WsMessage>,
+    event: &Value,
+    last_author: &mut String,
+    step_count: &mut u32,
+) {
+    let author = event["author"].as_str().unwrap_or("unknown");
+
+    // Detect agent change (delegation)
+    if author != last_author.as_str() && !last_author.is_empty() {
+        let reason = event.get("transfer_to_agent")
+            .and_then(|v| v.as_str())
+            .unwrap_or("task delegation")
+            .to_string();
+
+        let _ = ws_send(sender, &WsServerMessage::AgentDelegation {
+            from_agent: last_author.clone(),
+            to_agent: author.to_string(),
+            reason,
+        }).await;
+
+        *step_count += 1;
+    }
+    *last_author = author.to_string();
+
+    // Function call event
+    if let Some(fc) = event.get("function_call") {
+        let name = fc["name"].as_str().unwrap_or("unknown").to_string();
+        let args = fc.get("args").cloned().unwrap_or(json!({}));
+        let _ = ws_send(sender, &WsServerMessage::ToolCall {
+            name,
+            args,
+            iteration: *step_count,
+        }).await;
+        return;
+    }
+
+    // Function response event
+    if event.get("function_response").is_some() {
+        let name = event["function_response"]["name"].as_str().unwrap_or("unknown").to_string();
+        let _ = ws_send(sender, &WsServerMessage::ToolResult {
+            name,
+            success: true,
+            summary: "Tool completed".to_string(),
+            iteration: *step_count,
+        }).await;
+        return;
+    }
+
+    // Text content from agent
+    if let Some(text) = event.get("text").and_then(|t| t.as_str()) {
+        if !text.is_empty() {
+            let _ = ws_send(sender, &WsServerMessage::AgentOutput {
+                agent: author.to_string(),
+                content: text.to_string(),
+                is_final: false,
+            }).await;
+            // Also send as Token for backward compat with existing chat UI
+            let _ = ws_send(sender, &WsServerMessage::Token {
+                content: text.to_string(),
+            }).await;
+        }
+    }
+
+    // Escalation (loop exit)
+    if event.get("escalate").and_then(|v| v.as_bool()).unwrap_or(false) {
+        let _ = ws_send(sender, &WsServerMessage::AgentOutput {
+            agent: author.to_string(),
+            content: "Pipeline stage completed (escalated)".to_string(),
+            is_final: true,
+        }).await;
     }
 }
 
@@ -1397,17 +1624,30 @@ async fn execute_streaming_gemini(
         // Each call is wrapped in a per-tool timeout so one hanging tool
         // doesn't block the entire iteration.
         // Heartbeat messages are sent every 15s to prevent proxy/LB timeouts.
+        let call_depth = ctx.call_depth;
         let tool_futures: Vec<_> = fcs.iter().map(|(name, args, _)| {
             let name = name.clone();
             let args = args.clone();
             let state = state.clone();
             async move {
-                match tokio::time::timeout(TOOL_TIMEOUT, crate::tools::execute_tool(&name, &args, &state)).await {
-                    Ok(Ok(output)) => (name, output),
-                    Ok(Err(e)) => (name, crate::tools::ToolOutput::text(format!("TOOL_ERROR: {}", e))),
-                    Err(_) => {
-                        tracing::warn!("tool '{}' timed out after {}s", name, TOOL_TIMEOUT.as_secs());
-                        (name, crate::tools::ToolOutput::text(format!("TOOL_ERROR: timed out after {}s", TOOL_TIMEOUT.as_secs())))
+                if name == "call_agent" {
+                    // A2A agent delegation — longer timeout (120s), depth tracking
+                    match tokio::time::timeout(
+                        Duration::from_secs(120),
+                        crate::a2a::execute_agent_call(&state, &args, call_depth),
+                    ).await {
+                        Ok(Ok(text)) => (name, crate::tools::ToolOutput::text(text)),
+                        Ok(Err(e)) => (name, crate::tools::ToolOutput::text(format!("AGENT_CALL_ERROR: {}", e))),
+                        Err(_) => (name, crate::tools::ToolOutput::text("AGENT_CALL_ERROR: timed out after 120s".to_string())),
+                    }
+                } else {
+                    match tokio::time::timeout(TOOL_TIMEOUT, crate::tools::execute_tool(&name, &args, &state)).await {
+                        Ok(Ok(output)) => (name, output),
+                        Ok(Err(e)) => (name, crate::tools::ToolOutput::text(format!("TOOL_ERROR: {}", e))),
+                        Err(_) => {
+                            tracing::warn!("tool '{}' timed out after {}s", name, TOOL_TIMEOUT.as_secs());
+                            (name, crate::tools::ToolOutput::text(format!("TOOL_ERROR: timed out after {}s", TOOL_TIMEOUT.as_secs())))
+                        }
                     }
                 }
             }

@@ -7,6 +7,7 @@ import { resolve } from 'path';
 
 const backendUrl = process.env.VITE_BACKEND_URL || 'http://localhost:8081';
 const partnerBackendUrl = process.env.VITE_PARTNER_BACKEND_URL || 'http://localhost:8082';
+const adkUrl = process.env.VITE_ADK_URL || 'http://localhost:8000';
 
 export default defineConfig(({ mode }) => ({
   plugins: [
@@ -39,6 +40,11 @@ export default defineConfig(({ mode }) => ({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/partner-api/, '/api'),
       },
+      '/adk-api': {
+        target: adkUrl,
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/adk-api/, ''),
+      },
     },
   },
   preview: {
@@ -58,6 +64,11 @@ export default defineConfig(({ mode }) => ({
         target: partnerBackendUrl,
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/partner-api/, '/api'),
+      },
+      '/adk-api': {
+        target: adkUrl,
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/adk-api/, ''),
       },
     },
   },

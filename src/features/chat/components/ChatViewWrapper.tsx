@@ -13,6 +13,7 @@ import { useSessionSync } from '@/features/chat/hooks/useSessionSync';
 import type { WsCallbacks } from '@/shared/hooks/useWebSocketChat';
 import { MAX_RECONNECT_ATTEMPTS, useWebSocketChat } from '@/shared/hooks/useWebSocketChat';
 import { useViewStore } from '@/stores/viewStore';
+import { useOrchestration } from '../hooks/useOrchestration';
 import { type AgentActivity, EMPTY_ACTIVITY, type ToolActivity } from './AgentActivityPanel';
 
 // ============================================================================
@@ -39,6 +40,18 @@ export function ChatViewWrapper() {
   const titleTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   // Agent activity tracking for live panel
   const [agentActivity, setAgentActivity] = useState<AgentActivity>(EMPTY_ACTIVITY);
+
+  // ADK Orchestration state
+  const {
+    orchestration,
+    onOrchestrationStart: handleOrchStart,
+    onAgentDelegation: handleDelegation,
+    onAgentOutput: handleAgentOutput,
+    onPipelineProgress: handlePipelineProgress,
+    onParallelStatus: handleParallelStatus,
+    onOrchestrationComplete: handleOrchComplete,
+    resetOrchestration,
+  } = useOrchestration();
 
   // Token micro-batching refs (#43) — accumulate tokens and flush every 50ms
   const tokenBatchRef = useRef<string>('');
@@ -161,6 +174,7 @@ export function ChatViewWrapper() {
         }
         flushTokens();
         setAgentActivity((prev) => ({ ...prev, isActive: false }));
+        handleOrchComplete();
         // Background title generation after first exchange (#8) — delayed 2s, non-blocking
         if (needsTitleRef.current.has(sessionId)) {
           needsTitleRef.current.delete(sessionId);
@@ -178,6 +192,7 @@ export function ChatViewWrapper() {
         tokenBatchRef.current = '';
         tokenBatchSessionRef.current = null;
         setAgentActivity((prev) => ({ ...prev, isActive: false }));
+        handleOrchComplete();
         needsTitleRef.current.delete(sessionId ?? '');
         addMessageToSession(sessionId, {
           role: 'assistant',
@@ -185,11 +200,48 @@ export function ChatViewWrapper() {
           timestamp: Date.now(),
         });
       },
+      // ADK Orchestration callbacks
+      onOrchestrationStart: (msg) => {
+        handleOrchStart(msg.pattern, msg.agents);
+      },
+      onAgentDelegation: (msg) => {
+        handleDelegation(msg.from_agent, msg.to_agent, msg.reason);
+      },
+      onAgentOutput: (msg, sessionId) => {
+        handleAgentOutput(msg.agent, msg.content, msg.is_final);
+        // Also stream content as tokens for chat display
+        if (sessionId && msg.content) {
+          tokenBatchRef.current += msg.content;
+          tokenBatchSessionRef.current = sessionId;
+          if (!flushTimerRef.current) {
+            flushTimerRef.current = setTimeout(() => {
+              flushTokens();
+              flushTimerRef.current = null;
+            }, TOKEN_BATCH_INTERVAL_MS);
+          }
+        }
+      },
+      onPipelineProgress: (msg) => {
+        handlePipelineProgress(msg.current_step, msg.total_steps, msg.current_agent);
+      },
+      onParallelStatus: (msg) => {
+        handleParallelStatus(msg.agents);
+      },
     }),
-    [addMessageToSession, flushTokens, scheduleBackgroundTitleGeneration],
+    [
+      addMessageToSession,
+      flushTokens,
+      scheduleBackgroundTitleGeneration,
+      handleOrchStart,
+      handleDelegation,
+      handleAgentOutput,
+      handlePipelineProgress,
+      handleParallelStatus,
+      handleOrchComplete,
+    ],
   );
 
-  const { status, streamingSessionId, connectionGaveUp, sendExecute, cancelStream, manualReconnect } =
+  const { status, streamingSessionId, connectionGaveUp, sendExecute, sendOrchestrate, cancelStream, manualReconnect } =
     useWebSocketChat(wsCallbacks);
 
   // Fallback: if WS never reaches 'connected' within 5s, switch to HTTP.
@@ -283,6 +335,48 @@ export function ChatViewWrapper() {
     [addMessageToSession, usingFallback, status, sendExecute, executeMutation, scheduleBackgroundTitleGeneration],
   );
 
+  const handleOrchestrate = useCallback(
+    (prompt: string, pattern: string) => {
+      // Auto-create session if none exists
+      if (!useViewStore.getState().currentSessionId) {
+        useViewStore.getState().createSession();
+        const sid = useViewStore.getState().currentSessionId;
+        if (sid) useViewStore.getState().openTab(sid);
+      }
+
+      const sessionId = useViewStore.getState().currentSessionId;
+      if (!sessionId) return;
+
+      const history = useViewStore.getState().chatHistory[sessionId];
+      if (!history || history.length === 0) {
+        needsTitleRef.current.add(sessionId);
+      }
+
+      addMessageToSession(sessionId, { role: 'user', content: prompt, timestamp: Date.now() });
+      setAgentActivity(EMPTY_ACTIVITY);
+      resetOrchestration();
+
+      // Add placeholder assistant message for streaming tokens
+      addMessageToSession(sessionId, {
+        role: 'assistant',
+        content: '',
+        timestamp: Date.now(),
+      });
+
+      if (!usingFallback && status === 'connected') {
+        sendOrchestrate(prompt, pattern, undefined, sessionId);
+      } else {
+        // Fallback: orchestration requires WS, show error
+        addMessageToSession(sessionId, {
+          role: 'assistant',
+          content: 'Orchestration requires WebSocket connection. Please wait for reconnection.',
+          timestamp: Date.now(),
+        });
+      }
+    },
+    [addMessageToSession, usingFallback, status, sendOrchestrate, resetOrchestration],
+  );
+
   const handleStop = useCallback(() => {
     if (!usingFallback) {
       cancelStream();
@@ -290,7 +384,8 @@ export function ChatViewWrapper() {
       setHttpStreamingSessionId(null);
       httpStreamingSessionIdRef.current = null;
     }
-  }, [usingFallback, cancelStream]);
+    resetOrchestration();
+  }, [usingFallback, cancelStream, resetOrchestration]);
 
   return (
     <>
@@ -309,8 +404,10 @@ export function ChatViewWrapper() {
       <LazyChatContainer
         isStreaming={isStreamingCurrentSession}
         onSubmit={handleSubmit}
+        onOrchestrate={handleOrchestrate}
         onStop={handleStop}
         agentActivity={agentActivity}
+        orchestration={orchestration}
       />
     </>
   );

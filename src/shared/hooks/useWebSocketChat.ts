@@ -12,8 +12,13 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
+  WsAgentDelegationMessage,
+  WsAgentOutputMessage,
   WsClientMessage,
   WsCompleteMessage,
+  WsOrchestrationStartMessage,
+  WsParallelStatusMessage,
+  WsPipelineProgressMessage,
   WsPlanMessage,
   WsServerMessage,
   WsStartMessage,
@@ -37,6 +42,12 @@ export interface WsCallbacks {
   onToolResult?: (msg: WsToolResultMessage, sessionId: string | null) => void;
   onComplete?: (msg: WsCompleteMessage, sessionId: string | null) => void;
   onError?: (message: string, sessionId: string | null) => void;
+  // ADK Orchestration callbacks
+  onOrchestrationStart?: (msg: WsOrchestrationStartMessage, sessionId: string | null) => void;
+  onAgentDelegation?: (msg: WsAgentDelegationMessage, sessionId: string | null) => void;
+  onAgentOutput?: (msg: WsAgentOutputMessage, sessionId: string | null) => void;
+  onPipelineProgress?: (msg: WsPipelineProgressMessage, sessionId: string | null) => void;
+  onParallelStatus?: (msg: WsParallelStatusMessage, sessionId: string | null) => void;
 }
 
 // ============================================================================
@@ -196,6 +207,27 @@ export function useWebSocketChat(callbacks: WsCallbacks) {
           }
           startHeartbeat();
           break;
+        // ADK Orchestration messages
+        case 'orchestration_start':
+          setIsStreaming(true);
+          isStreamingRef.current = true;
+          cbs.onOrchestrationStart?.(msg, sid);
+          break;
+        case 'agent_delegation':
+          cbs.onAgentDelegation?.(msg, sid);
+          break;
+        case 'agent_output':
+          cbs.onAgentOutput?.(msg, sid);
+          break;
+        case 'pipeline_progress':
+          cbs.onPipelineProgress?.(msg, sid);
+          break;
+        case 'parallel_status':
+          cbs.onParallelStatus?.(msg, sid);
+          break;
+        case 'heartbeat':
+          // Server heartbeat during long orchestration — reset timers
+          break;
       }
     };
 
@@ -261,6 +293,22 @@ export function useWebSocketChat(callbacks: WsCallbacks) {
     ws.send(JSON.stringify(msg));
   }, []);
 
+  const sendOrchestrate = useCallback((prompt: string, pattern: string, agents?: string[], session_id?: string) => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+
+    streamingSessionIdRef.current = session_id ?? null;
+
+    const msg: WsClientMessage = {
+      type: 'orchestrate',
+      prompt,
+      pattern,
+      ...(agents !== undefined && { agents }),
+      ...(session_id !== undefined && { session_id }),
+    };
+    ws.send(JSON.stringify(msg));
+  }, []);
+
   const cancelStream = useCallback(() => {
     const ws = wsRef.current;
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
@@ -279,5 +327,14 @@ export function useWebSocketChat(callbacks: WsCallbacks) {
     connect();
   }, [connect]);
 
-  return { status, isStreaming, streamingSessionId, connectionGaveUp, sendExecute, cancelStream, manualReconnect };
+  return {
+    status,
+    isStreaming,
+    streamingSessionId,
+    connectionGaveUp,
+    sendExecute,
+    sendOrchestrate,
+    cancelStream,
+    manualReconnect,
+  };
 }

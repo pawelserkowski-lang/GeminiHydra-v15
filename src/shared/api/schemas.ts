@@ -190,6 +190,61 @@ const wsPongMessageSchema = z.object({
   type: z.literal('pong'),
 });
 
+// ── ADK Orchestration messages ──────────────────────────────────────────
+
+const wsOrchestrationStartSchema = z.object({
+  type: z.literal('orchestration_start'),
+  pattern: z.string(),
+  agents: z.array(z.string()),
+});
+
+export type WsOrchestrationStartMessage = z.infer<typeof wsOrchestrationStartSchema>;
+
+const wsAgentDelegationSchema = z.object({
+  type: z.literal('agent_delegation'),
+  from_agent: z.string(),
+  to_agent: z.string(),
+  reason: z.string(),
+});
+
+export type WsAgentDelegationMessage = z.infer<typeof wsAgentDelegationSchema>;
+
+const wsAgentOutputSchema = z.object({
+  type: z.literal('agent_output'),
+  agent: z.string(),
+  content: z.string(),
+  is_final: z.boolean(),
+});
+
+export type WsAgentOutputMessage = z.infer<typeof wsAgentOutputSchema>;
+
+const wsPipelineProgressSchema = z.object({
+  type: z.literal('pipeline_progress'),
+  current_step: z.number(),
+  total_steps: z.number(),
+  current_agent: z.string(),
+  status: z.string(),
+});
+
+export type WsPipelineProgressMessage = z.infer<typeof wsPipelineProgressSchema>;
+
+const wsParallelStatusSchema = z.object({
+  type: z.literal('parallel_status'),
+  agents: z.array(
+    z.object({
+      agent: z.string(),
+      status: z.string(),
+      output_preview: z.string().optional().nullable(),
+    }),
+  ),
+});
+
+export type WsParallelStatusMessage = z.infer<typeof wsParallelStatusSchema>;
+
+const wsHeartbeatSchema = z.object({
+  type: z.literal('heartbeat'),
+});
+
 export const wsServerMessageSchema = z.discriminatedUnion('type', [
   wsStartMessageSchema,
   wsTokenMessageSchema,
@@ -199,6 +254,13 @@ export const wsServerMessageSchema = z.discriminatedUnion('type', [
   wsCompleteMessageSchema,
   wsErrorMessageSchema,
   wsPongMessageSchema,
+  // ADK Orchestration
+  wsOrchestrationStartSchema,
+  wsAgentDelegationSchema,
+  wsAgentOutputSchema,
+  wsPipelineProgressSchema,
+  wsParallelStatusSchema,
+  wsHeartbeatSchema,
 ]);
 
 export type WsServerMessage = z.infer<typeof wsServerMessageSchema>;
@@ -211,6 +273,14 @@ interface WsExecuteMessage {
   session_id?: string;
 }
 
+interface WsOrchestrateMessage {
+  type: 'orchestrate';
+  prompt: string;
+  pattern: string;
+  agents?: string[];
+  session_id?: string;
+}
+
 interface WsCancelMessage {
   type: 'cancel';
 }
@@ -219,7 +289,7 @@ interface WsPingMessage {
   type: 'ping';
 }
 
-export type WsClientMessage = WsExecuteMessage | WsCancelMessage | WsPingMessage;
+export type WsClientMessage = WsExecuteMessage | WsOrchestrateMessage | WsCancelMessage | WsPingMessage;
 
 // ============================================================================
 // SESSIONS
