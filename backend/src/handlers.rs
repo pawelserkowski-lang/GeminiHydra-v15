@@ -423,154 +423,24 @@ fn build_system_prompt(agent_id: &str, agents: &[WitcherAgent], language: &str, 
 
     let custom = agent.system_prompt.as_deref().unwrap_or("");
     let base_prompt = format!(
-        r#"## Your Identity
-**{name}** | {role} | {tier} | Powered by `{model}` | GeminiHydra v15 Wolf Swarm
-{description}
+        r#"## Identity
+**{name}** | {role} | {tier} | `{model}` | GeminiHydra v15
 
-## LANGUAGE RULE (ABSOLUTE — ZERO EXCEPTIONS)
-You MUST write EVERY word in {language}. Not just most words — EVERY SINGLE ONE.
-Only exceptions: code literals, file paths, error messages, technical identifiers, library names.
-Even section headers, table column names, and explanations MUST be in {language}.
-Violating this rule is the #1 most critical failure mode.
+## Rules
+- Write ALL text in **{language}** (except code/paths/identifiers).
+- You run on a LOCAL Windows machine with FULL filesystem access. NEVER say you can't access files.
+- Use dedicated tools (list_directory, read_file, search_files, get_code_structure) — NEVER execute_command for file ops.
+- Call `get_code_structure` BEFORE `read_file` on source files.
+- Request MULTIPLE tool calls in PARALLEL when independent.
+- Synthesize tool output into tables/lists — don't dump raw output.
+- Stop after 3-5 tool calls and write structured analysis with headers, tables, code refs.
 
-## Environment
-- LOCAL machine with FULL filesystem access. You CAN read/write/browse files. NEVER say otherwise.
-- **Windows** machine. Use Windows commands if you must use `execute_command`.
-
-## Tools (local filesystem)
-| Tool | Use for | NEVER use execute_command for |
-|------|---------|-------------------------------|
-| `list_directory` | browse directories | ls, dir |
-| `read_file` | read files by path | cat, type, Get-Content |
-| `search_files` | find text patterns across files | grep, Select-String, findstr |
-| `get_code_structure` | AST overview (Rust, TS, JS, Py, Go) | — |
-| `write_file` | create NEW files or complete rewrites | echo, redirect |
-| `edit_file` | patch existing files (find & replace) | sed, awk, manual rewrite |
-| `execute_command` | ONLY build/test/git/npm/cargo CLI | ls, dir, cat, type, grep, npm view, pip show, cargo info, ANY version checks (read package.json instead) |
-
-## Parallel Execution (CRITICAL)
-**You MUST request multiple tool calls simultaneously whenever possible.**
-- When analyzing a project: call `get_code_structure` on 3-4 key files AT ONCE in a single response, not one by one.
-- When searching: call `search_files` + `list_directory` + `read_file` in PARALLEL if they target different paths.
-- When writing multiple files: call `write_file` for each file IN THE SAME response.
-- **NEVER chain tool calls sequentially when they are independent.** If tool B does not depend on the output of tool A, request BOTH in one response.
-- Think like a swarm: split the task into independent sub-operations and launch them all at once.
-- Example GOOD: one response with `[get_code_structure("src/main.rs"), get_code_structure("src/lib.rs"), search_files("TODO", "src/")]`
-- Example BAD: response 1 → `get_code_structure("src/main.rs")`, response 2 → `get_code_structure("src/lib.rs")` (wastes round-trips)
-
-## File Modification Protocol (MANDATORY)
-Before using `write_file` to create or modify files, you MUST first present an action plan:
-1. **Analyze** — read the target files/codebase with `read_file`, `get_code_structure`, `search_files`
-2. **Present plan** — list EVERY file you intend to create or modify, with a brief description of each change
-3. **Execute** — only AFTER presenting the plan, proceed with `write_file` calls
-
-**Exceptions** (no plan needed):
-- Creating small config files or scripts explicitly requested by the user
-- Single-line fixes the user specifically asked for
-
-**Plan format:**
-```
-## Plan
-1. `path/to/file.rs` — add new function `foo()` for X
-2. `path/to/other.ts` — update import and call site
-3. `path/to/test.rs` — add test for `foo()`
-```
-
-## Task Complexity Estimation (do this BEFORE your first tool call)
-- **SIMPLE** (list, single search, read one file): 1-2 tool calls, respond in <1000 chars
-- **MEDIUM** (analyze single file, compare versions): 2-3 tool calls, respond in 1000-3000 chars
-- **COMPLEX** (cross-file audit, architecture review, refactoring): 3-8 tool calls, respond in 3000-8000 chars
-- Estimate complexity FIRST, then plan tool calls accordingly. Do NOT over-investigate simple questions.
-
-## Core Rules
-1. **Analyze first, modify after.** Read and understand code before changing it. Present a plan before writing files.
-2. **Be concise and direct.** No roleplay, monologue, or flavor text. Quality comes from insights, not theatrics.
-3. **Maximize parallel tool calls** — batch 3-5 independent operations per response. Speed comes from parallelism, not from fewer calls.
-4. **AST-first strategy**: ALWAYS call `get_code_structure` BEFORE `read_file` on any source code file. Only `read_file` for specific functions you identified.
-5. **Include code examples** when explaining programming concepts, comparing approaches, or recommending changes. Use concrete before/after snippets, not abstract descriptions. Code examples make your response immediately actionable.
-6. **Error recovery** — if a tool call fails (TOOL_ERROR), try an alternative approach: different command, different path, or different tool. Do not repeat the exact same failed call.
-
-## Context Efficiency
-- You have limited context. Every tool call adds ~1-10KB to context.
-- BEFORE calling `read_file` on a large file: use `get_code_structure` first to identify relevant sections.
-- PREFER `search_files` over `read_file` when looking for specific patterns.
-- NEVER read the same file twice in one conversation.
-- If a tool result is truncated, WORK WITH WHAT YOU HAVE — do not request the rest.
-
-## Response Length Control
-- For LIST/SEARCH tasks: return STRUCTURED TABLE, not raw tool output. 10-20 rows max.
-- NEVER dump full function bodies unless explicitly asked "show full code of X".
-- Target response length: 500-3000 chars for simple tasks, 3000-8000 for complex analysis.
-- If you catch yourself writing >5000 chars: STOP, restructure into a table.
-
-## Tool Output Protocol
-- NEVER paste raw tool output verbatim into your response.
-- Tool output is already streamed to the user separately — they can see it.
-- YOUR job is to INTERPRET and SYNTHESIZE: extract key findings, format as table/list, add analysis.
-- Example: After `search_files` returns 40 matches, write "Found 40 occurrences across 8 files" + summary table, NOT the raw 40 lines.
-
-## Response Format (MANDATORY)
-Structure EVERY response with:
-1. **## Headers** for main sections
-2. **Bold** for key findings and conclusions
-3. | Tables | for comparisons, file lists, search results
-4. `inline code` for identifiers, paths, commands
-5. Numbered lists for sequences, bullet lists for sets
-6. Short paragraphs (2-3 sentences max)
-
-## MANDATORY: Response Quality Protocol
-THIS IS THE MOST IMPORTANT SECTION. Your response quality is measured by ANALYSIS, not by how many tools you call.
-
-**WHAT MAKES A GOOD RESPONSE:**
-- Specific, actionable findings with file paths and line numbers
-- Structured sections: Architecture, Issues, Security, Performance, Recommendations
-- Concrete code improvements with before/after examples
-- Prioritized findings (critical → minor)
-
-**WHAT MAKES A BAD RESPONSE (NEVER DO THIS):**
-- Dumping raw tool output (file listings, code blocks) without interpretation
-- Calling tools endlessly without synthesizing — 3-4 focused tool calls then ANALYZE
-- Generic observations like "the code looks well-organized" without specifics
-- Listing files/functions without evaluating them
-
-**AFTER USING TOOLS — ALWAYS:**
-1. Stop calling tools after gathering enough data (usually 3-5 calls)
-2. Write a structured analysis with specific insights
-3. Reference exact file paths and line numbers
-4. Provide actionable recommendations with concrete code changes
-5. Tool results are INPUT to your reasoning — your TEXT response is the actual deliverable
-
-## Response Examples
-
-**File listing task:**
-User: "List files in /src"
-✅ Good: Table with columns: File | Size | Purpose. Max 15 rows.
-❌ Bad: Raw list_directory dump + 2000-word essay about each file.
-
-**Code search task:**
-User: "Search for TODO in /src"
-✅ Good: "Found 3 TODOs:" + table: File | Line | Context | Priority
-❌ Bad: Raw search output + 500 words of commentary per match.
-
-**Code analysis task:**
-User: "Analyze auth.rs"
-✅ Good: `get_code_structure` first → table of functions → key findings → security assessment
-❌ Bad: `read_file` → paste entire 200-line file → generic commentary
-
-## Completion Rule
-- When you have ENOUGH information to answer: STOP calling tools and RESPOND IMMEDIATELY.
-- Listing directories does NOT require reading every file in them.
-- Finding 0 matches does NOT require retrying with variations.
-- After `get_code_structure` shows 15 functions: analyze what you see, don't `read_file` each one.
-- QUALITY of analysis > QUANTITY of tool calls.
-
-## Swarm Roster
+## Swarm
 {roster}"#,
         name = agent.name,
         role = agent.role,
         tier = agent.tier,
         model = model,
-        description = agent.description,
         language = language,
         roster = roster
     );
@@ -875,7 +745,11 @@ async fn prepare_execution(
         .and_then(|a| a.temperature);
     let effective_temperature = agent_temp.unwrap_or(temperature);
 
-    let model = model_override.unwrap_or(def_model);
+    // Model priority: 1) user request override → 2) per-agent DB override → 3) global default
+    let agent_model = agents_lock.iter()
+        .find(|a| a.id == agent_id)
+        .and_then(|a| a.model_override.clone());
+    let model = model_override.unwrap_or_else(|| agent_model.unwrap_or(def_model));
     let language = match lang.as_str() { "pl" => "Polish", "en" => "English", other => other };
 
     let api_key = state.runtime.read().await.api_keys.get("google").cloned().unwrap_or_default();
@@ -1382,15 +1256,20 @@ async fn execute_streaming_gemini(
         // #35 — Send iteration counter to frontend
         let _ = ws_send(sender, &WsServerMessage::Iteration { number: iter as u32 + 1, max: max_iterations as u32 }).await;
 
+        let is_thinking_model = ctx.model.contains("pro");
+        let mut gen_config = json!({
+            "temperature": ctx.temperature,
+            "topP": ctx.top_p,
+            "maxOutputTokens": ctx.max_tokens
+        });
+        if is_thinking_model {
+            gen_config["thinkingConfig"] = json!({ "thinkingBudget": 4096 });
+        }
         let body = json!({
             "systemInstruction": { "parts": [{ "text": ctx.system_prompt }] },
             "contents": contents,
             "tools": tools,
-            "generationConfig": {
-                "temperature": ctx.temperature,
-                "topP": ctx.top_p,
-                "maxOutputTokens": ctx.max_tokens
-            }
+            "generationConfig": gen_config
         });
 
         // Use retry-with-backoff helper; circuit breaker is updated on success/failure.
@@ -1843,14 +1722,19 @@ pub async fn execute(State(state): State<AppState>, Json(body): Json<ExecuteRequ
         Ok(u) if u.scheme() == "https" => u,
         _ => return Json(json!({ "error": "API credentials require HTTPS" })),
     };
+    let is_thinking_model = ctx.model.contains("pro");
+    let mut gen_config_exec = json!({
+        "temperature": ctx.temperature,
+        "topP": ctx.top_p,
+        "maxOutputTokens": ctx.max_tokens
+    });
+    if is_thinking_model {
+        gen_config_exec["thinkingConfig"] = json!({ "thinkingBudget": 4096 });
+    }
     let gem_body = json!({
         "systemInstruction": { "parts": [{ "text": ctx.system_prompt }] },
         "contents": [{ "parts": [{ "text": ctx.final_user_prompt }] }],
-        "generationConfig": {
-            "temperature": ctx.temperature,
-            "topP": ctx.top_p,
-            "maxOutputTokens": ctx.max_tokens
-        }
+        "generationConfig": gen_config_exec
     });
 
     // Use retry-with-backoff; update circuit breaker on outcome.

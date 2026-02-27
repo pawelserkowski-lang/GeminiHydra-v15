@@ -76,6 +76,10 @@ pub struct WitcherAgent {
     #[serde(default)]
     #[sqlx(default)]
     pub temperature: Option<f64>,
+    /// Per-agent model override (NULL = use global default_model)
+    #[serde(default)]
+    #[sqlx(default)]
+    pub model_override: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
