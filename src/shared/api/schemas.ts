@@ -127,6 +127,34 @@ const settingsSchema = z
 export type Settings = z.infer<typeof settingsSchema>;
 
 // ============================================================================
+// OAUTH STATUS
+// ============================================================================
+
+export const oauthStatusSchema = z.object({
+  authenticated: z.boolean(),
+  expired: z.boolean().optional(),
+  expires_at: z.number().optional(),
+  scope: z.string().optional(),
+});
+
+export type OAuthStatus = z.infer<typeof oauthStatusSchema>;
+
+export const oauthLoginResponseSchema = z.object({
+  auth_url: z.string(),
+  state: z.string(),
+});
+
+export type OAuthLoginResponse = z.infer<typeof oauthLoginResponseSchema>;
+
+export const oauthCallbackResponseSchema = z.object({
+  status: z.string(),
+  authenticated: z.boolean(),
+  expires_at: z.number(),
+});
+
+export type OAuthCallbackResponse = z.infer<typeof oauthCallbackResponseSchema>;
+
+// ============================================================================
 // WEBSOCKET PROTOCOL
 // ============================================================================
 

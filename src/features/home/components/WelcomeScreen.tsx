@@ -14,6 +14,7 @@ import { useTranslation } from 'react-i18next';
 
 import { Badge, Button } from '@/components/atoms';
 import { HealthDashboard } from '@/features/health/components/HealthDashboard';
+import { OAuthBanner } from '@/features/settings/components/OAuthBanner';
 import { useViewTheme } from '@/shared/hooks/useViewTheme';
 import { cn } from '@/shared/utils/cn';
 import { type Session, useViewStore } from '@/stores/viewStore';
@@ -242,6 +243,9 @@ export const WelcomeScreen = memo(() => {
             </Button>
           </motion.div>
         </motion.div>
+
+        {/* ====== OAuth Banner ====== */}
+        <OAuthBanner />
 
         {/* ====== Recent Sessions ====== */}
         <AnimatePresence>

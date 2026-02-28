@@ -1,7 +1,8 @@
 {
   "nav": {
     "home": "Home",
-    "chat": "Chat"
+    "chat": "Chat",
+    "settings": "Settings"
   },
   "sidebar": {
     "groups": {
@@ -125,6 +126,40 @@
     "createAgent": "Create New Agent",
     "saveChanges": "Save Changes",
     "createAgentBtn": "Create Agent"
+  },
+  "settings": {
+    "title": "Settings",
+    "authSection": "Authentication"
+  },
+  "oauth": {
+    "title": "Anthropic OAuth (MAX Plan)",
+    "bannerTitle": "Connect with Claude MAX Plan",
+    "bannerDesc": "Get flat-rate API access with no per-token charges.",
+    "setupOAuth": "Set up OAuth",
+    "useApiKey": "Use API Key",
+    "connectWithClaude": "Connect with Claude",
+    "disconnect": "Disconnect",
+    "cancel": "Cancel",
+    "verify": "Verify",
+    "connected": "Connected",
+    "expired": "Token Expired",
+    "expiresAt": "Expires: {{date}}",
+    "scope": "Scope: {{scope}}",
+    "benefits": {
+      "flatRate": "Flat-rate API access (no per-token costs)",
+      "maxPlan": "Claude MAX Plan features included",
+      "autoRefresh": "Auto-refresh tokens (no manual key rotation)",
+      "securePkce": "Secure PKCE flow (no secrets in browser)"
+    },
+    "waitingTitle": "Waiting for authentication",
+    "waitingDesc": "Complete authentication on claude.ai, then paste the callback URL below.",
+    "callbackPlaceholder": "Paste callback URL here...",
+    "loginSuccess": "Successfully connected to Claude MAX Plan!",
+    "loginError": "Authentication failed. Please try again.",
+    "logoutSuccess": "Disconnected from Claude OAuth.",
+    "invalidUrl": "Invalid callback URL. Paste the full URL from the browser.",
+    "exchanging": "Exchanging tokens...",
+    "popupBlocked": "Popup blocked — click the link below to authenticate."
   },
   "memory": {
     "neuralNetwork": "Neural Network"

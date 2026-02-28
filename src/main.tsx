@@ -30,6 +30,7 @@ import './styles/globals.css';
 const LazyWelcomeScreen = lazy(() => import('@/features/home/components/WelcomeScreen'));
 const LazyAgentsView = lazy(() => import('@/features/agents/components/AgentsView'));
 const LazyKnowledgeGraphView = lazy(() => import('@/features/memory/components/KnowledgeGraphView'));
+const LazySettingsView = lazy(() => import('@/features/settings/components/SettingsView'));
 
 // ============================================================================
 // VIEW ROUTER
@@ -60,6 +61,14 @@ function ViewRouter() {
             fallback={<FeatureErrorFallback feature="Knowledge Graph" onRetry={() => window.location.reload()} />}
           >
             <LazyKnowledgeGraphView />
+          </ErrorBoundary>
+        );
+      case 'settings':
+        return (
+          <ErrorBoundary
+            fallback={<FeatureErrorFallback feature="Settings" onRetry={() => window.location.reload()} />}
+          >
+            <LazySettingsView />
           </ErrorBoundary>
         );
     }

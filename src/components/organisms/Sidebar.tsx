@@ -21,6 +21,7 @@ import {
   type LucideIcon,
   MessageSquare,
   Plus,
+  Settings,
   Sparkles,
   Swords,
   Trash2,
@@ -489,6 +490,7 @@ export function Sidebar() {
       items: [
         { id: 'home', icon: Home, label: t('nav.home', 'Start') },
         { id: 'chat', icon: MessageSquare, label: t('nav.chat', 'Chat') },
+        { id: 'settings', icon: Settings, label: t('nav.settings', 'Settings') },
       ],
     },
   ];
