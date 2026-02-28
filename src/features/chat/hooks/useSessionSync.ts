@@ -30,6 +30,7 @@ export function useSessionSync() {
   const updateSessionTitleLocal = useViewStore((s) => s.updateSessionTitle);
   const selectSession = useViewStore((s) => s.selectSession);
   const hydrateSessions = useViewStore((s) => s.hydrateSessions);
+  const syncWorkingDirectories = useViewStore((s) => s.syncWorkingDirectories);
 
   const { data: dbSessions, isSuccess: dbLoaded } = useSessionsQuery();
 
@@ -61,6 +62,16 @@ export function useSessionSync() {
       localStorage.setItem(MIGRATION_FLAG, 'true');
     }
   }, [dbLoaded, dbSessions, sessions.length, hydrateSessions]);
+
+  // Sync workingDirectory from DB on every load (DB is source of truth)
+  useEffect(() => {
+    if (!dbLoaded || !dbSessions) return;
+    const dirs = dbSessions.map((s) => ({
+      id: s.id,
+      workingDirectory: s.working_directory ?? '',
+    }));
+    syncWorkingDirectories(dirs);
+  }, [dbLoaded, dbSessions, syncWorkingDirectories]);
 
   /**
    * Optimistic session creation (#16).

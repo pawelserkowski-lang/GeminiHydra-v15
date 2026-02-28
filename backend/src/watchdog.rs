@@ -83,9 +83,12 @@ async fn check_and_refresh_cache(state: &AppState) -> bool {
         .await;
 
         match refresh_result {
-            Ok(models) => {
+            Ok((models, errors)) => {
                 let total: usize = models.values().map(|v| v.len()).sum();
                 tracing::info!("watchdog: cache refreshed — {} models from {} providers", total, models.len());
+                for err in &errors {
+                    tracing::warn!("watchdog: provider fetch error: {}", err);
+                }
             }
             Err(_) => {
                 tracing::error!("watchdog: cache refresh timed out after 30s");

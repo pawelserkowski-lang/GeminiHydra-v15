@@ -2195,7 +2195,7 @@ pub async fn list_files(Json(body): Json<FileListRequest>) -> Json<Value> {
 //  Native folder dialog — Jaskier Shared Pattern
 // ═══════════════════════════════════════════════════════════════════════
 
-/// Opens a native Windows `FolderBrowserDialog` via PowerShell temp script.
+/// Opens a modern Windows Explorer folder picker via PowerShell COM interop.
 /// Returns the selected path or `{ "cancelled": true }` if user closed the dialog.
 pub async fn browse_directory(Json(body): Json<Value>) -> Json<Value> {
     let initial = body
@@ -2203,31 +2203,117 @@ pub async fn browse_directory(Json(body): Json<Value>) -> Json<Value> {
         .and_then(|v| v.as_str())
         .unwrap_or("");
 
-    // Write a temp .ps1 file — avoids all escaping issues with inline -Command
+    // Modern Explorer-style folder picker using Shell.Application COM object.
+    // Falls back to FolderBrowserDialog on older Windows versions.
     let script = format!(
         r#"Add-Type -AssemblyName System.Windows.Forms
 [System.Windows.Forms.Application]::EnableVisualStyles()
-$owner = New-Object System.Windows.Forms.Form
-$owner.TopMost = $true
-$owner.ShowInTaskbar = $false
-$owner.Size = New-Object System.Drawing.Size(0,0)
-$owner.StartPosition = 'Manual'
-$owner.Location = New-Object System.Drawing.Point(-9999,-9999)
-$owner.Show()
-$owner.BringToFront()
-$owner.Activate()
-$f = New-Object System.Windows.Forms.FolderBrowserDialog
-$f.Description = "Select Working Directory"
-$f.ShowNewFolderButton = $true
-{initial_line}
-if ($f.ShowDialog($owner) -eq "OK") {{
-    Write-Host $f.SelectedPath
-}} else {{
-    Write-Host "__CANCELLED__"
+try {{
+    # Modern CommonOpenFileDialog (Windows Vista+)
+    [void][System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms')
+    $src = @"
+using System;
+using System.Runtime.InteropServices;
+
+[ComImport, Guid("DC1C5A9C-E88A-4DDE-A5A1-60F82A20AEF7")]
+internal class FileOpenDialogCOM {{ }}
+
+[ComImport, Guid("42F85136-DB7E-439C-85F1-E4075D135FC8"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+internal interface IFileOpenDialog {{
+    [PreserveSig] int Show(IntPtr hwndOwner);
+    void SetFileTypes();
+    void SetFileTypeIndex();
+    void GetFileTypeIndex();
+    void Advise();
+    void Unadvise();
+    void SetOptions(uint fos);
+    void GetOptions(out uint fos);
+    void SetDefaultFolder(IShellItem psi);
+    void SetFolder(IShellItem psi);
+    void GetFolder(out IShellItem ppsi);
+    void GetCurrentSelection(out IShellItem ppsi);
+    void SetFileName([MarshalAs(UnmanagedType.LPWStr)] string pszName);
+    void GetFileName();
+    void SetTitle([MarshalAs(UnmanagedType.LPWStr)] string pszTitle);
+    void SetOkButtonLabel();
+    void SetFileNameLabel();
+    void GetResult(out IShellItem ppsi);
+    void AddPlace();
+    void SetDefaultExtension();
+    void Close();
+    void SetClientGuid();
+    void ClearClientData();
+    void SetFilter();
+    void GetResults();
+    void GetSelectedItems();
 }}
-$owner.Dispose()
+
+[ComImport, Guid("43826D1E-E718-42EE-BC55-A1E261C37BFE"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+internal interface IShellItem {{
+    void BindToHandler();
+    void GetParent();
+    void GetDisplayName(uint sigdnName, [MarshalAs(UnmanagedType.LPWStr)] out string ppszName);
+    void GetAttributes();
+    void Compare();
+}}
+
+public class FolderPicker {{
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode, PreserveSig = false)]
+    static extern void SHCreateItemFromParsingName(
+        [MarshalAs(UnmanagedType.LPWStr)] string pszPath,
+        IntPtr pbc,
+        [MarshalAs(UnmanagedType.LPStruct)] Guid riid,
+        [MarshalAs(UnmanagedType.Interface)] out IShellItem ppv);
+
+    const uint FOS_PICKFOLDERS = 0x20;
+    const uint FOS_FORCEFILESYSTEM = 0x40;
+    static readonly Guid IShellItemGuid = new Guid("43826D1E-E718-42EE-BC55-A1E261C37BFE");
+
+    public static string Show(string initialPath) {{
+        var dlg = (IFileOpenDialog)new FileOpenDialogCOM();
+        dlg.SetTitle("Select Working Directory");
+        dlg.SetOptions(FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM);
+        if (!string.IsNullOrEmpty(initialPath) && System.IO.Directory.Exists(initialPath)) {{
+            IShellItem folder;
+            SHCreateItemFromParsingName(initialPath, IntPtr.Zero, IShellItemGuid, out folder);
+            dlg.SetFolder(folder);
+        }}
+        int hr = dlg.Show(IntPtr.Zero);
+        if (hr != 0) return "__CANCELLED__";
+        IShellItem result;
+        dlg.GetResult(out result);
+        string path;
+        result.GetDisplayName(0x80058000, out path);
+        return path;
+    }}
+}}
+"@
+    Add-Type -TypeDefinition $src -Language CSharp -ErrorAction Stop
+    $result = [FolderPicker]::Show("{initial_path}")
+    Write-Host $result
+}} catch {{
+    # Fallback: classic FolderBrowserDialog
+    $f = New-Object System.Windows.Forms.FolderBrowserDialog
+    $f.Description = "Select Working Directory"
+    $f.ShowNewFolderButton = $true
+    {initial_line_fallback}
+    $owner = New-Object System.Windows.Forms.Form
+    $owner.TopMost = $true
+    $owner.ShowInTaskbar = $false
+    $owner.Size = New-Object System.Drawing.Size(0,0)
+    $owner.StartPosition = 'Manual'
+    $owner.Location = New-Object System.Drawing.Point(-9999,-9999)
+    $owner.Show()
+    if ($f.ShowDialog($owner) -eq "OK") {{
+        Write-Host $f.SelectedPath
+    }} else {{
+        Write-Host "__CANCELLED__"
+    }}
+    $owner.Dispose()
+}}
 "#,
-        initial_line = if initial.is_empty() {
+        initial_path = initial.replace('\\', "\\\\").replace('"', "`\""),
+        initial_line_fallback = if initial.is_empty() {
             String::new()
         } else {
             format!(

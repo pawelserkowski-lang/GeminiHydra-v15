@@ -157,6 +157,7 @@
     "methodApiKey": "Klucz API",
     "methodOAuth": "Google OAuth",
     "methodEnv": "Zmienna środowiskowa",
+    "upgradeToOAuth": "Zaloguj się kontem Google, aby używać planu zamiast klucza API:",
     "disconnect": "Rozłącz",
     "changeKey": "Zmień klucz",
     "cancel": "Anuluj",

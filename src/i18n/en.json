@@ -157,6 +157,7 @@
     "methodApiKey": "API Key",
     "methodOAuth": "Google OAuth",
     "methodEnv": "Environment Variable",
+    "upgradeToOAuth": "Sign in with your Google account to use your plan instead of the API key:",
     "disconnect": "Disconnect",
     "changeKey": "Change Key",
     "cancel": "Cancel",

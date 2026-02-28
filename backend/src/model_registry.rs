@@ -207,19 +207,57 @@ async fn fetch_anthropic_models(
 
 // ── Refresh cache ────────────────────────────────────────────────────────────
 
-pub async fn refresh_cache(state: &AppState) -> HashMap<String, Vec<ModelInfo>> {
+pub async fn refresh_cache(state: &AppState) -> (HashMap<String, Vec<ModelInfo>>, Vec<String>) {
     let mut all_models: HashMap<String, Vec<ModelInfo>> = HashMap::new();
+    let mut errors: Vec<String> = Vec::new();
 
-    if let Some((key, is_oauth)) = crate::oauth::get_google_credential(state).await {
-        match fetch_google_models(&state.client, &key, is_oauth).await {
+    // Google — use OAuth or API key credential, with automatic fallback
+    if let Some((cred, is_oauth)) = crate::oauth::get_google_credential(state).await {
+        match fetch_google_models(&state.client, &cred, is_oauth).await {
             Ok(models) => {
                 tracing::info!("model_registry: fetched {} Google models", models.len());
                 all_models.insert("google".to_string(), models);
             }
-            Err(e) => tracing::warn!("model_registry: Google fetch failed: {}", e),
+            Err(e) => {
+                tracing::warn!("model_registry: Google fetch failed: {}", e);
+                // If OAuth was used and failed, mark it invalid and try API key
+                if is_oauth {
+                    crate::oauth::mark_oauth_gemini_invalid(state);
+                    tracing::info!("model_registry: OAuth failed, trying API key fallback");
+                    if let Some((fallback_cred, fallback_is_oauth)) =
+                        crate::oauth::get_google_api_key_credential(state).await
+                    {
+                        match fetch_google_models(
+                            &state.client,
+                            &fallback_cred,
+                            fallback_is_oauth,
+                        )
+                        .await
+                        {
+                            Ok(models) => {
+                                tracing::info!(
+                                    "model_registry: fallback OK — fetched {} Google models via API key",
+                                    models.len()
+                                );
+                                all_models.insert("google".to_string(), models);
+                            }
+                            Err(e2) => {
+                                tracing::warn!("model_registry: API key fallback also failed: {}", e2);
+                                errors.push(format!("google (oauth): {}", e));
+                                errors.push(format!("google (api_key): {}", e2));
+                            }
+                        }
+                    } else {
+                        errors.push(format!("google: {} (no API key fallback available)", e));
+                    }
+                } else {
+                    errors.push(format!("google: {}", e));
+                }
+            }
         }
     }
 
+    // Anthropic
     {
         let rt = state.runtime.read().await;
         if let Some(key) = rt.api_keys.get("anthropic") {
@@ -228,7 +266,10 @@ pub async fn refresh_cache(state: &AppState) -> HashMap<String, Vec<ModelInfo>> 
                     tracing::info!("model_registry: fetched {} Anthropic models", models.len());
                     all_models.insert("anthropic".to_string(), models);
                 }
-                Err(e) => tracing::warn!("model_registry: Anthropic fetch failed: {}", e),
+                Err(e) => {
+                    tracing::warn!("model_registry: Anthropic fetch failed: {}", e);
+                    errors.push(format!("anthropic: {}", e));
+                }
             }
         }
     }
@@ -237,7 +278,7 @@ pub async fn refresh_cache(state: &AppState) -> HashMap<String, Vec<ModelInfo>> 
     cache.models = all_models.clone();
     cache.fetched_at = Some(Instant::now());
 
-    all_models
+    (all_models, errors)
 }
 
 // ── Model selection ──────────────────────────────────────────────────────────
@@ -300,7 +341,7 @@ pub async fn resolve_models(state: &AppState) -> ResolvedModels {
         let cache = state.model_cache.read().await;
         if cache.is_stale() {
             drop(cache);
-            refresh_cache(state).await;
+            let _ = refresh_cache(state).await;
         }
     }
 
@@ -391,9 +432,12 @@ async fn get_pins_map(state: &AppState) -> HashMap<String, String> {
 pub async fn startup_sync(state: &AppState) {
     tracing::info!("model_registry: fetching models at startup…");
 
-    let models = refresh_cache(state).await;
+    let (models, startup_errors) = refresh_cache(state).await;
     let total: usize = models.values().map(|v| v.len()).sum();
     tracing::info!("model_registry: {} models cached from {} providers", total, models.len());
+    for err in &startup_errors {
+        tracing::warn!("model_registry: startup fetch error: {}", err);
+    }
 
     let resolved = resolve_models(state).await;
 
@@ -465,13 +509,13 @@ pub async fn list_models(State(state): State<AppState>) -> impl IntoResponse {
     responses((status = 200, description = "Refreshed model cache", body = Value))
 )]
 pub async fn refresh_models(State(state): State<AppState>) -> Json<Value> {
-    let models = refresh_cache(&state).await;
+    let (models, errors) = refresh_cache(&state).await;
     let resolved = resolve_models(&state).await;
     let pins = get_pins_map(&state).await;
 
     let total: usize = models.values().map(|v| v.len()).sum();
 
-    Json(json!({
+    let mut resp = json!({
         "refreshed": true,
         "total_models": total,
         "pins": pins,
@@ -480,7 +524,11 @@ pub async fn refresh_models(State(state): State<AppState>) -> Json<Value> {
             "thinking": resolved.thinking,
             "image": resolved.image,
         }
-    }))
+    });
+    if !errors.is_empty() {
+        resp["errors"] = json!(errors);
+    }
+    Json(resp)
 }
 
 /// POST /api/models/pin — Pin a specific model to a use case

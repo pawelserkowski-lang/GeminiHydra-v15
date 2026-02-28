@@ -181,6 +181,10 @@ pub struct AppState {
     pub prompt_cache: Arc<RwLock<HashMap<String, String>>>,
     /// A2A — cancellation tokens for running tasks (task_id → token).
     pub a2a_cancel_tokens: Arc<RwLock<HashMap<String, CancellationToken>>>,
+    /// `false` when OAuth token was rejected by Gemini API (401/403).
+    /// Causes credential resolution to skip OAuth and use API key.
+    /// Reset to `true` on new OAuth login.
+    pub oauth_gemini_valid: Arc<AtomicBool>,
 }
 
 // ── Shared: readiness helpers ───────────────────────────────────────────────
@@ -272,6 +276,7 @@ impl AppState {
             gemini_circuit: Arc::new(CircuitBreaker::new("gemini")),
             prompt_cache: Arc::new(RwLock::new(HashMap::new())),
             a2a_cancel_tokens: Arc::new(RwLock::new(HashMap::new())),
+            oauth_gemini_valid: Arc::new(AtomicBool::new(true)),
         }
     }
 

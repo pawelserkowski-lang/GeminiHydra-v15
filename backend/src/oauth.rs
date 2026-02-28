@@ -96,7 +96,7 @@ pub(crate) fn decrypt_token(stored: &str) -> Result<String, String> {
 const GOOGLE_AUTHORIZE_URL: &str = "https://accounts.google.com/o/oauth2/v2/auth";
 const GOOGLE_TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
 const GOOGLE_USERINFO_URL: &str = "https://www.googleapis.com/oauth2/v2/userinfo";
-const SCOPE: &str = "https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile";
+const SCOPE: &str = "https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/generative-language.retriever https://www.googleapis.com/auth/generative-language.tuning https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile";
 const TOKEN_EXPIRY_BUFFER_SECS: i64 = 300;
 
 /// Read Google OAuth client credentials from env vars.
@@ -372,8 +372,9 @@ pub async fn google_redirect(
         return Html("Failed to store tokens".to_string());
     }
 
-    // Clear PKCE state
+    // Clear PKCE state and reset OAuth validity flag
     *state.oauth_pkce.write().await = None;
+    mark_oauth_gemini_valid(&state);
 
     tracing::info!("Google OAuth login successful for {}", user_email);
 
@@ -503,8 +504,11 @@ pub async fn auth_logout(State(state): State<AppState>) -> Json<Value> {
 pub async fn get_google_credential(state: &AppState) -> Option<(String, bool)> {
     // 1. Check DB
     if let Some(row) = get_auth_row(state).await {
-        // OAuth token
-        if row.auth_method == "oauth" && !row.access_token.is_empty() {
+        // OAuth token — skip if previously rejected by Gemini API
+        let oauth_valid = state
+            .oauth_gemini_valid
+            .load(std::sync::atomic::Ordering::Relaxed);
+        if row.auth_method == "oauth" && !row.access_token.is_empty() && oauth_valid {
             let now = chrono::Utc::now().timestamp();
 
             // Decrypt access token
@@ -529,6 +533,10 @@ pub async fn get_google_credential(state: &AppState) -> Option<(String, bool)> {
 
             // Refresh failed — fall through to API key
             tracing::warn!("OAuth token expired and refresh failed, trying API key fallback");
+        } else if !oauth_valid {
+            tracing::debug!(
+                "Skipping OAuth token — marked invalid for Gemini API, using API key"
+            );
         }
 
         // DB API key
@@ -538,6 +546,33 @@ pub async fn get_google_credential(state: &AppState) -> Option<(String, bool)> {
     }
 
     // 3. Env var fallback
+    try_env_key(state)
+}
+
+/// Mark OAuth as invalid for Gemini API calls (after 401/403 from Google).
+/// All subsequent calls to `get_google_credential` will skip OAuth and use API key.
+pub fn mark_oauth_gemini_invalid(state: &AppState) {
+    state
+        .oauth_gemini_valid
+        .store(false, std::sync::atomic::Ordering::Relaxed);
+    tracing::warn!("OAuth token marked as invalid for Gemini API — using API key fallback");
+}
+
+/// Reset OAuth validity flag (called on new OAuth login).
+pub fn mark_oauth_gemini_valid(state: &AppState) {
+    state
+        .oauth_gemini_valid
+        .store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Get Google credential skipping OAuth — only DB API key or env var.
+/// Used as fallback when OAuth token is rejected by Google API (401/403).
+pub async fn get_google_api_key_credential(state: &AppState) -> Option<(String, bool)> {
+    if let Some(row) = get_auth_row(state).await {
+        if let Some(pair) = try_db_api_key(state, &row).await {
+            return Some(pair);
+        }
+    }
     try_env_key(state)
 }
 

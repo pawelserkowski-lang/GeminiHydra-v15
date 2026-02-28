@@ -26,24 +26,24 @@
 - Stack: Rust + Axum 0.8 + SQLx + PostgreSQL 17 (pgvector)
 - Route syntax: `{id}` (NOT `:id` — axum 0.8 breaking change)
 - Entry point: `backend/src/lib.rs` → `create_router()` builds all API routes
-- Key modules: `handlers.rs` (system prompt + tool defs), `state.rs` (AppState), `sessions.rs`, `tools.rs`, `files.rs`, `analysis.rs` (tree-sitter code analysis), `model_registry.rs` (auto-fetches models from providers at startup, selects best chat/thinking/image model), `oauth.rs` (Anthropic OAuth PKCE flow)
+- Key modules: `handlers.rs` (system prompt + tool defs), `state.rs` (AppState), `sessions.rs`, `tools/` (mod.rs + fs_tools.rs + pdf_tools.rs + zip_tools.rs + image_tools.rs + git_tools.rs + github_tools.rs + vercel_tools.rs + fly_tools.rs), `files.rs`, `analysis.rs` (tree-sitter code analysis), `model_registry.rs` (auto-fetches models from providers at startup, selects best chat/thinking/image model), `oauth.rs` (Anthropic OAuth PKCE), `oauth_google.rs` (Google OAuth PKCE + API key), `oauth_github.rs` (GitHub OAuth), `oauth_vercel.rs` (Vercel OAuth), `service_tokens.rs` (Fly.io PAT), `mcp/` (client.rs + server.rs + config.rs), `a2a.rs` (A2A v0.3 protocol)
 - DB: `geminihydra` on localhost:5432 (user: gemini, pass: gemini_local)
-- Tables: gh_settings, gh_chat_messages, gh_sessions, gh_memories, gh_knowledge_nodes, gh_knowledge_edges, gh_agents, gh_rag_documents, gh_rag_chunks, gh_model_pins, gh_oauth_tokens
+- Tables: gh_settings, gh_chat_messages, gh_sessions, gh_memories, gh_knowledge_nodes, gh_knowledge_edges, gh_agents, gh_rag_documents, gh_rag_chunks, gh_model_pins, gh_oauth_tokens, gh_google_auth, gh_oauth_github, gh_oauth_vercel, gh_service_tokens, gh_mcp_servers, gh_mcp_discovered_tools, gh_a2a_tasks, gh_a2a_messages, gh_a2a_artifacts
 
 ## Backend Local Dev
 - Wymaga Docker Desktop (PostgreSQL container)
 - Image: `pgvector/pgvector:pg16` (NOT standard postgres — pgvector extension required for embeddings locally)
 - Start: `docker run -d --name geminihydra-pg -e POSTGRES_USER=gemini -e POSTGRES_PASSWORD=gemini_local -e POSTGRES_DB=geminihydra -p 5432:5432 pgvector/pgvector:pg16`
 - Backend: `DATABASE_URL="postgresql://gemini:gemini_local@localhost:5432/geminihydra" cargo run --release`
-- Env vars: `DATABASE_URL` (required), `GOOGLE_API_KEY` or `GEMINI_API_KEY`, `ANTHROPIC_API_KEY` (optional), `PORT` (default 8081)
+- Env vars: `DATABASE_URL` (required), `GOOGLE_API_KEY` or `GEMINI_API_KEY`, `ANTHROPIC_API_KEY` (optional), `GOOGLE_OAUTH_CLIENT_ID` + `GOOGLE_OAUTH_CLIENT_SECRET` (optional — enables Google OAuth button), `GITHUB_CLIENT_ID` + `GITHUB_CLIENT_SECRET` (optional), `VERCEL_CLIENT_ID` + `VERCEL_CLIENT_SECRET` (optional), `PORT` (default 8081)
 
 ## Fly.io Deploy
 - App: `geminihydra-v15-backend` | Region: `arn` | VM: shared-cpu-1x 256MB
 - Deploy: `cd backend && fly deploy`
-- Dockerfile: multi-stage (rust:1.93-bookworm builder → debian:bookworm-slim runtime, 32MB image)
+- Dockerfile: multi-stage (rust builder → debian:trixie-slim runtime)
 - DB: Fly Postgres `jaskier-db` → database `geminihydra_v15_backend` (NOT `geminihydra`!)
 - Shared DB cluster `jaskier-db` hosts: geminihydra_v15_backend, claudehydra_v4_backend, tissaia_v4_backend
-- Secrets: `DATABASE_URL`, `GOOGLE_API_KEY` (set via `fly secrets set`)
+- Secrets: `DATABASE_URL`, `GOOGLE_API_KEY`, `ANTHROPIC_API_KEY`, `AUTH_SECRET` (set via `fly secrets set`)
 - auto_stop_machines=stop, auto_start_machines=true, min_machines=0 (scales to zero)
 - Connect to prod DB: `fly pg connect -a jaskier-db -d geminihydra_v15_backend`
 - Logs: `fly logs --no-tail` or `fly logs`
@@ -89,7 +89,23 @@
 - API endpoints: `GET /api/auth/status`, `POST /api/auth/login`, `POST /api/auth/callback`, `POST /api/auth/logout`
 - Frontend: `src/features/settings/components/OAuthSection.tsx` — 3-step PKCE flow (idle → waiting_code → exchanging)
 - Integrated in `SettingsView.tsx` as "Authentication" Card section
-- Cargo deps added: `sha2`, `base64`, `rand`, `url`
+- Cargo deps: `sha2`, `base64`, `rand`, `url`
+
+## OAuth / Authentication (Google OAuth PKCE + API Key)
+- Backend module: `backend/src/oauth_google.rs` — Google OAuth 2.0 redirect-based PKCE flow + API key management
+- DB table: `gh_google_auth` (singleton row, id=1 CHECK) — stores auth_method, access_token, refresh_token, expires_at, api_key_encrypted, user_email, user_name
+- `get_google_credential(state)` → credential resolution: DB OAuth token → DB API key → env var (`GOOGLE_API_KEY`/`GEMINI_API_KEY`)
+- `apply_google_auth(builder, credential, is_oauth)` — sets `Authorization: Bearer` (OAuth) or `x-goog-api-key` (API key)
+- API endpoints: `GET /api/auth/status` (includes `oauth_available`), `POST /api/auth/login`, `GET /api/auth/google/redirect`, `POST /api/auth/logout`, `POST/DELETE /api/auth/apikey`
+- Env vars: `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET` (optional — OAuth button hidden if not set)
+- Google Cloud Console: app "Jaskier", redirect URI: `http://localhost:8081/api/auth/google/redirect`
+- Frontend: `OAuthSection.tsx` + `useAuthStatus.ts` — polling-based (2s interval during OAuth pending), API key input + Google OAuth button
+
+## OAuth — GitHub + Vercel + Fly.io
+- `oauth_github.rs` — GitHub OAuth code exchange, DB table `gh_oauth_github`, endpoints `/api/auth/github/*`
+- `oauth_vercel.rs` — Vercel OAuth code exchange, DB table `gh_oauth_vercel`, endpoints `/api/auth/vercel/*`
+- `service_tokens.rs` — encrypted PAT storage (AES-256-GCM), DB table `gh_service_tokens`, endpoints `/api/tokens`
+- Used by: `github_tools.rs`, `vercel_tools.rs`, `fly_tools.rs`
 
 ## Agent System Prompt
 - Defined in `backend/src/handlers.rs` → `build_system_prompt()`
@@ -99,11 +115,16 @@
 - Without "Local Machine Access" section, Gemini models default to "I can't access your files"
 - Without "Tool Selection Rules", Gemini wastes iterations using `execute_command` with Linux commands on Windows
 
-## Agent Tools (all tested & working)
-- `read_file` — reads local files by absolute path
-- `write_file` — creates/overwrites local files
-- `list_directory` — lists directory contents with sizes
-- `execute_command` — runs shell commands (build, test, git, etc.), 30s timeout, cmd.exe shell (NOT PowerShell)
+## Agent Tools (31+ tools, all tested & working)
+- **Filesystem** (fs_tools.rs): `list_directory`, `read_file`, `search_files`, `get_code_structure`, `write_file`, `edit_file`, `read_file_section`, `find_file`, `diff_files`, `execute_command` (LAST RESORT, cmd.exe, 30s timeout)
+- **PDF/ZIP** (pdf_tools.rs, zip_tools.rs): `read_pdf`, `list_zip`, `extract_zip_file`
+- **Image** (image_tools.rs): `analyze_image` (Gemini Vision API)
+- **Git** (git_tools.rs): `git_status`, `git_log`, `git_diff`, `git_branch`, `git_commit` (NO push)
+- **GitHub** (github_tools.rs): `github_list_repos`, `github_get_repo`, `github_list_issues`, `github_get_issue`, `github_create_issue`, `github_create_pr`
+- **Vercel** (vercel_tools.rs): `vercel_list_projects`, `vercel_deploy`, `vercel_get_deployment`
+- **Fly.io** (fly_tools.rs): `fly_list_apps`, `fly_get_status`, `fly_get_logs` (read-only)
+- **A2A** (a2a.rs): `call_agent` — inter-agent delegation via A2A v0.3 protocol
+- **MCP proxy**: `mcp_{server}_{tool}` — routed via `state.mcp_client.call_tool()`
 
 ## Tree-sitter (Code Analysis)
 - tree-sitter v0.24+ with streaming-iterator crate
@@ -127,6 +148,12 @@
 - Removed 18 files, -380 lines of unused code
 - Deleted: useHistory.ts (4 hooks), useGeminiModelsQuery, useClassifyMutation, useExecuteMutation, useFileListMutation, useHealthQuery, useSessionQuery, clearHistory action, selectCurrentMessages/selectSortedSessions/selectMessageCount selectors, DataSkeleton component, 6 barrel index.ts files, empty workers/ dir
 - Schema types made private: fileEntrySchema, geminiModelSchema, historyMessageSchema, memoryEntrySchema, knowledgeNodeSchema, knowledgeEdgeSchema
+
+## Workspace CLAUDE.md (canonical reference)
+- Full Jaskier ecosystem docs: `C:\Users\BIURODOM\Desktop\ClaudeDesktop\CLAUDE.md`
+- Covers: shared patterns, cross-project conventions, backend safety rules, OAuth details, MCP, A2A, ONNX pipeline, fly.io infra
+- This file is a project-scoped summary; workspace CLAUDE.md is the source of truth
+- Last synced: 2026-02-28 (F20)
 
 ## Knowledge Base (SQLite)
 - Plik: `C:\Users\BIURODOM\Desktop\ClaudeDesktop\jaskier_knowledge.db`

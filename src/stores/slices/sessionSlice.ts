@@ -12,6 +12,7 @@ export interface SessionSlice {
   selectSession: (id: string) => void;
   updateSessionTitle: (id: string, title: string) => void;
   setSessionWorkingDirectory: (id: string, wd: string) => void;
+  syncWorkingDirectories: (dirs: Array<{ id: string; workingDirectory: string }>) => void;
   hydrateSessions: (sessions: Session[]) => void;
 }
 
@@ -115,6 +116,21 @@ export const createSessionSlice: StateCreator<ViewStoreState, [], [], SessionSli
     set((state) => ({
       sessions: state.sessions.map((s) => (s.id === id ? { ...s, workingDirectory: wd } : s)),
     })),
+
+  syncWorkingDirectories: (dirs) =>
+    set((state) => {
+      const dirMap = new Map(dirs.map((d) => [d.id, d.workingDirectory]));
+      let changed = false;
+      const sessions = state.sessions.map((s) => {
+        const dbWd = dirMap.get(s.id);
+        if (dbWd !== undefined && dbWd !== (s.workingDirectory ?? '')) {
+          changed = true;
+          return { ...s, workingDirectory: dbWd };
+        }
+        return s;
+      });
+      return changed ? { sessions } : state;
+    }),
 
   hydrateSessions: (dbSessions) =>
     set((state) => {

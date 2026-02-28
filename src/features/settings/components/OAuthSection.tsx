@@ -67,9 +67,33 @@ export const OAuthSection = memo(() => {
               </p>
             )}
 
-            <Button variant="danger" size="sm" leftIcon={<LogOut size={14} />} onClick={logout} isLoading={isMutating}>
-              {t('auth.disconnect')}
-            </Button>
+            {authMethod !== 'env' && (
+              <Button
+                variant="danger"
+                size="sm"
+                leftIcon={<LogOut size={14} />}
+                onClick={logout}
+                isLoading={isMutating}
+              >
+                {t('auth.disconnect')}
+              </Button>
+            )}
+
+            {/* Allow upgrading from env var to OAuth */}
+            {authMethod === 'env' && status?.oauth_available && (
+              <div className="space-y-2 pt-2 border-t border-white/10">
+                <p className={cn('text-xs', theme.textMuted)}>{t('auth.upgradeToOAuth')}</p>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  leftIcon={<Chrome size={14} />}
+                  onClick={login}
+                  isLoading={isMutating}
+                >
+                  {t('auth.signInWithGoogle')}
+                </Button>
+              </div>
+            )}
           </motion.div>
         )}
 
