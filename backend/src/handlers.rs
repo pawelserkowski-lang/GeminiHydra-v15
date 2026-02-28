@@ -2209,6 +2209,13 @@ pub async fn browse_directory(Json(body): Json<Value>) -> Json<Value> {
 [System.Windows.Forms.Application]::EnableVisualStyles()
 $owner = New-Object System.Windows.Forms.Form
 $owner.TopMost = $true
+$owner.ShowInTaskbar = $false
+$owner.Size = New-Object System.Drawing.Size(0,0)
+$owner.StartPosition = 'Manual'
+$owner.Location = New-Object System.Drawing.Point(-9999,-9999)
+$owner.Show()
+$owner.BringToFront()
+$owner.Activate()
 $f = New-Object System.Windows.Forms.FolderBrowserDialog
 $f.Description = "Select Working Directory"
 $f.ShowNewFolderButton = $true
