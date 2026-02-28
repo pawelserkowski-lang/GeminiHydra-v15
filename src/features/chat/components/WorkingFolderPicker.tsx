@@ -1,6 +1,6 @@
-/** Compact working folder picker with directory browser for ChatInput area */
+/** Compact working folder picker with native OS folder dialog — Jaskier Shared Pattern */
 
-import { Check, ChevronRight, FolderOpen, FolderUp, Pencil, X } from 'lucide-react';
+import { Check, FolderOpen, Loader2, Pencil, X } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -8,195 +8,6 @@ import { toast } from 'sonner';
 import { apiPatch, apiPost } from '@/shared/api/client';
 import { useViewTheme } from '@/shared/hooks/useViewTheme';
 import { cn } from '@/shared/utils/cn';
-
-// ============================================================================
-// TYPES
-// ============================================================================
-
-interface DirEntry {
-  name: string;
-  path: string;
-  is_dir: boolean;
-}
-
-interface ListResponse {
-  path: string;
-  entries: DirEntry[];
-  count: number;
-}
-
-// ============================================================================
-// DIRECTORY BROWSER (popover)
-// ============================================================================
-
-interface DirBrowserProps {
-  onSelect: (path: string) => void;
-  onClose: () => void;
-  initialPath?: string;
-}
-
-const DirBrowser = memo<DirBrowserProps>(({ onSelect, onClose, initialPath }) => {
-  const theme = useViewTheme();
-  const { t } = useTranslation();
-  const [currentPath, setCurrentPath] = useState(initialPath || 'C:\\');
-  const [dirs, setDirs] = useState<DirEntry[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const scrollRef = useRef<HTMLDivElement>(null);
-
-  const fetchDirs = useCallback(
-    async (path: string) => {
-      setLoading(true);
-      setError('');
-      try {
-        const res = await apiPost<ListResponse>('/api/files/list', { path, show_hidden: false });
-        // Strip Windows extended-length path prefix (\\?\) from entries
-        const clean = (p: string) => p.replace(/^\\\\\?\\/, '');
-        setDirs(
-          res.entries
-            .filter((e) => e.is_dir)
-            .map((e) => ({ ...e, path: clean(e.path) }))
-            .sort((a, b) => a.name.localeCompare(b.name)),
-        );
-        setCurrentPath(path);
-      } catch {
-        setError(t('settings.workingFolder.browseError', 'Cannot read this directory'));
-        setDirs([]);
-      } finally {
-        setLoading(false);
-      }
-    },
-    [t],
-  );
-
-  // biome-ignore lint/correctness/useExhaustiveDependencies: intentional mount-only fetch
-  useEffect(() => {
-    fetchDirs(currentPath);
-  }, []);
-
-  const goUp = useCallback(() => {
-    const sep = currentPath.includes('/') ? '/' : '\\';
-    const parts = currentPath.split(sep).filter(Boolean);
-    if (parts.length <= 1) return;
-    parts.pop();
-    let parent = parts.join(sep);
-    if (parent.length === 2 && parent[1] === ':') parent += '\\';
-    fetchDirs(parent);
-  }, [currentPath, fetchDirs]);
-
-  const sep = currentPath.includes('/') ? '/' : '\\';
-  const segments = currentPath.split(sep).filter(Boolean);
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 4, scale: 0.97 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      exit={{ opacity: 0, y: 4, scale: 0.97 }}
-      transition={{ duration: 0.15 }}
-      className={cn(
-        'absolute bottom-full left-0 mb-2 z-50',
-        'w-[480px] rounded-xl shadow-2xl border border-[var(--matrix-accent)]/20',
-        'backdrop-blur-xl',
-        theme.dropdown,
-      )}
-      onClick={(e) => e.stopPropagation()}
-    >
-      {/* Header: breadcrumb */}
-      <div className="flex items-center gap-1.5 px-4 py-2.5 border-b border-white/10 overflow-x-auto scrollbar-hide">
-        {segments.map((seg, i) => {
-          const pathUpTo = segments.slice(0, i + 1).join(sep) + (i === 0 && seg.endsWith(':') ? sep : '');
-          return (
-            <span key={pathUpTo} className="flex items-center gap-1.5 shrink-0">
-              {i > 0 && <ChevronRight size={12} className={theme.textMuted} />}
-              <button
-                type="button"
-                onClick={() => fetchDirs(pathUpTo)}
-                className={cn(
-                  'text-sm font-mono px-1.5 py-0.5 rounded hover:bg-white/10 transition-colors',
-                  i === segments.length - 1 ? 'text-[var(--matrix-accent)] font-semibold' : theme.textMuted,
-                )}
-              >
-                {seg}
-              </button>
-            </span>
-          );
-        })}
-      </div>
-
-      {/* Directory list */}
-      <div ref={scrollRef} className="max-h-[280px] overflow-y-auto scrollbar-hide py-1">
-        <button
-          type="button"
-          onClick={goUp}
-          disabled={segments.length <= 1}
-          className={cn(
-            'w-full flex items-center gap-2.5 px-4 py-2 text-sm font-mono transition-colors',
-            theme.dropdownItem,
-            segments.length <= 1 && 'opacity-30 cursor-not-allowed',
-          )}
-        >
-          <FolderUp size={16} className="text-[var(--matrix-accent)]" />
-          ..
-        </button>
-
-        {loading && (
-          <div className={cn('px-4 py-5 text-sm text-center', theme.textMuted)}>
-            {t('common.loading', 'Loading...')}
-          </div>
-        )}
-
-        {error && <div className="px-4 py-4 text-sm text-red-400 text-center">{error}</div>}
-
-        {!loading && !error && dirs.length === 0 && (
-          <div className={cn('px-4 py-4 text-sm text-center italic', theme.textMuted)}>
-            {t('settings.workingFolder.noDirs', 'No subdirectories')}
-          </div>
-        )}
-
-        {!loading &&
-          dirs.map((dir) => (
-            <button
-              key={dir.path}
-              type="button"
-              onClick={() => fetchDirs(dir.path)}
-              className={cn(
-                'w-full flex items-center gap-2.5 px-4 py-2 text-sm font-mono transition-colors',
-                theme.dropdownItem,
-              )}
-            >
-              <FolderOpen size={16} className="shrink-0 text-[var(--matrix-accent)]/70" />
-              <span className="truncate">{dir.name}</span>
-            </button>
-          ))}
-      </div>
-
-      {/* Footer: select / cancel */}
-      <div className="flex items-center justify-between px-4 py-2.5 border-t border-white/10">
-        <span className={cn('text-xs font-mono truncate max-w-[280px]', theme.textMuted)} title={currentPath}>
-          {currentPath}
-        </span>
-        <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className={cn('text-sm px-3 py-1.5 rounded transition-colors', theme.textMuted, 'hover:bg-white/10')}
-          >
-            {t('common.cancel', 'Cancel')}
-          </button>
-          <button
-            type="button"
-            onClick={() => onSelect(currentPath)}
-            className="text-sm px-4 py-1.5 rounded bg-[var(--matrix-accent)]/20 text-[var(--matrix-accent)] hover:bg-[var(--matrix-accent)]/30 transition-colors font-semibold"
-          >
-            {t('settings.workingFolder.select', 'Select')}
-          </button>
-        </div>
-      </div>
-    </motion.div>
-  );
-});
-
-DirBrowser.displayName = 'DirBrowser';
 
 // ============================================================================
 // WORKING FOLDER PICKER (per-session)
@@ -213,12 +24,11 @@ export const WorkingFolderPicker = memo<WorkingFolderPickerProps>(
     const { t } = useTranslation();
     const theme = useViewTheme();
 
-    const [browsing, setBrowsing] = useState(false);
     const [editing, setEditing] = useState(false);
+    const [browsing, setBrowsing] = useState(false);
     const [value, setValue] = useState(workingDirectory);
     const [saving, setSaving] = useState(false);
     const inputRef = useRef<HTMLInputElement>(null);
-    const containerRef = useRef<HTMLDivElement>(null);
 
     const currentFolder = workingDirectory;
 
@@ -232,18 +42,6 @@ export const WorkingFolderPicker = memo<WorkingFolderPickerProps>(
       }
     }, [editing]);
 
-    // Close browser on outside click
-    useEffect(() => {
-      if (!browsing) return;
-      const handler = (e: MouseEvent) => {
-        if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-          setBrowsing(false);
-        }
-      };
-      document.addEventListener('mousedown', handler);
-      return () => document.removeEventListener('mousedown', handler);
-    }, [browsing]);
-
     const saveFolder = useCallback(
       async (path: string) => {
         setSaving(true);
@@ -252,7 +50,6 @@ export const WorkingFolderPicker = memo<WorkingFolderPickerProps>(
           onDirectoryChange(path);
           setValue(path);
           setEditing(false);
-          setBrowsing(false);
           toast.success(
             path
               ? t('settings.workingFolder.saved', 'Working folder saved')
@@ -266,6 +63,24 @@ export const WorkingFolderPicker = memo<WorkingFolderPickerProps>(
       },
       [sessionId, onDirectoryChange, t],
     );
+
+    const handleBrowse = useCallback(async () => {
+      setBrowsing(true);
+      try {
+        const res = await apiPost<{ path?: string; cancelled?: boolean; error?: string }>('/api/files/browse', {
+          initial_path: currentFolder || '',
+        });
+        if (res.error) {
+          toast.error(res.error);
+        } else if (res.path && !res.cancelled) {
+          saveFolder(res.path);
+        }
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : 'Failed to open folder dialog');
+      } finally {
+        setBrowsing(false);
+      }
+    }, [currentFolder, saveFolder]);
 
     const handleSave = useCallback(() => {
       const trimmed = value.trim();
@@ -283,20 +98,13 @@ export const WorkingFolderPicker = memo<WorkingFolderPickerProps>(
       setEditing(false);
     }, [currentFolder]);
 
-    const handleBrowseSelect = useCallback(
-      (path: string) => {
-        saveFolder(path);
-      },
-      [saveFolder],
-    );
-
     const displayPath =
       currentFolder.length > 40
         ? `…${currentFolder.slice(currentFolder.lastIndexOf('\\', currentFolder.length - 20))}`
         : currentFolder;
 
     return (
-      <div ref={containerRef} className="relative">
+      <div>
         <AnimatePresence mode="wait">
           {editing ? (
             <motion.div
@@ -359,11 +167,12 @@ export const WorkingFolderPicker = memo<WorkingFolderPickerProps>(
                 <>
                   <button
                     type="button"
-                    onClick={() => setBrowsing((b) => !b)}
+                    onClick={handleBrowse}
+                    disabled={browsing || saving}
                     className="shrink-0 p-1.5 rounded-md transition-colors text-[var(--matrix-accent)] hover:bg-[var(--matrix-accent)]/10"
                     title={t('settings.workingFolder.browse', 'Browse folders')}
                   >
-                    <FolderOpen size={18} />
+                    {browsing ? <Loader2 size={18} className="animate-spin" /> : <FolderOpen size={18} />}
                   </button>
                   <span className={cn('text-sm font-mono truncate', theme.textMuted)} title={currentFolder}>
                     {displayPath}
@@ -397,29 +206,21 @@ export const WorkingFolderPicker = memo<WorkingFolderPickerProps>(
               ) : (
                 <button
                   type="button"
-                  onClick={() => setBrowsing((b) => !b)}
+                  onClick={handleBrowse}
+                  disabled={browsing || saving}
                   className={cn(
                     'flex items-center gap-2.5 text-sm font-mono italic py-0.5 transition-colors',
                     theme.textMuted,
                     'hover:text-[var(--matrix-accent)]',
                   )}
                 >
-                  <FolderOpen size={18} />
-                  {t('settings.workingFolder.set', 'Set working folder…')}
+                  {browsing ? <Loader2 size={18} className="animate-spin" /> : <FolderOpen size={18} />}
+                  {browsing
+                    ? t('settings.workingFolder.opening', 'Opening dialog…')
+                    : t('settings.workingFolder.set', 'Set working folder…')}
                 </button>
               )}
             </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* Directory browser popover */}
-        <AnimatePresence>
-          {browsing && (
-            <DirBrowser
-              onSelect={handleBrowseSelect}
-              onClose={() => setBrowsing(false)}
-              initialPath={currentFolder || 'C:\\Users'}
-            />
           )}
         </AnimatePresence>
       </div>

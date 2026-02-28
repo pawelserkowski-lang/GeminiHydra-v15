@@ -1,12 +1,12 @@
 /** Jaskier Shared Pattern — Working Folder Settings Section */
 
-import { AlertCircle, Check, FolderOpen, X } from 'lucide-react';
+import { AlertCircle, Check, FolderOpen, Loader2, Pencil, X } from 'lucide-react';
 import { memo, useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 
 import { Button, Input } from '@/components/atoms';
-import { apiPatch } from '@/shared/api/client';
+import { apiPatch, apiPost } from '@/shared/api/client';
 import type { Settings } from '@/shared/api/schemas';
 import { useViewTheme } from '@/shared/hooks/useViewTheme';
 import { cn } from '@/shared/utils/cn';
@@ -18,6 +18,7 @@ export const WorkingFolderSection = memo(() => {
   const { data: settings, refetch } = useSettingsQuery();
 
   const [editing, setEditing] = useState(false);
+  const [browsing, setBrowsing] = useState(false);
   const [value, setValue] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -28,39 +29,52 @@ export const WorkingFolderSection = memo(() => {
     }
   }, [settings?.working_directory]);
 
-  const handleSave = useCallback(async () => {
-    setSaving(true);
-    setError('');
-    try {
-      await apiPatch<Settings>('/api/settings', { working_directory: value.trim() });
-      await refetch();
-      setEditing(false);
-      toast.success(t('settings.workingFolder.saved', 'Working folder saved'));
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Failed to save';
-      setError(msg);
-      toast.error(msg);
-    } finally {
-      setSaving(false);
-    }
-  }, [value, refetch, t]);
+  const saveFolder = useCallback(
+    async (path: string) => {
+      setSaving(true);
+      setError('');
+      try {
+        await apiPatch<Settings>('/api/settings', { working_directory: path });
+        await refetch();
+        setValue(path);
+        setEditing(false);
+        toast.success(
+          path
+            ? t('settings.workingFolder.saved', 'Working folder saved')
+            : t('settings.workingFolder.cleared', 'Working folder cleared'),
+        );
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Failed to save';
+        setError(msg);
+        toast.error(msg);
+      } finally {
+        setSaving(false);
+      }
+    },
+    [refetch, t],
+  );
 
-  const handleClear = useCallback(async () => {
-    setSaving(true);
-    setError('');
+  const handleBrowse = useCallback(async () => {
+    setBrowsing(true);
     try {
-      await apiPatch<Settings>('/api/settings', { working_directory: '' });
-      await refetch();
-      setValue('');
-      setEditing(false);
-      toast.success(t('settings.workingFolder.cleared', 'Working folder cleared'));
+      const res = await apiPost<{ path?: string; cancelled?: boolean; error?: string }>('/api/files/browse', {
+        initial_path: settings?.working_directory || '',
+      });
+      if (res.error) {
+        toast.error(res.error);
+      } else if (res.path && !res.cancelled) {
+        saveFolder(res.path);
+      }
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Failed to clear';
-      setError(msg);
+      toast.error(err instanceof Error ? err.message : 'Failed to open folder dialog');
     } finally {
-      setSaving(false);
+      setBrowsing(false);
     }
-  }, [refetch, t]);
+  }, [settings?.working_directory, saveFolder]);
+
+  const handleSave = useCallback(() => saveFolder(value.trim()), [value, saveFolder]);
+
+  const handleClear = useCallback(() => saveFolder(''), [saveFolder]);
 
   const handleCancel = useCallback(() => {
     setValue(settings?.working_directory ?? '');
@@ -124,15 +138,34 @@ export const WorkingFolderSection = memo(() => {
             </p>
           )}
           <div className="flex gap-2">
-            <Button variant="primary" size="sm" leftIcon={<FolderOpen size={14} />} onClick={() => setEditing(true)}>
-              {currentFolder
-                ? t('settings.workingFolder.change', 'Change')
-                : t('settings.workingFolder.set', 'Set Folder')}
+            <Button
+              variant="primary"
+              size="sm"
+              leftIcon={browsing ? <Loader2 size={14} className="animate-spin" /> : <FolderOpen size={14} />}
+              onClick={handleBrowse}
+              disabled={browsing || saving}
+            >
+              {browsing
+                ? t('settings.workingFolder.opening', 'Opening…')
+                : currentFolder
+                  ? t('settings.workingFolder.change', 'Change')
+                  : t('settings.workingFolder.set', 'Set Folder')}
             </Button>
             {currentFolder && (
-              <Button variant="danger" size="sm" leftIcon={<X size={14} />} onClick={handleClear} isLoading={saving}>
-                {t('settings.workingFolder.clear', 'Clear')}
-              </Button>
+              <>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  leftIcon={<Pencil size={14} />}
+                  onClick={() => setEditing(true)}
+                  disabled={browsing || saving}
+                >
+                  {t('settings.workingFolder.editManually', 'Edit')}
+                </Button>
+                <Button variant="danger" size="sm" leftIcon={<X size={14} />} onClick={handleClear} isLoading={saving}>
+                  {t('settings.workingFolder.clear', 'Clear')}
+                </Button>
+              </>
             )}
           </div>
         </div>

@@ -238,6 +238,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/models/pins", get(model_registry::list_pins))
         .route("/api/files/read", post(handlers::read_file))
         .route("/api/files/list", post(handlers::list_files))
+        .route("/api/files/browse", post(handlers::browse_directory))
         .route("/api/system/stats", get(handlers::system_stats))
         // Admin — hot-reload API keys
         .route("/api/admin/rotate-key", post(handlers::rotate_key))

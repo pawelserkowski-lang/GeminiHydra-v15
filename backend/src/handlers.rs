@@ -2191,6 +2191,78 @@ pub async fn list_files(Json(body): Json<FileListRequest>) -> Json<Value> {
     }
 }
 
+// ═══════════════════════════════════════════════════════════════════════
+//  Native folder dialog — Jaskier Shared Pattern
+// ═══════════════════════════════════════════════════════════════════════
+
+/// Opens a native Windows `FolderBrowserDialog` via PowerShell temp script.
+/// Returns the selected path or `{ "cancelled": true }` if user closed the dialog.
+pub async fn browse_directory(Json(body): Json<Value>) -> Json<Value> {
+    let initial = body
+        .get("initial_path")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+
+    // Write a temp .ps1 file — avoids all escaping issues with inline -Command
+    let script = format!(
+        r#"Add-Type -AssemblyName System.Windows.Forms
+[System.Windows.Forms.Application]::EnableVisualStyles()
+$owner = New-Object System.Windows.Forms.Form
+$owner.TopMost = $true
+$f = New-Object System.Windows.Forms.FolderBrowserDialog
+$f.Description = "Select Working Directory"
+$f.ShowNewFolderButton = $true
+{initial_line}
+if ($f.ShowDialog($owner) -eq "OK") {{
+    Write-Host $f.SelectedPath
+}} else {{
+    Write-Host "__CANCELLED__"
+}}
+$owner.Dispose()
+"#,
+        initial_line = if initial.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "$f.SelectedPath = \"{}\"",
+                initial.replace('\\', "\\\\").replace('"', "`\"")
+            )
+        }
+    );
+
+    let tmp = std::env::temp_dir().join(format!("jaskier_browse_{}.ps1", std::process::id()));
+    if let Err(e) = tokio::fs::write(&tmp, &script).await {
+        return Json(json!({ "error": format!("Cannot write temp script: {}", e) }));
+    }
+
+    let result = tokio::process::Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-STA",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            &tmp.to_string_lossy(),
+        ])
+        .output()
+        .await;
+
+    // Cleanup temp file (best-effort)
+    let _ = tokio::fs::remove_file(&tmp).await;
+
+    match result {
+        Ok(output) => {
+            let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if stdout == "__CANCELLED__" || stdout.is_empty() {
+                Json(json!({ "cancelled": true }))
+            } else {
+                Json(json!({ "path": stdout }))
+            }
+        }
+        Err(e) => Json(json!({ "error": format!("Failed to open folder dialog: {}", e) })),
+    }
+}
+
 /// Tool definitions are static and never change — compute once via OnceLock.
 /// Byte-identical tools JSON across all requests enables Gemini implicit caching.
 pub(crate) fn build_tools() -> Value {
