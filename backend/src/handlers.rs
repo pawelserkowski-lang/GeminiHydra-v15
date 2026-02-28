@@ -431,11 +431,13 @@ pub(crate) fn build_system_prompt(agent_id: &str, agents: &[WitcherAgent], langu
 ## Rules
 - Write ALL text in **{language}** (except code/paths/identifiers).
 - You run on a LOCAL Windows machine with FULL filesystem access. NEVER say you can't access files.
+- **ACT IMMEDIATELY — NEVER DESCRIBE, NEVER ASK.** When a task requires reading files, listing directories, or searching code, call the tools RIGHT NOW. Do NOT write sentences like "I would read the file..." or "Let me check..." or "First, I'll..." — just call the tool. Never output a numbered plan of steps — execute them.
+- **FIX IT, DON'T JUST PROPOSE.** When you find a bug, error, or problem — USE `edit_file` TO APPLY THE FIX IMMEDIATELY. For small changes prefer `edit_file` (replaces targeted section), for new files or full rewrites use `write_file`. Do NOT just show code snippets and say "you should change X to Y". Actually edit the file. The workflow is: read → diagnose → FIX (edit_file) → report what you changed. Only propose without applying if the fix would be destructive (deleting data, dropping tables) or if you're genuinely unsure which of multiple approaches is correct.
+- **NEVER ASK THE USER FOR CONFIRMATION OR CLARIFICATION.** Do NOT ask "Do you want me to...?", "Should I...?", "Which file should I...?". Instead, use your tools to gather the information you need, make decisions, and deliver results.
 - Use dedicated tools (list_directory, read_file, search_files, get_code_structure) — NEVER execute_command for file ops.
-- Call `get_code_structure` BEFORE `read_file` on source files.
+- Call `get_code_structure` BEFORE `read_file` on source files to identify what to read.
 - Request MULTIPLE tool calls in PARALLEL when independent.
-- Synthesize tool output into tables/lists — don't dump raw output.
-- Stop after 3-5 tool calls and write structured analysis with headers, tables, code refs.
+- **ALWAYS ANSWER WITH TEXT.** After calling tools and applying a fix with edit_file, you MUST write a structured report explaining: what the bug was, what you changed (before/after snippets), and why. Include file paths and line numbers. If you only analyzed (no fix needed), write conclusions with headers, tables, and code refs. NEVER end with only tool outputs — always write at least a paragraph of explanation.
 - Use `call_agent` to delegate subtasks to specialized agents (e.g., code analysis → Eskel, debugging → Lambert).
 
 ## execute_command Rules
@@ -1538,6 +1540,8 @@ async fn execute_streaming_gemini(
     let max_iterations: usize = dynamic_max.min(ctx.max_iterations.max(1) as usize);
 
     let mut full_text = String::new();
+    let mut has_written_file = false;
+    let mut agent_text_len: usize = 0;
 
     // #39 — Global execution timeout: 3 minutes
     let execution_start = Instant::now();
@@ -1602,6 +1606,7 @@ async fn execute_streaming_gemini(
 
         let (text, fcs, aborted, malformed) = consume_gemini_stream(resp, sender, &cancel).await;
         full_text.push_str(&text);
+        agent_text_len += text.trim().len();
 
         // Retry without tools if Gemini generated a malformed function call
         if malformed && full_text.trim().is_empty() {
@@ -1721,6 +1726,11 @@ async fn execute_streaming_gemini(
             })
             .collect();
 
+        // Track file-modifying tool usage (write_file or edit_file)
+        for (name, _) in &tool_results {
+            if name == "write_file" || name == "edit_file" { has_written_file = true; }
+        }
+
         // Stream results to frontend + build Gemini context
         let mut res_parts = Vec::new();
         for (name, output) in &tool_results {
@@ -1760,19 +1770,138 @@ async fn execute_streaming_gemini(
         let context_hint = format!("[CONTEXT: ~{}KB used across {} messages, iteration {}/{}]",
             approx_context_bytes / 1024, contents.len(), iter + 1, max_iterations);
 
-        // #34 — Earlier synthesis reminders: start at iteration 1 (was 2)
+        // #34 — Iteration reminders with edit_file tracking
         if iter >= 1 {
-            let urgency = if iter >= 4 {
-                format!("[SYSTEM CRITICAL: STOP ALL TOOL CALLS. You have used {} iterations. {} Write your FINAL analysis NOW.]", iter + 1, context_hint)
-            } else if iter >= 2 {
-                format!("[SYSTEM: {} iterations used. {} SYNTHESIZE your findings NOW. Structured analysis with specific insights.]", iter + 1, context_hint)
+            let write_nudge = if has_written_file {
+                "You already applied a fix with edit_file/write_file. Now write your report explaining what you changed."
             } else {
-                format!("[SYSTEM: {} Consider synthesizing findings soon.]", context_hint)
+                "You have NOT called edit_file or write_file yet. If you found a problem, call edit_file NOW to apply the fix. Do NOT just describe the fix — actually edit the file."
+            };
+            let urgency = if iter >= 4 {
+                format!("[SYSTEM CRITICAL: STOP ALL TOOL CALLS. {} iterations used. {} {} Write your FINAL report NOW.]", iter + 1, context_hint, write_nudge)
+            } else if iter >= 2 {
+                format!("[SYSTEM: {} iterations used. {} IMPORTANT: {} If you need to fix code, your NEXT tool call MUST be edit_file or write_file.]", iter + 1, context_hint, write_nudge)
+            } else {
+                format!("[SYSTEM: {} {} You may read 1-2 more files if critical.]", context_hint, write_nudge)
             };
             res_parts.push(json!({ "text": urgency }));
         }
         contents.push(json!({ "role": "user", "parts": res_parts }));
     }
+
+    // #34a — Write-phase enforcement: if agent described a fix but never called edit_file/write_file,
+    // give it ONE more Gemini call with ONLY edit/write tools.
+    if !has_written_file && !full_text.is_empty() && agent_text_len > 50 {
+        let fix_keywords = ["fix", "napraw", "zmian", "popraw", "zastosow", "write_file", "edit_file", "key={`", "prefix"];
+        let lower_text = full_text.to_lowercase();
+        let looks_like_fix = fix_keywords.iter().any(|kw| lower_text.contains(kw));
+        if looks_like_fix {
+            tracing::info!("execute_streaming_gemini: agent described a fix but never applied it — forcing edit phase");
+            contents.push(json!({
+                "role": "user",
+                "parts": [{
+                    "text": "[SYSTEM: CRITICAL — You described a fix above but you did NOT actually apply it. The file on disk is UNCHANGED. You MUST call edit_file RIGHT NOW to apply your fix. Use the file path, the exact old_text to find, and the new_text replacement. This is your LAST chance to apply the fix.]"
+                }]
+            }));
+            let mut gen_config = json!({
+                "temperature": ctx.temperature,
+                "topP": ctx.top_p,
+                "maxOutputTokens": ctx.max_tokens
+            });
+            if let Some(tc) = build_thinking_config(&ctx.model, &ctx.thinking_level) {
+                gen_config["thinkingConfig"] = tc;
+            }
+            let edit_only_tools = json!([{
+                "function_declarations": [{
+                    "name": "edit_file",
+                    "description": "Edit an existing file by replacing a specific text section.",
+                    "parameters": { "type": "object", "properties": {
+                        "path": { "type": "string", "description": "Absolute path to the file to edit" },
+                        "old_text": { "type": "string", "description": "Exact text to find and replace" },
+                        "new_text": { "type": "string", "description": "Replacement text" }
+                    }, "required": ["path", "old_text", "new_text"] }
+                }, {
+                    "name": "write_file",
+                    "description": "Write full file content. Use only if edit_file is not suitable.",
+                    "parameters": { "type": "object", "properties": {
+                        "path": { "type": "string", "description": "Absolute path to the file to write" },
+                        "content": { "type": "string", "description": "Full file content to write" }
+                    }, "required": ["path", "content"] }
+                }]
+            }]);
+            let body = json!({
+                "systemInstruction": { "parts": [{ "text": &ctx.system_prompt }] },
+                "contents": contents,
+                "tools": edit_only_tools,
+                "generationConfig": gen_config
+            });
+            if let Ok(resp) = gemini_request_with_retry(&state.client, &parsed_url, &ctx.api_key, &body).await {
+                state.gemini_circuit.record_success().await;
+                let (write_text, write_fcs, _, _) = consume_gemini_stream(resp, sender, &cancel).await;
+                full_text.push_str(&write_text);
+                agent_text_len += write_text.trim().len();
+                for (name, args, _) in &write_fcs {
+                    if name == "write_file" || name == "edit_file" {
+                        tracing::info!("execute_streaming_gemini: edit-phase enforcement — executing {}", name);
+                        match tokio::time::timeout(TOOL_TIMEOUT, crate::tools::execute_tool(name, args, &state)).await {
+                            Ok(Ok(output)) => {
+                                has_written_file = true;
+                                let header = format!("\n\n---\n**Tool:** `{}`\n", name);
+                                full_text.push_str(&header);
+                                let _ = ws_send(sender, &WsServerMessage::Token { content: header }).await;
+                                let res_md = format!("```\n{}\n```\n---\n\n", output.text);
+                                full_text.push_str(&res_md);
+                                let _ = ws_send(sender, &WsServerMessage::Token { content: res_md }).await;
+                            }
+                            Ok(Err(e)) => {
+                                tracing::warn!("edit-phase {} failed: {}", name, e);
+                            }
+                            Err(_) => {
+                                tracing::warn!("edit-phase {} timed out", name);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // #34b — Forced synthesis: if agent produced only tool output and no text analysis,
+    // do one final Gemini call WITHOUT tools to force a text response.
+    if agent_text_len < 100 && !full_text.is_empty() {
+        tracing::info!("execute_streaming_gemini: no synthesis text detected (agent_text_len={}) — forcing final synthesis call", agent_text_len);
+        contents.push(json!({
+            "role": "user",
+            "parts": [{
+                "text": "[SYSTEM: You called tools and gathered data but did NOT write any text response. Write your comprehensive structured report NOW. If you applied a fix with edit_file or write_file, explain: what the bug was, what you changed (before/after), and file paths with line numbers. If you did NOT apply a fix, explain what you found and what needs to be changed. Use headers (##), bullet points, tables, and code refs.]"
+            }]
+        }));
+        let mut gen_config = json!({
+            "temperature": ctx.temperature,
+            "topP": ctx.top_p,
+            "maxOutputTokens": ctx.max_tokens
+        });
+        if let Some(tc) = build_thinking_config(&ctx.model, &ctx.thinking_level) {
+            gen_config["thinkingConfig"] = tc;
+        }
+        let body = json!({
+            "systemInstruction": { "parts": [{ "text": &ctx.system_prompt }] },
+            "contents": contents,
+            "generationConfig": gen_config
+        });
+        match gemini_request_with_retry(&state.client, &parsed_url, &ctx.api_key, &body).await {
+            Ok(resp) => {
+                state.gemini_circuit.record_success().await;
+                let (synth_text, synth_fcs, _, _) = consume_gemini_stream(resp, sender, &cancel).await;
+                tracing::info!("execute_streaming_gemini: synthesis call returned {} chars text, {} function_calls", synth_text.len(), synth_fcs.len());
+                full_text.push_str(&synth_text);
+            }
+            Err(e) => {
+                tracing::warn!("execute_streaming_gemini: synthesis Gemini call failed: {}", e);
+            }
+        }
+    }
+
     full_text
 }
 
@@ -2045,8 +2174,8 @@ pub(crate) fn build_tools() -> Value {
             },
             {
                 "name": "edit_file",
-                "description": "Edit an existing file by replacing a specific text section. SAFER than write_file for modifications — only changes the targeted section, preserving the rest. Use for code patches, small edits, adding/removing lines.",
-                "parameters": { "type": "object", "properties": { "path": { "type": "string", "description": "Absolute path to the file to edit" }, "old_text": { "type": "string", "description": "Exact text to find and replace (must appear exactly once in the file)" }, "new_text": { "type": "string", "description": "Replacement text" } }, "required": ["path", "old_text", "new_text"] }
+                "description": "Edit an existing file by replacing a specific text section. SAFER than write_file — only changes the targeted section. CRITICAL: old_text must be COPIED VERBATIM from read_file output — every character, space, tab, and newline must match EXACTLY. Even one different space or missing newline causes failure. Use read_file_section first to get the exact text, then copy it character-for-character into old_text.",
+                "parameters": { "type": "object", "properties": { "path": { "type": "string", "description": "Absolute path to the file to edit" }, "old_text": { "type": "string", "description": "Text to find and replace — must be COPIED VERBATIM from the file (exact whitespace, exact newlines). Keep it short (3-10 lines) to minimize mismatch risk. Must appear exactly once in the file." }, "new_text": { "type": "string", "description": "Replacement text — same indentation style as the original" } }, "required": ["path", "old_text", "new_text"] }
             },
             {
                 "name": "diff_files",

@@ -345,8 +345,44 @@ async fn tool_edit_file(path: &str, old_text: &str, new_text: &str) -> Result<St
 
     let count = content.matches(old_text).count();
     if count == 0 {
+        // Fuzzy fallback: try matching with normalized whitespace
+        // This helps when Gemini generates slightly different indentation
+        let normalize = |s: &str| -> String {
+            s.lines()
+                .map(|line| {
+                    let trimmed = line.trim_start();
+                    let indent = line.len() - trimmed.len();
+                    // Normalize: collapse runs of spaces/tabs to single spaces, but keep indent level
+                    format!("{}{}", " ".repeat(indent), trimmed)
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+        let norm_content = normalize(&content);
+        let norm_old = normalize(old_text);
+        let fuzzy_count = norm_content.matches(&norm_old).count();
+        if fuzzy_count == 1 {
+            // Find the original text by locating it in normalized form, then map back
+            if let Some(norm_pos) = norm_content.find(&norm_old) {
+                // Count newlines before the match to find the line range
+                let start_line = norm_content[..norm_pos].matches('\n').count();
+                let old_lines: Vec<&str> = old_text.lines().collect();
+                let content_lines: Vec<&str> = content.lines().collect();
+                let end_line = start_line + old_lines.len();
+                if end_line <= content_lines.len() {
+                    let original_section = content_lines[start_line..end_line].join("\n");
+                    let new_content = content.replacen(&original_section, new_text, 1);
+                    tokio::fs::write(p, &new_content).await
+                        .map_err(|e| format!("Failed to write file: {}", e))?;
+                    return Ok(format!(
+                        "Successfully edited {} (fuzzy match on lines {}-{}, {} bytes -> {} bytes)",
+                        path, start_line + 1, end_line, content.len(), new_content.len()
+                    ));
+                }
+            }
+        }
         return Err(format!(
-            "old_text not found in {}. Make sure the text matches exactly (including whitespace).",
+            "old_text not found in {}. Copy text VERBATIM from read_file output — every space, tab, newline must match exactly. Use read_file_section to get exact text first.",
             path
         ));
     }
