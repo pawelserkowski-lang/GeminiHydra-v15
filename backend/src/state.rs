@@ -210,6 +210,27 @@ impl AppState {
             api_keys.insert("anthropic".to_string(), key);
         }
 
+        // ── Load stored API key from DB (encrypted) ─────────────────────
+        // Priority: DB key overrides env var (user explicitly saved it)
+        if let Ok(Some(row)) = sqlx::query_as::<_, (String, String)>(
+            "SELECT auth_method, api_key_encrypted FROM gh_google_auth WHERE id = 1",
+        )
+        .fetch_optional(&db)
+        .await
+        {
+            let (method, encrypted_key) = row;
+            if method == "api_key" && !encrypted_key.is_empty() {
+                match crate::oauth::decrypt_token(&encrypted_key) {
+                    Ok(decrypted) if !decrypted.is_empty() => {
+                        api_keys.insert("google".to_string(), decrypted);
+                        tracing::info!("Loaded Google API key from DB (encrypted)");
+                    }
+                    Ok(_) => {}
+                    Err(e) => tracing::warn!("Failed to decrypt stored API key: {}", e),
+                }
+            }
+        }
+
         // ── Load agents from DB ────────────────────────────────────────
         let agents_vec = sqlx::query_as::<_, WitcherAgent>("SELECT * FROM gh_agents ORDER BY created_at ASC")
             .fetch_all(&db)

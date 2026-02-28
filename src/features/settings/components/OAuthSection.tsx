@@ -1,21 +1,14 @@
-/** Jaskier Shared Pattern — OAuth PKCE UI Section */
+/** Jaskier Shared Pattern — Google Auth UI Section (Settings) */
 
-import { AlertTriangle, CheckCircle, Crown, ExternalLink, Key, LogIn, LogOut, Shield } from 'lucide-react';
+import { AlertTriangle, CheckCircle, Chrome, Key, LogOut, Shield } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { memo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Badge, Button, Input } from '@/components/atoms';
-import { useOAuthStatus } from '@/shared/hooks/useOAuthStatus';
+import { useAuthStatus } from '@/shared/hooks/useAuthStatus';
 import { useViewTheme } from '@/shared/hooks/useViewTheme';
 import { cn } from '@/shared/utils/cn';
-
-const BENEFITS = [
-  { key: 'oauth.benefits.flatRate', icon: Crown },
-  { key: 'oauth.benefits.maxPlan', icon: Shield },
-  { key: 'oauth.benefits.autoRefresh', icon: CheckCircle },
-  { key: 'oauth.benefits.securePkce', icon: Key },
-] as const;
 
 const phaseVariants = {
   initial: { opacity: 0, y: 8 },
@@ -26,116 +19,124 @@ const phaseVariants = {
 export const OAuthSection = memo(() => {
   const { t } = useTranslation();
   const theme = useViewTheme();
-  const { status, phase, login, submitCode, logout, cancel, authUrl, errorMessage, isMutating } = useOAuthStatus();
+  const { status, phase, authMethod, login, saveApiKey, logout, cancel, authUrl, errorMessage, isMutating } =
+    useAuthStatus();
 
-  const [callbackInput, setCallbackInput] = useState('');
+  const [apiKeyInput, setApiKeyInput] = useState('');
 
-  const handleVerify = () => {
-    if (callbackInput.trim()) {
-      submitCode(callbackInput.trim());
-      setCallbackInput('');
-    }
-  };
-
-  const expiresFormatted = status?.expires_at ? new Date(status.expires_at * 1000).toLocaleString() : null;
+  const methodLabel =
+    authMethod === 'oauth'
+      ? t('auth.methodOAuth')
+      : authMethod === 'api_key'
+        ? t('auth.methodApiKey')
+        : authMethod === 'env'
+          ? t('auth.methodEnv')
+          : '';
 
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2">
         <Shield size={18} className="text-[var(--matrix-accent)]" />
         <h3 className={cn('text-sm font-semibold font-mono uppercase tracking-wider', theme.text)}>
-          {t('oauth.title')}
+          {t('auth.title')}
         </h3>
       </div>
 
       <AnimatePresence mode="wait">
         {/* ── Phase: Authenticated ── */}
         {phase === 'authenticated' && (
-          <motion.div key="auth" {...phaseVariants} className="space-y-4">
+          <motion.div key="auth" {...phaseVariants} className="space-y-3">
             <div className="flex items-center gap-3 flex-wrap">
               <Badge variant="accent" size="sm" icon={<CheckCircle size={12} />}>
-                {t('oauth.connected')}
+                {t('auth.connected')}
               </Badge>
-              {expiresFormatted && (
-                <span className={cn('text-xs font-mono', theme.textMuted)}>
-                  {t('oauth.expiresAt', { date: expiresFormatted })}
-                </span>
-              )}
+              <span className={cn('text-xs font-mono', theme.textMuted)}>
+                {t('auth.method', { method: methodLabel })}
+              </span>
             </div>
 
-            {status?.scope && (
-              <p className={cn('text-xs font-mono', theme.textMuted)}>{t('oauth.scope', { scope: status.scope })}</p>
+            {status?.user_email && (
+              <p className={cn('text-xs font-mono', theme.textMuted)}>
+                {t('auth.connectedAs', { email: status.user_email })}
+              </p>
+            )}
+
+            {status?.expires_at && (
+              <p className={cn('text-xs font-mono', theme.textMuted)}>
+                {t('auth.expiresAt', { date: new Date(status.expires_at * 1000).toLocaleString() })}
+              </p>
             )}
 
             <Button variant="danger" size="sm" leftIcon={<LogOut size={14} />} onClick={logout} isLoading={isMutating}>
-              {t('oauth.disconnect')}
+              {t('auth.disconnect')}
             </Button>
           </motion.div>
         )}
 
-        {/* ── Phase: Waiting for callback URL ── */}
-        {(phase === 'waiting_code' || phase === 'exchanging') && (
-          <motion.div key="waiting" {...phaseVariants} className="space-y-4">
-            <div>
-              <p className={cn('text-sm font-medium', theme.text)}>{t('oauth.waitingTitle')}</p>
-              <p className={cn('text-xs mt-1', theme.textMuted)}>{t('oauth.waitingDesc')}</p>
-            </div>
-
+        {/* ── Phase: OAuth Pending ── */}
+        {phase === 'oauth_pending' && (
+          <motion.div key="waiting" {...phaseVariants} className="space-y-3">
+            <p className={cn('text-sm font-medium', theme.text)}>{t('auth.oauthWaiting')}</p>
+            <p className={cn('text-xs', theme.textMuted)}>{t('auth.oauthWaitingDesc')}</p>
             {authUrl && (
               <a
                 href={authUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 className={cn(
-                  'inline-flex items-center gap-1.5 text-xs font-mono',
-                  'text-[var(--matrix-accent)] hover:underline',
+                  'inline-flex items-center gap-1.5 text-xs font-mono text-[var(--matrix-accent)] hover:underline',
                 )}
               >
-                <ExternalLink size={12} />
-                claude.ai/oauth
+                accounts.google.com
               </a>
             )}
-
-            <Input
-              value={callbackInput}
-              onChange={(e) => setCallbackInput(e.target.value)}
-              placeholder={t('oauth.callbackPlaceholder')}
-              onKeyDown={(e) => e.key === 'Enter' && handleVerify()}
-            />
-
-            {phase === 'exchanging' && (
-              <p className={cn('text-xs font-mono animate-pulse', theme.textMuted)}>{t('oauth.exchanging')}</p>
-            )}
-
-            <div className="flex gap-2">
-              <Button
-                variant="primary"
-                size="sm"
-                onClick={handleVerify}
-                isLoading={phase === 'exchanging'}
-                disabled={!callbackInput.trim() || phase === 'exchanging'}
-              >
-                {t('oauth.verify')}
-              </Button>
-              <Button variant="ghost" size="sm" onClick={cancel}>
-                {t('oauth.cancel')}
-              </Button>
-            </div>
+            <Button variant="ghost" size="sm" onClick={cancel}>
+              {t('auth.cancel')}
+            </Button>
           </motion.div>
         )}
 
         {/* ── Phase: Idle / Error ── */}
-        {(phase === 'idle' || phase === 'error') && (
+        {(phase === 'idle' || phase === 'error' || phase === 'saving_key') && (
           <motion.div key="idle" {...phaseVariants} className="space-y-4">
-            {/* Benefits */}
-            <ul className="space-y-2">
-              {BENEFITS.map(({ key, icon: Icon }) => (
-                <li key={key} className="flex items-start gap-2.5">
-                  <Icon size={14} className="text-[var(--matrix-accent)] mt-0.5 flex-shrink-0" />
-                  <span className={cn('text-xs', theme.textMuted)}>{t(key)}</span>
-                </li>
-              ))}
-            </ul>
+            {/* API Key input */}
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <Key size={14} className="text-[var(--matrix-accent)]" />
+                <span className={cn('text-xs font-medium', theme.text)}>{t('auth.apiKeyTitle')}</span>
+              </div>
+              <Input
+                type="password"
+                value={apiKeyInput}
+                onChange={(e) => setApiKeyInput(e.target.value)}
+                placeholder={t('auth.apiKeyPlaceholder')}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && apiKeyInput.trim()) saveApiKey(apiKeyInput.trim());
+                }}
+              />
+              <Button
+                variant="primary"
+                size="sm"
+                disabled={!apiKeyInput.trim() || phase === 'saving_key'}
+                isLoading={phase === 'saving_key'}
+                onClick={() => saveApiKey(apiKeyInput.trim())}
+              >
+                {t('auth.apiKeyValidate')}
+              </Button>
+            </div>
+
+            {/* Google OAuth button */}
+            {status?.oauth_available && (
+              <Button
+                variant="secondary"
+                size="sm"
+                leftIcon={<Chrome size={14} />}
+                onClick={login}
+                isLoading={isMutating}
+              >
+                {t('auth.signInWithGoogle')}
+              </Button>
+            )}
 
             {phase === 'error' && errorMessage && (
               <div className="flex items-center gap-2 text-red-400">
@@ -144,18 +145,11 @@ export const OAuthSection = memo(() => {
               </div>
             )}
 
-            {/* CTA */}
-            <div className="flex gap-2 flex-wrap">
-              <Button variant="primary" size="sm" leftIcon={<LogIn size={14} />} onClick={login} isLoading={isMutating}>
-                {t('oauth.connectWithClaude')}
-              </Button>
-            </div>
-
             {/* Expired token warning */}
             {status?.authenticated && status.expired && (
               <div className="flex items-center gap-2 text-amber-400">
                 <AlertTriangle size={14} />
-                <span className="text-xs font-mono">{t('oauth.expired')}</span>
+                <span className="text-xs font-mono">{t('auth.expired')}</span>
               </div>
             )}
           </motion.div>

@@ -84,15 +84,14 @@ impl ModelCache {
 async fn fetch_google_models(
     client: &reqwest::Client,
     api_key: &str,
+    is_oauth: bool,
 ) -> Result<Vec<ModelInfo>, String> {
     let url = "https://generativelanguage.googleapis.com/v1beta/models";
 
     let parsed_url = reqwest::Url::parse(url)
         .map_err(|e| format!("Invalid URL: {}", e))?;
 
-    let resp = client
-        .get(parsed_url)
-        .header("x-goog-api-key", api_key)
+    let resp = crate::oauth::apply_google_auth(client.get(parsed_url), api_key, is_oauth)
         .send()
         .await
         .map_err(|e| format!("Google models request failed: {:?}", e))?;
@@ -209,11 +208,10 @@ async fn fetch_anthropic_models(
 // ── Refresh cache ────────────────────────────────────────────────────────────
 
 pub async fn refresh_cache(state: &AppState) -> HashMap<String, Vec<ModelInfo>> {
-    let rt = state.runtime.read().await;
     let mut all_models: HashMap<String, Vec<ModelInfo>> = HashMap::new();
 
-    if let Some(key) = rt.api_keys.get("google") {
-        match fetch_google_models(&state.client, key).await {
+    if let Some((key, is_oauth)) = crate::oauth::get_google_credential(state).await {
+        match fetch_google_models(&state.client, &key, is_oauth).await {
             Ok(models) => {
                 tracing::info!("model_registry: fetched {} Google models", models.len());
                 all_models.insert("google".to_string(), models);
@@ -222,17 +220,18 @@ pub async fn refresh_cache(state: &AppState) -> HashMap<String, Vec<ModelInfo>> 
         }
     }
 
-    if let Some(key) = rt.api_keys.get("anthropic") {
-        match fetch_anthropic_models(&state.client, key).await {
-            Ok(models) => {
-                tracing::info!("model_registry: fetched {} Anthropic models", models.len());
-                all_models.insert("anthropic".to_string(), models);
+    {
+        let rt = state.runtime.read().await;
+        if let Some(key) = rt.api_keys.get("anthropic") {
+            match fetch_anthropic_models(&state.client, key).await {
+                Ok(models) => {
+                    tracing::info!("model_registry: fetched {} Anthropic models", models.len());
+                    all_models.insert("anthropic".to_string(), models);
+                }
+                Err(e) => tracing::warn!("model_registry: Anthropic fetch failed: {}", e),
             }
-            Err(e) => tracing::warn!("model_registry: Anthropic fetch failed: {}", e),
         }
     }
-
-    drop(rt);
 
     let mut cache = state.model_cache.write().await;
     cache.models = all_models.clone();

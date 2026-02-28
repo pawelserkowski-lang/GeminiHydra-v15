@@ -370,10 +370,9 @@ async fn execute_a2a_task(
             ctx.model
         );
 
-        let resp = state
-            .client
-            .post(&url)
-            .header("x-goog-api-key", &ctx.api_key)
+        let resp = crate::oauth::apply_google_auth(
+                state.client.post(&url), &ctx.api_key, ctx.is_oauth,
+            )
             .json(&body)
             .timeout(Duration::from_secs(120))
             .send()
@@ -435,7 +434,7 @@ async fn execute_a2a_task(
             } else {
                 match tokio::time::timeout(
                     Duration::from_secs(60),
-                    crate::tools::execute_tool(name, args, state),
+                    crate::tools::execute_tool(name, args, state, &ctx.working_directory),
                 )
                 .await
                 {

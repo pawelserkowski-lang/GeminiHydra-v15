@@ -362,6 +362,7 @@ fn classify_prompt(prompt: &str, agents: &[WitcherAgent]) -> (String, f64, Strin
 async fn classify_with_gemini(
     client: &reqwest::Client,
     api_key: &str,
+    is_oauth: bool,
     prompt: &str,
     agents: &[WitcherAgent],
 ) -> Option<(String, f64, String)> {
@@ -388,8 +389,7 @@ async fn classify_with_gemini(
         "generationConfig": {"temperature": 1.0, "maxOutputTokens": 256}
     });
 
-    let resp = client.post(url)
-        .header("x-goog-api-key", api_key)
+    let resp = crate::oauth::apply_google_auth(client.post(url), api_key, is_oauth)
         .json(&body)
         .timeout(std::time::Duration::from_secs(5))
         .send().await.ok()?;
@@ -410,7 +410,7 @@ async fn classify_with_gemini(
 // System Prompt Factory
 // ---------------------------------------------------------------------------
 
-pub(crate) fn build_system_prompt(agent_id: &str, agents: &[WitcherAgent], language: &str, model: &str) -> String {
+pub(crate) fn build_system_prompt(agent_id: &str, agents: &[WitcherAgent], language: &str, model: &str, working_directory: &str) -> String {
     let agent = agents.iter().find(|a| a.id == agent_id).unwrap_or(&agents[0]);
 
     let roster: String = agents
@@ -456,10 +456,27 @@ pub(crate) fn build_system_prompt(agent_id: &str, agents: &[WitcherAgent], langu
         roster = roster
     );
 
-    if !custom.is_empty() {
-        format!("{}\n\n## Agent-Specific Instructions\n{}", base_prompt, custom)
+    // Inject working directory section if set
+    let wd_section = if !working_directory.is_empty() {
+        format!(
+            "\n\n## Working Directory\n\
+             **Current working directory**: `{wd}`\n\
+             - All relative file paths in tool calls resolve against this directory.\n\
+             - For `list_directory`, `read_file`, `search_files`, `find_file`, `get_code_structure`, `read_file_section`, `diff_files`: you can use relative paths (e.g., `src/main.rs` instead of `{wd}\\src\\main.rs`).\n\
+             - For `execute_command`: if no `working_directory` parameter is set, it defaults to `{wd}`.\n\
+             - Absolute paths still work as before.",
+            wd = working_directory
+        )
     } else {
-        base_prompt
+        String::new()
+    };
+
+    let prompt = format!("{}{}", base_prompt, wd_section);
+
+    if !custom.is_empty() {
+        format!("{}\n\n## Agent-Specific Instructions\n{}", prompt, custom)
+    } else {
+        prompt
     }
 }
 
@@ -655,6 +672,8 @@ pub(crate) struct ExecuteContext {
     pub(crate) reasoning: String,
     pub(crate) model: String,
     pub(crate) api_key: String,
+    /// When true, api_key is an OAuth Bearer token; when false, it's a Google API key.
+    pub(crate) is_oauth: bool,
     pub(crate) system_prompt: String,
     pub(crate) final_user_prompt: String,
     pub(crate) files_loaded: Vec<String>,
@@ -672,6 +691,8 @@ pub(crate) struct ExecuteContext {
     pub(crate) thinking_level: String,
     /// A2A — current agent call depth (0 = user-initiated, max 3)
     pub(crate) call_depth: u32,
+    /// Working directory for filesystem tools (empty = absolute paths only)
+    pub(crate) working_directory: String,
 }
 
 pub(crate) async fn prepare_execution(
@@ -710,9 +731,9 @@ pub(crate) async fn prepare_execution(
         let (kw_agent, kw_conf, kw_reason) = classify_prompt(&prompt_clean, &agents_lock);
         // #28 — If keyword confidence is low, try Gemini Flash as fallback
         if kw_conf < 0.65 {
-            let api_key_for_classify = state.runtime.read().await.api_keys.get("google").cloned().unwrap_or_default();
-            if !api_key_for_classify.is_empty() {
-                if let Some(gemini_result) = classify_with_gemini(&state.client, &api_key_for_classify, &prompt_clean, &agents_lock).await {
+            let classify_cred = crate::oauth::get_google_credential(&state).await;
+            if let Some((classify_key, classify_is_oauth)) = classify_cred {
+                if let Some(gemini_result) = classify_with_gemini(&state.client, &classify_key, classify_is_oauth, &prompt_clean, &agents_lock).await {
                     tracing::info!("classify: Gemini Flash override — {} (keyword was {} @ {:.0}%)", gemini_result.0, kw_agent, kw_conf * 100.0);
                     gemini_result
                 } else {
@@ -743,15 +764,15 @@ pub(crate) async fn prepare_execution(
         String::new()
     };
 
-    let (def_model, lang, temperature, max_tokens, top_p, response_style, max_iterations, thinking_level) =
-        sqlx::query_as::<_, (String, String, f64, i32, f64, String, i32, String)>(
-            "SELECT default_model, language, temperature, max_tokens, top_p, response_style, max_iterations, thinking_level \
+    let (def_model, lang, temperature, max_tokens, top_p, response_style, max_iterations, thinking_level, working_directory) =
+        sqlx::query_as::<_, (String, String, f64, i32, f64, String, i32, String, String)>(
+            "SELECT default_model, language, temperature, max_tokens, top_p, response_style, max_iterations, thinking_level, working_directory \
              FROM gh_settings WHERE id = 1",
         )
         .fetch_one(&state.db)
         .await
         .unwrap_or_else(|_| (
-            "gemini-3.1-pro-preview-customtools".to_string(), "en".to_string(), 1.0, 65536, 0.95, "balanced".to_string(), 10, "medium".to_string()
+            "gemini-3.1-pro-preview-customtools".to_string(), "en".to_string(), 1.0, 65536, 0.95, "balanced".to_string(), 10, "medium".to_string(), String::new()
         ));
 
     // #48 — Per-agent temperature override
@@ -767,15 +788,17 @@ pub(crate) async fn prepare_execution(
     let model = model_override.unwrap_or_else(|| agent_model.unwrap_or(def_model));
     let language = match lang.as_str() { "pl" => "Polish", "en" => "English", other => other };
 
-    let api_key = state.runtime.read().await.api_keys.get("google").cloned().unwrap_or_default();
+    let (api_key, is_oauth) = crate::oauth::get_google_credential(state)
+        .await
+        .unwrap_or_default();
 
     // Cached system prompt — byte-identical across requests enables Gemini implicit caching
-    let prompt_cache_key = format!("{}:{}:{}", agent_id, language, model);
+    let prompt_cache_key = format!("{}:{}:{}:{}", agent_id, language, model, working_directory);
     let system_prompt = {
         let cache = state.prompt_cache.read().await;
         cache.get(&prompt_cache_key).cloned()
     }.unwrap_or_else(|| {
-        let prompt = build_system_prompt(&agent_id, &agents_lock, language, &model);
+        let prompt = build_system_prompt(&agent_id, &agents_lock, language, &model, &working_directory);
         let cache_clone = prompt.clone();
         let state_clone = state.prompt_cache.clone();
         let key_clone = prompt_cache_key.clone();
@@ -891,6 +914,7 @@ pub(crate) async fn prepare_execution(
         reasoning,
         model,
         api_key,
+        is_oauth,
         system_prompt,
         final_user_prompt,
         files_loaded,
@@ -902,6 +926,7 @@ pub(crate) async fn prepare_execution(
         max_iterations,
         thinking_level,
         call_depth: 0,
+        working_directory,
     }
 }
 
@@ -1090,7 +1115,13 @@ pub async fn internal_tool_execute(
         .ok_or_else(|| ApiError::BadRequest("missing 'name' field".into()))?;
     let args = body.get("args").cloned().unwrap_or(json!({}));
 
-    match crate::tools::execute_tool(name, &args, &state).await {
+    // Read working_directory from settings for tool path resolution
+    let wd: String = sqlx::query_scalar("SELECT working_directory FROM gh_settings WHERE id = 1")
+        .fetch_one(&state.db)
+        .await
+        .unwrap_or_default();
+
+    match crate::tools::execute_tool(name, &args, &state, &wd).await {
         Ok(output) => Ok(Json(json!({
             "status": "success",
             "result": output.text
@@ -1429,6 +1460,7 @@ async fn gemini_request_with_retry(
     client: &reqwest::Client,
     url: &reqwest::Url,
     api_key: &str,
+    is_oauth: bool,
     body: &Value,
 ) -> Result<reqwest::Response, String> {
     let mut last_err = String::new();
@@ -1448,9 +1480,9 @@ async fn gemini_request_with_retry(
             tokio::time::sleep(delay).await;
         }
 
-        let result = client
-            .post(url.clone())
-            .header("x-goog-api-key", api_key)
+        let result = crate::oauth::apply_google_auth(
+                client.post(url.clone()), api_key, is_oauth,
+            )
             .json(body)
             .timeout(Duration::from_secs(300))
             .send()
@@ -1577,7 +1609,7 @@ async fn execute_streaming_gemini(
         });
 
         // Use retry-with-backoff helper; circuit breaker is updated on success/failure.
-        let resp = match gemini_request_with_retry(&state.client, &parsed_url, &ctx.api_key, &body).await {
+        let resp = match gemini_request_with_retry(&state.client, &parsed_url, &ctx.api_key, ctx.is_oauth, &body).await {
             Ok(r) => {
                 state.gemini_circuit.record_success().await;
                 r
@@ -1592,7 +1624,7 @@ async fn execute_streaming_gemini(
                     tracing::warn!("Primary model {} failed, trying gemini-2.5-flash fallback", ctx.model);
                     let fallback_url_str = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse";
                     if let Ok(fallback_url) = reqwest::Url::parse(fallback_url_str) {
-                        if let Ok(fallback_resp) = gemini_request_with_retry(&state.client, &fallback_url, &ctx.api_key, &body).await {
+                        if let Ok(fallback_resp) = gemini_request_with_retry(&state.client, &fallback_url, &ctx.api_key, ctx.is_oauth, &body).await {
                             state.gemini_circuit.record_success().await;
                             let (fallback_text, _, _, _) = consume_gemini_stream(fallback_resp, sender, &cancel).await;
                             full_text.push_str(&fallback_text);
@@ -1624,7 +1656,7 @@ async fn execute_streaming_gemini(
                 "contents": contents,
                 "generationConfig": gen_config_retry
             });
-            if let Ok(retry_resp) = gemini_request_with_retry(&state.client, &parsed_url, &ctx.api_key, &retry_body).await {
+            if let Ok(retry_resp) = gemini_request_with_retry(&state.client, &parsed_url, &ctx.api_key, ctx.is_oauth, &retry_body).await {
                 let (retry_text, _, _, _) = consume_gemini_stream(retry_resp, sender, &cancel).await;
                 full_text.push_str(&retry_text);
             }
@@ -1671,10 +1703,12 @@ async fn execute_streaming_gemini(
         // doesn't block the entire iteration.
         // Heartbeat messages are sent every 15s to prevent proxy/LB timeouts.
         let call_depth = ctx.call_depth;
+        let wd = ctx.working_directory.clone();
         let tool_futures: Vec<_> = fcs.iter().map(|(name, args, _)| {
             let name = name.clone();
             let args = args.clone();
             let state = state.clone();
+            let wd = wd.clone();
             async move {
                 if name == "call_agent" {
                     // A2A agent delegation — longer timeout (120s), depth tracking
@@ -1687,7 +1721,7 @@ async fn execute_streaming_gemini(
                         Err(_) => (name, crate::tools::ToolOutput::text("AGENT_CALL_ERROR: timed out after 120s".to_string())),
                     }
                 } else {
-                    match tokio::time::timeout(TOOL_TIMEOUT, crate::tools::execute_tool(&name, &args, &state)).await {
+                    match tokio::time::timeout(TOOL_TIMEOUT, crate::tools::execute_tool(&name, &args, &state, &wd)).await {
                         Ok(Ok(output)) => (name, output),
                         Ok(Err(e)) => (name, crate::tools::ToolOutput::text(format!("TOOL_ERROR: {}", e))),
                         Err(_) => {
@@ -1835,7 +1869,7 @@ async fn execute_streaming_gemini(
                 "tools": edit_only_tools,
                 "generationConfig": gen_config
             });
-            if let Ok(resp) = gemini_request_with_retry(&state.client, &parsed_url, &ctx.api_key, &body).await {
+            if let Ok(resp) = gemini_request_with_retry(&state.client, &parsed_url, &ctx.api_key, ctx.is_oauth, &body).await {
                 state.gemini_circuit.record_success().await;
                 let (write_text, write_fcs, _, _) = consume_gemini_stream(resp, sender, &cancel).await;
                 full_text.push_str(&write_text);
@@ -1843,7 +1877,7 @@ async fn execute_streaming_gemini(
                 for (name, args, _) in &write_fcs {
                     if name == "write_file" || name == "edit_file" {
                         tracing::info!("execute_streaming_gemini: edit-phase enforcement — executing {}", name);
-                        match tokio::time::timeout(TOOL_TIMEOUT, crate::tools::execute_tool(name, args, &state)).await {
+                        match tokio::time::timeout(TOOL_TIMEOUT, crate::tools::execute_tool(name, args, &state, &ctx.working_directory)).await {
                             Ok(Ok(output)) => {
                                 has_written_file = true;
                                 let header = format!("\n\n---\n**Tool:** `{}`\n", name);
@@ -1889,7 +1923,7 @@ async fn execute_streaming_gemini(
             "contents": contents,
             "generationConfig": gen_config
         });
-        match gemini_request_with_retry(&state.client, &parsed_url, &ctx.api_key, &body).await {
+        match gemini_request_with_retry(&state.client, &parsed_url, &ctx.api_key, ctx.is_oauth, &body).await {
             Ok(resp) => {
                 state.gemini_circuit.record_success().await;
                 let (synth_text, synth_fcs, _, _) = consume_gemini_stream(resp, sender, &cancel).await;
@@ -2031,10 +2065,10 @@ pub async fn gemini_models(State(state): State<AppState>) -> Json<Value> {
     let mut models = Vec::new();
 
     // 1. Fetch Gemini models
-    let key = state.runtime.read().await.api_keys.get("google").cloned().unwrap_or_default();
-    if !key.is_empty() {
-        let url = format!("https://generativelanguage.googleapis.com/v1beta/models?key={}", key);
-        if let Ok(parsed) = reqwest::Url::parse(&url) && parsed.scheme() == "https" && let Ok(res) = state.client.get(parsed).send().await
+    let google_cred = crate::oauth::get_google_credential(&state).await;
+    if let Some((key, is_oauth)) = google_cred {
+        let url = "https://generativelanguage.googleapis.com/v1beta/models";
+        if let Ok(parsed) = reqwest::Url::parse(url) && let Ok(res) = crate::oauth::apply_google_auth(state.client.get(parsed), &key, is_oauth).send().await
             && res.status().is_success()
                 && let Ok(body) = res.json::<Value>().await
                     && let Some(list) = body["models"].as_array() {
@@ -2268,7 +2302,7 @@ pub async fn execute(State(state): State<AppState>, Json(body): Json<ExecuteRequ
     };
 
     // Use retry-with-backoff; update circuit breaker on outcome.
-    let text = match gemini_request_with_retry(&state.client, &parsed_url, &ctx.api_key, &gem_body).await {
+    let text = match gemini_request_with_retry(&state.client, &parsed_url, &ctx.api_key, ctx.is_oauth, &gem_body).await {
         Ok(r) => {
             state.gemini_circuit.record_success().await;
             let j: Value = r.json().await.unwrap_or_default();
@@ -2283,7 +2317,7 @@ pub async fn execute(State(state): State<AppState>, Json(body): Json<ExecuteRequ
                     "contents": [{ "parts": [{ "text": ctx.final_user_prompt }] }],
                     "generationConfig": gen_config_exec
                 });
-                match gemini_request_with_retry(&state.client, &parsed_url, &ctx.api_key, &retry_body).await {
+                match gemini_request_with_retry(&state.client, &parsed_url, &ctx.api_key, ctx.is_oauth, &retry_body).await {
                     Ok(r2) => {
                         let j2: Value = r2.json().await.unwrap_or_default();
                         extract_text(&j2).unwrap_or_else(|| {

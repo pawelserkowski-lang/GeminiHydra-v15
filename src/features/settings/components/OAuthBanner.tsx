@@ -1,12 +1,12 @@
-/** Jaskier Shared Pattern — OAuth startup suggestion banner */
+/** Jaskier Shared Pattern — Google Auth startup suggestion banner */
 
-import { ArrowRight, Crown, Key, X } from 'lucide-react';
+import { ArrowRight, Key, X } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { memo } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Button } from '@/components/atoms';
-import { useOAuthStatus } from '@/shared/hooks/useOAuthStatus';
+import { useAuthStatus } from '@/shared/hooks/useAuthStatus';
 import { useViewTheme } from '@/shared/hooks/useViewTheme';
 import { cn } from '@/shared/utils/cn';
 import { useViewStore } from '@/stores/viewStore';
@@ -14,7 +14,7 @@ import { useViewStore } from '@/stores/viewStore';
 export const OAuthBanner = memo(() => {
   const { t } = useTranslation();
   const theme = useViewTheme();
-  const { status, isLoading, isDismissed, dismiss } = useOAuthStatus();
+  const { status, isLoading, isDismissed, dismiss } = useAuthStatus();
   const setCurrentView = useViewStore((s) => s.setCurrentView);
 
   const visible = !isLoading && !status?.authenticated && !isDismissed;
@@ -54,13 +54,13 @@ export const OAuthBanner = memo(() => {
             <div className="flex items-start gap-4">
               {/* Icon */}
               <div className="flex-shrink-0 p-2.5 rounded-xl bg-[var(--matrix-accent)]/10">
-                <Crown size={20} className="text-[var(--matrix-accent)]" />
+                <Key size={20} className="text-[var(--matrix-accent)]" />
               </div>
 
               {/* Content */}
               <div className="flex-1 min-w-0">
-                <h3 className={cn('text-sm font-semibold font-mono', theme.text)}>{t('oauth.bannerTitle')}</h3>
-                <p className={cn('text-xs mt-1', theme.textMuted)}>{t('oauth.bannerDesc')}</p>
+                <h3 className={cn('text-sm font-semibold font-mono', theme.text)}>{t('auth.bannerTitle')}</h3>
+                <p className={cn('text-xs mt-1', theme.textMuted)}>{t('auth.bannerDesc')}</p>
 
                 {/* Actions */}
                 <div className="flex gap-2 mt-3 flex-wrap">
@@ -70,10 +70,10 @@ export const OAuthBanner = memo(() => {
                     rightIcon={<ArrowRight size={13} />}
                     onClick={() => setCurrentView('settings')}
                   >
-                    {t('oauth.setupOAuth')}
+                    {t('auth.setupAuth')}
                   </Button>
-                  <Button variant="ghost" size="sm" leftIcon={<Key size={13} />} onClick={dismiss}>
-                    {t('oauth.useApiKey')}
+                  <Button variant="ghost" size="sm" onClick={dismiss}>
+                    {t('auth.useApiKeyDismiss')}
                   </Button>
                 </div>
               </div>

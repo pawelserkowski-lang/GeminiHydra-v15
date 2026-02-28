@@ -14,7 +14,7 @@ import { Sidebar } from '@/components/organisms/Sidebar';
 import type { ConnectionHealth, StatusFooterProps } from '@/components/organisms/StatusFooter';
 import { StatusFooter } from '@/components/organisms/StatusFooter';
 import { TabBar } from '@/components/organisms/TabBar';
-import { ThemeProvider, useTheme } from '@/contexts/ThemeContext';
+import { useTheme } from '@/contexts/ThemeContext';
 import { useHealthStatus, useSystemStatsQuery } from '@/features/health/hooks/useHealth';
 import { useSettingsQuery } from '@/features/settings/hooks/useSettings';
 import { cn } from '@/shared/utils/cn';
@@ -160,15 +160,11 @@ function AppShellInner({ children, statusFooterProps }: AppShellProps) {
 }
 
 // ============================================================================
-// APP SHELL (with ThemeProvider wrapper)
+// APP SHELL (ThemeProvider hoisted to main.tsx for LoginView access)
 // ============================================================================
 
 export function AppShell({ children, statusFooterProps }: AppShellProps) {
-  return (
-    <ThemeProvider defaultTheme="dark">
-      <AppShellInner {...(statusFooterProps !== undefined && { statusFooterProps })}>{children}</AppShellInner>
-    </ThemeProvider>
-  );
+  return <AppShellInner {...(statusFooterProps !== undefined && { statusFooterProps })}>{children}</AppShellInner>;
 }
 
 AppShell.displayName = 'AppShell';

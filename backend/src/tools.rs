@@ -95,55 +95,79 @@ const BLOCKED_PATTERNS: &[&str] = &[
     "net localgroup ",
 ];
 
+/// Resolve a path against the working directory.
+/// If the path is absolute or working_directory is empty, return it as-is.
+/// If relative and working_directory is non-empty, join them.
+fn resolve_path(raw: &str, working_directory: &str) -> String {
+    let p = std::path::Path::new(raw);
+    if p.is_absolute() || working_directory.is_empty() {
+        raw.to_string()
+    } else {
+        std::path::Path::new(working_directory)
+            .join(raw)
+            .to_string_lossy()
+            .to_string()
+    }
+}
+
 /// Central dispatcher — routes tool call to the appropriate handler.
 /// Returns `ToolOutput` supporting text + optional multimodal data (Gemini 3).
-pub async fn execute_tool(name: &str, args: &Value, state: &AppState) -> Result<ToolOutput, String> {
+pub async fn execute_tool(name: &str, args: &Value, state: &AppState, working_directory: &str) -> Result<ToolOutput, String> {
     match name {
         "execute_command" => {
             let command = args["command"]
                 .as_str()
                 .ok_or("Missing required argument: command")?;
-            let working_directory = args["working_directory"].as_str();
-            tool_execute_command(command, working_directory, state).await.map(ToolOutput::text)
+            // Per-call working_directory takes priority, fallback to global setting
+            let per_call_wd = args["working_directory"].as_str();
+            let effective_wd = per_call_wd.or_else(|| {
+                if working_directory.is_empty() { None } else { Some(working_directory) }
+            });
+            tool_execute_command(command, effective_wd, state).await.map(ToolOutput::text)
         }
         "read_file" => {
             let path = args["path"]
                 .as_str()
                 .ok_or("Missing required argument: path")?;
-            tool_read_file(path).await.map(ToolOutput::text)
+            let resolved = resolve_path(path, working_directory);
+            tool_read_file(&resolved).await.map(ToolOutput::text)
         }
         "write_file" => {
             let path = args["path"]
                 .as_str()
                 .ok_or("Missing required argument: path")?;
+            let resolved = resolve_path(path, working_directory);
             let content = args["content"]
                 .as_str()
                 .ok_or("Missing required argument: content")?;
-            tool_write_file(path, content).await.map(ToolOutput::text)
+            tool_write_file(&resolved, content).await.map(ToolOutput::text)
         }
         "edit_file" => {
             let path = args["path"]
                 .as_str()
                 .ok_or("Missing required argument: path")?;
+            let resolved = resolve_path(path, working_directory);
             let old_text = args["old_text"]
                 .as_str()
                 .ok_or("Missing required argument: old_text")?;
             let new_text = args["new_text"]
                 .as_str()
                 .ok_or("Missing required argument: new_text")?;
-            tool_edit_file(path, old_text, new_text).await.map(ToolOutput::text)
+            tool_edit_file(&resolved, old_text, new_text).await.map(ToolOutput::text)
         }
         "list_directory" => {
             let path = args["path"]
                 .as_str()
                 .ok_or("Missing required argument: path")?;
+            let resolved = resolve_path(path, working_directory);
             let show_hidden = args["show_hidden"].as_bool().unwrap_or(false);
-            tool_list_directory(path, show_hidden).await.map(ToolOutput::text)
+            tool_list_directory(&resolved, show_hidden).await.map(ToolOutput::text)
         }
         "search_files" => {
             let path = args["path"]
                 .as_str()
                 .ok_or("Missing required argument: path")?;
+            let resolved = resolve_path(path, working_directory);
             let pattern = args["pattern"]
                 .as_str()
                 .ok_or("Missing required argument: pattern")?;
@@ -151,43 +175,48 @@ pub async fn execute_tool(name: &str, args: &Value, state: &AppState) -> Result<
             let offset = args["offset"].as_u64().unwrap_or(0) as usize;
             let limit = args["limit"].as_u64().unwrap_or(80) as usize;
             let multiline = args["multiline"].as_bool().unwrap_or(false);
-            tool_search_files(path, pattern, extensions, offset, limit, multiline).await.map(ToolOutput::text)
+            tool_search_files(&resolved, pattern, extensions, offset, limit, multiline).await.map(ToolOutput::text)
         }
         "get_code_structure" => {
             let path = args["path"]
                 .as_str()
                 .ok_or("Missing required argument: path")?;
-            tool_get_code_structure(path).await.map(ToolOutput::text)
+            let resolved = resolve_path(path, working_directory);
+            tool_get_code_structure(&resolved).await.map(ToolOutput::text)
         }
         "read_file_section" => {
             let path = args["path"]
                 .as_str()
                 .ok_or("Missing required argument: path")?;
+            let resolved = resolve_path(path, working_directory);
             let start_line = args["start_line"]
                 .as_u64()
                 .ok_or("Missing required argument: start_line")? as usize;
             let end_line = args["end_line"]
                 .as_u64()
                 .ok_or("Missing required argument: end_line")? as usize;
-            tool_read_file_section(path, start_line, end_line).await.map(ToolOutput::text)
+            tool_read_file_section(&resolved, start_line, end_line).await.map(ToolOutput::text)
         }
         "find_file" => {
             let path = args["path"]
                 .as_str()
                 .ok_or("Missing required argument: path")?;
+            let resolved = resolve_path(path, working_directory);
             let pattern = args["pattern"]
                 .as_str()
                 .ok_or("Missing required argument: pattern")?;
-            tool_find_file(path, pattern).await.map(ToolOutput::text)
+            tool_find_file(&resolved, pattern).await.map(ToolOutput::text)
         }
         "diff_files" => {
             let path_a = args["path_a"]
                 .as_str()
                 .ok_or("Missing required argument: path_a")?;
+            let resolved_a = resolve_path(path_a, working_directory);
             let path_b = args["path_b"]
                 .as_str()
                 .ok_or("Missing required argument: path_b")?;
-            tool_diff_files(path_a, path_b).await.map(ToolOutput::text)
+            let resolved_b = resolve_path(path_b, working_directory);
+            tool_diff_files(&resolved_a, &resolved_b).await.map(ToolOutput::text)
         }
         _ => Err(format!("Unknown tool: {}", name)),
     }

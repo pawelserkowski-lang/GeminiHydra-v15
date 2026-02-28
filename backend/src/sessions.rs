@@ -137,6 +137,9 @@ pub struct PartialSettings {
     /// Gemini 3 thinking level: 'none', 'minimal', 'low', 'medium', 'high'
     #[serde(default)]
     pub thinking_level: Option<String>,
+    /// Working directory for filesystem tools (empty = absolute paths only)
+    #[serde(default)]
+    pub working_directory: Option<String>,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -174,6 +177,7 @@ fn row_to_settings(row: SettingsRow) -> AppSettings {
         response_style: if row.response_style.is_empty() { "balanced".to_string() } else { row.response_style },
         max_iterations: if row.max_iterations == 0 { 10 } else { row.max_iterations },
         thinking_level: if row.thinking_level.is_empty() { "medium".to_string() } else { row.thinking_level },
+        working_directory: row.working_directory,
     }
 }
 
@@ -794,15 +798,14 @@ pub async fn generate_session_title(
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
     .ok_or(StatusCode::NOT_FOUND)?;
 
-    // Get Google API key
-    let api_key = {
-        let rt = state.runtime.read().await;
-        rt.api_keys.get("google").cloned().unwrap_or_default()
+    // Get Google credential (API key or OAuth token)
+    let (api_key, is_oauth) = match crate::oauth::get_google_credential(&state).await {
+        Some(cred) => cred,
+        None => {
+            tracing::warn!("generate_session_title: no Google credential");
+            return Err(StatusCode::SERVICE_UNAVAILABLE);
+        }
     };
-    if api_key.is_empty() {
-        tracing::warn!("generate_session_title: no Google API key");
-        return Err(StatusCode::SERVICE_UNAVAILABLE);
-    }
 
     // Truncate message to ~500 chars for the prompt (safe UTF-8 boundary)
     let snippet: &str = if first_msg.len() > 500 {
@@ -823,8 +826,8 @@ pub async fn generate_session_title(
 
     let model = "gemini-2.0-flash";
     let url = format!(
-        "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent?key={}",
-        model, api_key
+        "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent",
+        model
     );
     let parsed_url = match reqwest::Url::parse(&url) {
         Ok(u) if u.scheme() == "https" => u,
@@ -836,9 +839,9 @@ pub async fn generate_session_title(
         "generationConfig": { "temperature": 1.0, "maxOutputTokens": 256 }
     });
 
-    let res = state
-        .client
-        .post(parsed_url)
+    let res = crate::oauth::apply_google_auth(
+            state.client.post(parsed_url), &api_key, is_oauth,
+        )
         .json(&body)
         .timeout(std::time::Duration::from_secs(15))
         .send()
@@ -901,7 +904,7 @@ pub async fn get_settings(
 ) -> Result<Json<AppSettings>, StatusCode> {
     let row = sqlx::query_as::<_, SettingsRow>(
         "SELECT temperature, max_tokens, default_model, language, theme, welcome_message, \
-         use_docker_sandbox, top_p, response_style, max_iterations, thinking_level \
+         use_docker_sandbox, top_p, response_style, max_iterations, thinking_level, working_directory \
          FROM gh_settings WHERE id = 1",
     )
     .fetch_one(&state.db)
@@ -931,7 +934,7 @@ pub async fn update_settings(
 
     let current = sqlx::query_as::<_, SettingsRow>(
         "SELECT temperature, max_tokens, default_model, language, theme, welcome_message, \
-         use_docker_sandbox, top_p, response_style, max_iterations, thinking_level \
+         use_docker_sandbox, top_p, response_style, max_iterations, thinking_level, working_directory \
          FROM gh_settings WHERE id = 1",
     )
     .fetch_one(&state.db)
@@ -949,13 +952,20 @@ pub async fn update_settings(
     let response_style = patch.response_style.unwrap_or(current.response_style);
     let max_iterations = patch.max_iterations.unwrap_or(current.max_iterations);
     let thinking_level = patch.thinking_level.unwrap_or(current.thinking_level);
+    let working_directory = patch.working_directory.unwrap_or(current.working_directory);
+
+    // Validate working_directory if non-empty
+    if !working_directory.is_empty() && !std::path::Path::new(&working_directory).is_dir() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
 
     let row = sqlx::query_as::<_, SettingsRow>(
         "UPDATE gh_settings SET temperature=$1, max_tokens=$2, default_model=$3, \
          language=$4, theme=$5, welcome_message=$6, use_docker_sandbox=$7, \
-         top_p=$8, response_style=$9, max_iterations=$10, thinking_level=$11, updated_at=NOW() WHERE id=1 \
+         top_p=$8, response_style=$9, max_iterations=$10, thinking_level=$11, \
+         working_directory=$12, updated_at=NOW() WHERE id=1 \
          RETURNING temperature, max_tokens, default_model, language, theme, welcome_message, \
-         use_docker_sandbox, top_p, response_style, max_iterations, thinking_level",
+         use_docker_sandbox, top_p, response_style, max_iterations, thinking_level, working_directory",
     )
     .bind(temperature)
     .bind(max_tokens)
@@ -968,6 +978,7 @@ pub async fn update_settings(
     .bind(&response_style)
     .bind(max_iterations)
     .bind(&thinking_level)
+    .bind(&working_directory)
     .fetch_one(&state.db)
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
@@ -985,6 +996,7 @@ pub async fn update_settings(
             "response_style": response_style,
             "max_iterations": max_iterations,
             "thinking_level": thinking_level,
+            "working_directory": working_directory,
         }),
         Some(&addr.ip().to_string()),
     )
@@ -1007,9 +1019,9 @@ pub async fn reset_settings(
          default_model=$1, language='en', theme='dark', \
          welcome_message='', use_docker_sandbox=FALSE, \
          top_p=0.95, response_style='balanced', max_iterations=10, \
-         thinking_level='medium', updated_at=NOW() WHERE id=1 \
+         thinking_level='medium', working_directory='', updated_at=NOW() WHERE id=1 \
          RETURNING temperature, max_tokens, default_model, language, theme, welcome_message, \
-         use_docker_sandbox, top_p, response_style, max_iterations, thinking_level",
+         use_docker_sandbox, top_p, response_style, max_iterations, thinking_level, working_directory",
     )
     .bind(&best_model)
     .fetch_one(&state.db)
@@ -1360,6 +1372,7 @@ mod tests {
             response_style: "detailed".to_string(),
             max_iterations: 15,
             thinking_level: "high".to_string(),
+            working_directory: "C:\\Users\\test".to_string(),
         };
         let settings = row_to_settings(row);
         assert!((settings.temperature - 0.7).abs() < f64::EPSILON);

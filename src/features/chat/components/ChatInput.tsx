@@ -28,6 +28,7 @@ import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/atoms';
 import { useViewTheme } from '@/shared/hooks/useViewTheme';
 import { cn } from '@/shared/utils/cn';
+import { WorkingFolderPicker } from './WorkingFolderPicker';
 
 // ============================================================================
 // TYPES
@@ -381,6 +382,9 @@ export const ChatInput = memo<ChatInputProps>(
             </div>
           )}
         </AnimatePresence>
+
+        {/* Working folder picker */}
+        <WorkingFolderPicker />
 
         <div className="flex gap-3 items-end w-full">
           {/* Textarea wrapper */}

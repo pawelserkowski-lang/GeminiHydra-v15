@@ -121,38 +121,49 @@ const settingsSchema = z
     welcome_message: z.string().optional().default(''),
     /** Gemini 3 thinking level — controls reasoning depth per request */
     thinking_level: z.enum(['none', 'minimal', 'low', 'medium', 'high']).optional().default('medium'),
+    /** Working directory for filesystem tools (empty = absolute paths only) */
+    working_directory: z.string().optional().default(''),
   })
   .passthrough();
 
 export type Settings = z.infer<typeof settingsSchema>;
 
 // ============================================================================
-// OAUTH STATUS
+// AUTH STATUS (Google OAuth + API Key)
 // ============================================================================
 
-export const oauthStatusSchema = z.object({
+export const authStatusSchema = z.object({
   authenticated: z.boolean(),
+  method: z.enum(['oauth', 'api_key', 'env']).optional(),
   expired: z.boolean().optional(),
   expires_at: z.number().optional(),
-  scope: z.string().optional(),
+  user_email: z.string().optional(),
+  user_name: z.string().optional(),
+  oauth_available: z.boolean().optional(),
 });
 
-export type OAuthStatus = z.infer<typeof oauthStatusSchema>;
+export type AuthStatus = z.infer<typeof authStatusSchema>;
 
-export const oauthLoginResponseSchema = z.object({
+/** @deprecated Use AuthStatus instead */
+export type OAuthStatus = AuthStatus;
+
+export const authLoginResponseSchema = z.object({
   auth_url: z.string(),
   state: z.string(),
 });
 
-export type OAuthLoginResponse = z.infer<typeof oauthLoginResponseSchema>;
+export type AuthLoginResponse = z.infer<typeof authLoginResponseSchema>;
 
-export const oauthCallbackResponseSchema = z.object({
+/** @deprecated Use AuthLoginResponse instead */
+export type OAuthLoginResponse = AuthLoginResponse;
+
+export const saveApiKeyResponseSchema = z.object({
   status: z.string(),
   authenticated: z.boolean(),
-  expires_at: z.number(),
+  valid: z.boolean(),
 });
 
-export type OAuthCallbackResponse = z.infer<typeof oauthCallbackResponseSchema>;
+export type SaveApiKeyResponse = z.infer<typeof saveApiKeyResponseSchema>;
 
 // ============================================================================
 // WEBSOCKET PROTOCOL
