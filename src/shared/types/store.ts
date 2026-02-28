@@ -7,6 +7,8 @@ export interface ChatSession {
   updatedAt?: number;
   messageCount?: number;
   preview?: string;
+  /** Per-session working directory (empty = inherit from global settings) */
+  workingDirectory?: string;
 }
 
 export interface ChatTab {

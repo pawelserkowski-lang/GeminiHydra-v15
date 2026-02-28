@@ -12,7 +12,7 @@ export type View = 'home' | 'login' | 'chat' | 'agents' | 'brain' | 'settings';
  * GeminiHydra session — extends shared ChatSession.
  * Local alias `Session` kept for backward compatibility across all slices.
  */
-export type Session = Pick<ChatSession, 'id' | 'title' | 'createdAt'>;
+export type Session = Pick<ChatSession, 'id' | 'title' | 'createdAt' | 'workingDirectory'>;
 
 export type { SharedChatTab as ChatTab };
 

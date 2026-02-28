@@ -319,6 +319,8 @@ export const ChatContainer = memo<ChatContainerProps>(
     // Store
     const currentSessionId = useViewStore((s) => s.currentSessionId);
     const chatHistory = useViewStore((s) => s.chatHistory);
+    const currentSession = useViewStore((s) => s.sessions.find((sess) => sess.id === s.currentSessionId));
+    const setSessionWorkingDirectory = useViewStore((s) => s.setSessionWorkingDirectory);
     const messages = useMemo<Message[]>(
       () => (currentSessionId ? (chatHistory[currentSessionId] ?? []) : []),
       [currentSessionId, chatHistory],
@@ -487,6 +489,17 @@ export const ChatContainer = memo<ChatContainerProps>(
         setPendingImage(null);
       },
       [onSubmit, textContext, isOnline, t],
+    );
+
+    // ----- Per-session working directory --------------------------------
+
+    const handleWorkingDirectoryChange = useCallback(
+      (wd: string) => {
+        if (currentSessionId) {
+          setSessionWorkingDirectory(currentSessionId, wd);
+        }
+      },
+      [currentSessionId, setSessionWorkingDirectory],
     );
 
     // ----- Prompt history for arrow-key navigation ----------------------
@@ -723,6 +736,9 @@ export const ChatContainer = memo<ChatContainerProps>(
               onPasteFile={handleTextDrop}
               onAttachPath={handleAttachPath}
               promptHistory={promptHistory}
+              sessionId={currentSessionId ?? undefined}
+              workingDirectory={currentSession?.workingDirectory}
+              onWorkingDirectoryChange={handleWorkingDirectoryChange}
             />
           </div>
         </div>

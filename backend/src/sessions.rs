@@ -5,7 +5,7 @@
 
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use axum::routing::{get, post};
+use axum::routing::{get, patch, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -15,6 +15,7 @@ use crate::models::{
     AppSettings, ChatMessage, ChatMessageRow, CreateSessionRequest, KnowledgeEdgeRow,
     KnowledgeNodeRow, MemoryRow, RatingRequest, RatingResponse, Session, SessionRow,
     SessionSummary, SessionSummaryRow, SettingsRow, UnlockAgentResponse, UpdateSessionRequest,
+    UpdateWorkingDirectoryRequest,
 };
 use crate::state::AppState;
 
@@ -245,6 +246,10 @@ pub fn session_routes() -> Router<AppState> {
             "/api/sessions/{id}/unlock",
             post(unlock_session_agent),
         )
+        .route(
+            "/api/sessions/{id}/working-directory",
+            patch(update_session_working_directory),
+        )
         .route("/api/ratings", post(rate_message))
 }
 
@@ -396,7 +401,7 @@ pub async fn list_sessions(
         let cursor_id = uuid::Uuid::parse_str(after_id).map_err(|_| StatusCode::BAD_REQUEST)?;
 
         let rows = sqlx::query_as::<_, SessionSummaryRow>(
-            "SELECT s.id, s.title, s.created_at, \
+            "SELECT s.id, s.title, s.created_at, s.working_directory, \
              (SELECT COUNT(*) FROM gh_chat_messages WHERE session_id = s.id) as message_count \
              FROM gh_sessions s \
              WHERE s.updated_at < (SELECT updated_at FROM gh_sessions WHERE id = $1) \
@@ -416,6 +421,7 @@ pub async fn list_sessions(
                 title: r.title.clone(),
                 created_at: r.created_at.to_rfc3339(),
                 message_count: r.message_count as usize,
+                working_directory: r.working_directory.clone(),
             })
             .collect();
 
@@ -434,7 +440,7 @@ pub async fn list_sessions(
     let offset = params.offset.unwrap_or(0).max(0);
 
     let rows = sqlx::query_as::<_, SessionSummaryRow>(
-        "SELECT s.id, s.title, s.created_at, \
+        "SELECT s.id, s.title, s.created_at, s.working_directory, \
          (SELECT COUNT(*) FROM gh_chat_messages WHERE session_id = s.id) as message_count \
          FROM gh_sessions s ORDER BY s.updated_at DESC \
          LIMIT $1 OFFSET $2",
@@ -452,6 +458,7 @@ pub async fn list_sessions(
             title: r.title,
             created_at: r.created_at.to_rfc3339(),
             message_count: r.message_count as usize,
+            working_directory: r.working_directory,
         })
         .collect();
 
@@ -474,7 +481,7 @@ pub async fn create_session(
 
     let row = sqlx::query_as::<_, SessionRow>(
         "INSERT INTO gh_sessions (title) VALUES ($1) \
-         RETURNING id, title, created_at, updated_at",
+         RETURNING id, title, created_at, updated_at, working_directory",
     )
     .bind(&req.title)
     .fetch_one(&state.db)
@@ -486,6 +493,7 @@ pub async fn create_session(
         title: row.title,
         created_at: row.created_at.to_rfc3339(),
         messages: Vec::new(),
+        working_directory: row.working_directory,
     };
 
     Ok((StatusCode::CREATED, Json(serde_json::to_value(session).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?)))
@@ -513,7 +521,7 @@ pub async fn get_session(
     let msg_offset = params.offset.unwrap_or(0).max(0);
 
     let session_row = sqlx::query_as::<_, SessionRow>(
-        "SELECT id, title, created_at, updated_at FROM gh_sessions WHERE id = $1",
+        "SELECT id, title, created_at, updated_at, working_directory FROM gh_sessions WHERE id = $1",
     )
     .bind(session_id)
     .fetch_optional(&state.db)
@@ -552,6 +560,7 @@ pub async fn get_session(
         title: session_row.title,
         created_at: session_row.created_at.to_rfc3339(),
         messages,
+        working_directory: session_row.working_directory,
     };
 
     let mut result = serde_json::to_value(session).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
@@ -588,7 +597,7 @@ pub async fn update_session(
 
     let row = sqlx::query_as::<_, SessionRow>(
         "UPDATE gh_sessions SET title = $1, updated_at = NOW() WHERE id = $2 \
-         RETURNING id, title, created_at, updated_at",
+         RETURNING id, title, created_at, updated_at, working_directory",
     )
     .bind(&req.title)
     .bind(session_id)
@@ -602,6 +611,7 @@ pub async fn update_session(
         title: row.title,
         created_at: row.created_at.to_rfc3339(),
         message_count: 0,
+        working_directory: row.working_directory,
     };
 
     Ok(Json(serde_json::to_value(summary).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?))
@@ -641,6 +651,46 @@ pub async fn delete_session(
     .await;
 
     Ok(Json(json!({ "status": "deleted", "id": id })))
+}
+
+/// PATCH /api/sessions/:id/working-directory
+///
+/// Update the per-session working directory. Empty string = inherit from global settings.
+#[utoipa::path(patch, path = "/api/sessions/{id}/working-directory", tag = "sessions",
+    params(("id" = String, Path, description = "Session UUID")),
+    request_body = UpdateWorkingDirectoryRequest,
+    responses(
+        (status = 200, description = "Working directory updated", body = Value),
+        (status = 400, description = "Invalid path or session ID"),
+        (status = 404, description = "Session not found")
+    )
+)]
+pub async fn update_session_working_directory(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(req): Json<UpdateWorkingDirectoryRequest>,
+) -> Result<Json<Value>, StatusCode> {
+    let session_id: uuid::Uuid = id.parse().map_err(|_| StatusCode::BAD_REQUEST)?;
+    let wd = req.working_directory.trim().to_string();
+
+    if !wd.is_empty() && !std::path::Path::new(&wd).is_dir() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    let result = sqlx::query(
+        "UPDATE gh_sessions SET working_directory = $1, updated_at = NOW() WHERE id = $2",
+    )
+    .bind(&wd)
+    .bind(session_id)
+    .execute(&state.db)
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    if result.rows_affected() == 0 {
+        return Err(StatusCode::NOT_FOUND);
+    }
+
+    Ok(Json(json!({ "working_directory": wd })))
 }
 
 /// GET /api/sessions/:id/messages?limit=50&offset=0

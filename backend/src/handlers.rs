@@ -1427,8 +1427,34 @@ async fn execute_streaming(
         None
     };
 
-    let ctx = prepare_execution(state, prompt, model_override, agent_info).await;
+    let mut ctx = prepare_execution(state, prompt, model_override, agent_info).await;
     let resp_id = Uuid::new_v4();
+
+    // Session WD override (takes priority over global setting)
+    if let Some(ref s) = sid {
+        let session_wd: String = sqlx::query_scalar(
+            "SELECT working_directory FROM gh_sessions WHERE id = $1",
+        )
+        .bind(s)
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_default();
+        if !session_wd.is_empty() {
+            ctx.working_directory = session_wd.clone();
+            // Rebuild system prompt with session WD
+            let agents_lock = state.agents.read().await;
+            let (_, lang, ..) = sqlx::query_as::<_, (String, String,)>(
+                "SELECT default_model, language FROM gh_settings WHERE id = 1",
+            )
+            .fetch_one(&state.db)
+            .await
+            .unwrap_or_else(|_| ("gemini-3.1-pro-preview".to_string(), "en".to_string()));
+            let language = match lang.as_str() { "pl" => "Polish", "en" => "English", other => other };
+            ctx.system_prompt = build_system_prompt(&ctx.agent_id, &agents_lock, language, &ctx.model, &session_wd);
+        }
+    }
 
     if !ws_send(sender, &WsServerMessage::Start { id: resp_id.to_string(), agent: ctx.agent_id.clone(), model: ctx.model.clone(), files_loaded: ctx.files_loaded.clone() }).await { return; }
     let _ = ws_send(sender, &WsServerMessage::Plan { agent: ctx.agent_id.clone(), confidence: ctx.confidence, steps: ctx.steps.clone(), reasoning: ctx.reasoning.clone() }).await;

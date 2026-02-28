@@ -5,9 +5,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
-import { useSettingsQuery } from '@/features/settings/hooks/useSettings';
 import { apiPatch, apiPost } from '@/shared/api/client';
-import type { Settings } from '@/shared/api/schemas';
 import { useViewTheme } from '@/shared/hooks/useViewTheme';
 import { cn } from '@/shared/utils/cn';
 
@@ -205,220 +203,229 @@ const DirBrowser = memo<DirBrowserProps>(({ onSelect, onClose, initialPath }) =>
 DirBrowser.displayName = 'DirBrowser';
 
 // ============================================================================
-// WORKING FOLDER PICKER
+// WORKING FOLDER PICKER (per-session)
 // ============================================================================
 
-export const WorkingFolderPicker = memo(() => {
-  const { t } = useTranslation();
-  const theme = useViewTheme();
-  const { data: settings, refetch } = useSettingsQuery();
+interface WorkingFolderPickerProps {
+  sessionId: string;
+  workingDirectory: string;
+  onDirectoryChange: (wd: string) => void;
+}
 
-  const [browsing, setBrowsing] = useState(false);
-  const [editing, setEditing] = useState(false);
-  const [value, setValue] = useState('');
-  const [saving, setSaving] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
+export const WorkingFolderPicker = memo<WorkingFolderPickerProps>(
+  ({ sessionId, workingDirectory, onDirectoryChange }) => {
+    const { t } = useTranslation();
+    const theme = useViewTheme();
 
-  const currentFolder = settings?.working_directory || '';
+    const [browsing, setBrowsing] = useState(false);
+    const [editing, setEditing] = useState(false);
+    const [value, setValue] = useState(workingDirectory);
+    const [saving, setSaving] = useState(false);
+    const inputRef = useRef<HTMLInputElement>(null);
+    const containerRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    if (settings?.working_directory !== undefined) {
-      setValue(settings.working_directory);
-    }
-  }, [settings?.working_directory]);
+    const currentFolder = workingDirectory;
 
-  useEffect(() => {
-    if (editing) {
-      requestAnimationFrame(() => inputRef.current?.focus());
-    }
-  }, [editing]);
+    useEffect(() => {
+      setValue(workingDirectory);
+    }, [workingDirectory]);
 
-  // Close browser on outside click
-  useEffect(() => {
-    if (!browsing) return;
-    const handler = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setBrowsing(false);
+    useEffect(() => {
+      if (editing) {
+        requestAnimationFrame(() => inputRef.current?.focus());
       }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [browsing]);
+    }, [editing]);
 
-  const saveFolder = useCallback(
-    async (path: string) => {
-      setSaving(true);
-      try {
-        await apiPatch<Settings>('/api/settings', { working_directory: path });
-        await refetch();
-        setValue(path);
+    // Close browser on outside click
+    useEffect(() => {
+      if (!browsing) return;
+      const handler = (e: MouseEvent) => {
+        if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+          setBrowsing(false);
+        }
+      };
+      document.addEventListener('mousedown', handler);
+      return () => document.removeEventListener('mousedown', handler);
+    }, [browsing]);
+
+    const saveFolder = useCallback(
+      async (path: string) => {
+        setSaving(true);
+        try {
+          await apiPatch(`/api/sessions/${sessionId}/working-directory`, { working_directory: path });
+          onDirectoryChange(path);
+          setValue(path);
+          setEditing(false);
+          setBrowsing(false);
+          toast.success(
+            path
+              ? t('settings.workingFolder.saved', 'Working folder saved')
+              : t('settings.workingFolder.cleared', 'Working folder cleared'),
+          );
+        } catch (err) {
+          toast.error(err instanceof Error ? err.message : 'Failed to save');
+        } finally {
+          setSaving(false);
+        }
+      },
+      [sessionId, onDirectoryChange, t],
+    );
+
+    const handleSave = useCallback(() => {
+      const trimmed = value.trim();
+      if (trimmed === currentFolder) {
         setEditing(false);
-        setBrowsing(false);
-        toast.success(
-          path
-            ? t('settings.workingFolder.saved', 'Working folder saved')
-            : t('settings.workingFolder.cleared', 'Working folder cleared'),
-        );
-      } catch (err) {
-        toast.error(err instanceof Error ? err.message : 'Failed to save');
-      } finally {
-        setSaving(false);
+        return;
       }
-    },
-    [refetch, t],
-  );
+      saveFolder(trimmed);
+    }, [value, currentFolder, saveFolder]);
 
-  const handleSave = useCallback(() => {
-    const trimmed = value.trim();
-    if (trimmed === currentFolder) {
+    const handleClear = useCallback(() => saveFolder(''), [saveFolder]);
+
+    const handleCancel = useCallback(() => {
+      setValue(currentFolder);
       setEditing(false);
-      return;
-    }
-    saveFolder(trimmed);
-  }, [value, currentFolder, saveFolder]);
+    }, [currentFolder]);
 
-  const handleClear = useCallback(() => saveFolder(''), [saveFolder]);
+    const handleBrowseSelect = useCallback(
+      (path: string) => {
+        saveFolder(path);
+      },
+      [saveFolder],
+    );
 
-  const handleCancel = useCallback(() => {
-    setValue(currentFolder);
-    setEditing(false);
-  }, [currentFolder]);
+    // Truncate long paths for display
+    const displayPath =
+      currentFolder.length > 40
+        ? `…${currentFolder.slice(currentFolder.lastIndexOf('\\', currentFolder.length - 20))}`
+        : currentFolder;
 
-  const handleBrowseSelect = useCallback(
-    (path: string) => {
-      saveFolder(path);
-    },
-    [saveFolder],
-  );
-
-  // Truncate long paths for display
-  const displayPath =
-    currentFolder.length > 40
-      ? `…${currentFolder.slice(currentFolder.lastIndexOf('\\', currentFolder.length - 20))}`
-      : currentFolder;
-
-  return (
-    <div ref={containerRef} className="relative">
-      <AnimatePresence mode="wait">
-        {editing ? (
-          <motion.div
-            key="edit"
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            exit={{ opacity: 0, height: 0 }}
-            className="flex items-center gap-2 px-1 pb-2"
-          >
-            <FolderOpen size={14} className="shrink-0 text-[var(--matrix-accent)]" />
-            <input
-              ref={inputRef}
-              type="text"
-              value={value}
-              onChange={(e) => setValue(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  handleSave();
-                }
-                if (e.key === 'Escape') handleCancel();
-              }}
-              placeholder="C:\Users\you\project"
-              disabled={saving}
-              className={cn(
-                'flex-1 text-xs font-mono px-2 py-1 rounded-md bg-transparent',
-                'border border-[var(--matrix-accent)]/30 focus:border-[var(--matrix-accent)]/60',
-                'focus:outline-none transition-colors',
-                theme.text,
-              )}
-            />
-            <button
-              type="button"
-              onClick={handleSave}
-              disabled={saving}
-              className="p-1 rounded hover:bg-green-500/20 text-green-400 transition-colors"
-              title={t('common.save', 'Save')}
+    return (
+      <div ref={containerRef} className="relative">
+        <AnimatePresence mode="wait">
+          {editing ? (
+            <motion.div
+              key="edit"
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="flex items-center gap-2 px-1 pb-2"
             >
-              <Check size={14} />
-            </button>
-            <button
-              type="button"
-              onClick={handleCancel}
-              disabled={saving}
-              className="p-1 rounded hover:bg-red-500/20 text-red-400 transition-colors"
-              title={t('common.cancel', 'Cancel')}
+              <FolderOpen size={14} className="shrink-0 text-[var(--matrix-accent)]" />
+              <input
+                ref={inputRef}
+                type="text"
+                value={value}
+                onChange={(e) => setValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleSave();
+                  }
+                  if (e.key === 'Escape') handleCancel();
+                }}
+                placeholder="C:\Users\you\project"
+                disabled={saving}
+                className={cn(
+                  'flex-1 text-xs font-mono px-2 py-1 rounded-md bg-transparent',
+                  'border border-[var(--matrix-accent)]/30 focus:border-[var(--matrix-accent)]/60',
+                  'focus:outline-none transition-colors',
+                  theme.text,
+                )}
+              />
+              <button
+                type="button"
+                onClick={handleSave}
+                disabled={saving}
+                className="p-1 rounded hover:bg-green-500/20 text-green-400 transition-colors"
+                title={t('common.save', 'Save')}
+              >
+                <Check size={14} />
+              </button>
+              <button
+                type="button"
+                onClick={handleCancel}
+                disabled={saving}
+                className="p-1 rounded hover:bg-red-500/20 text-red-400 transition-colors"
+                title={t('common.cancel', 'Cancel')}
+              >
+                <X size={14} />
+              </button>
+            </motion.div>
+          ) : (
+            <motion.div
+              key="display"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="flex items-center gap-2 px-1 pb-2"
             >
-              <X size={14} />
-            </button>
-          </motion.div>
-        ) : (
-          <motion.div
-            key="display"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="flex items-center gap-2 px-1 pb-2"
-          >
-            {currentFolder ? (
-              <>
+              {currentFolder ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setBrowsing((b) => !b)}
+                    className="shrink-0 p-1 rounded transition-colors text-[var(--matrix-accent)] hover:bg-[var(--matrix-accent)]/10"
+                    title={t('settings.workingFolder.browse', 'Browse folders')}
+                  >
+                    <FolderOpen size={14} />
+                  </button>
+                  <span className={cn('text-xs font-mono truncate', theme.textMuted)} title={currentFolder}>
+                    {displayPath}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setEditing(true)}
+                    className={cn(
+                      'p-1 rounded transition-colors',
+                      theme.textMuted,
+                      'hover:text-[var(--matrix-accent)]',
+                    )}
+                    title={t('settings.workingFolder.change', 'Change')}
+                  >
+                    <Pencil size={12} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleClear}
+                    disabled={saving}
+                    className={cn('p-1 rounded transition-colors', theme.textMuted, 'hover:text-red-400')}
+                    title={t('settings.workingFolder.clear', 'Clear')}
+                  >
+                    <X size={12} />
+                  </button>
+                </>
+              ) : (
                 <button
                   type="button"
                   onClick={() => setBrowsing((b) => !b)}
-                  className="shrink-0 p-1 rounded transition-colors text-[var(--matrix-accent)] hover:bg-[var(--matrix-accent)]/10"
-                  title={t('settings.workingFolder.browse', 'Browse folders')}
+                  className={cn(
+                    'flex items-center gap-2 text-xs font-mono italic transition-colors',
+                    theme.textMuted,
+                    'hover:text-[var(--matrix-accent)]',
+                  )}
                 >
                   <FolderOpen size={14} />
+                  {t('settings.workingFolder.set', 'Set working folder…')}
                 </button>
-                <span className={cn('text-xs font-mono truncate', theme.textMuted)} title={currentFolder}>
-                  {displayPath}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setEditing(true)}
-                  className={cn('p-1 rounded transition-colors', theme.textMuted, 'hover:text-[var(--matrix-accent)]')}
-                  title={t('settings.workingFolder.change', 'Change')}
-                >
-                  <Pencil size={12} />
-                </button>
-                <button
-                  type="button"
-                  onClick={handleClear}
-                  disabled={saving}
-                  className={cn('p-1 rounded transition-colors', theme.textMuted, 'hover:text-red-400')}
-                  title={t('settings.workingFolder.clear', 'Clear')}
-                >
-                  <X size={12} />
-                </button>
-              </>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setBrowsing((b) => !b)}
-                className={cn(
-                  'flex items-center gap-2 text-xs font-mono italic transition-colors',
-                  theme.textMuted,
-                  'hover:text-[var(--matrix-accent)]',
-                )}
-              >
-                <FolderOpen size={14} />
-                {t('settings.workingFolder.set', 'Set working folder…')}
-              </button>
-            )}
-          </motion.div>
-        )}
-      </AnimatePresence>
+              )}
+            </motion.div>
+          )}
+        </AnimatePresence>
 
-      {/* Directory browser popover */}
-      <AnimatePresence>
-        {browsing && (
-          <DirBrowser
-            onSelect={handleBrowseSelect}
-            onClose={() => setBrowsing(false)}
-            initialPath={currentFolder || 'C:\\Users'}
-          />
-        )}
-      </AnimatePresence>
-    </div>
-  );
-});
+        {/* Directory browser popover */}
+        <AnimatePresence>
+          {browsing && (
+            <DirBrowser
+              onSelect={handleBrowseSelect}
+              onClose={() => setBrowsing(false)}
+              initialPath={currentFolder || 'C:\\Users'}
+            />
+          )}
+        </AnimatePresence>
+      </div>
+    );
+  },
+);
 
 WorkingFolderPicker.displayName = 'WorkingFolderPicker';

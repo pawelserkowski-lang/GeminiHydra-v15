@@ -11,6 +11,7 @@ export interface SessionSlice {
   deleteSession: (id: string) => void;
   selectSession: (id: string) => void;
   updateSessionTitle: (id: string, title: string) => void;
+  setSessionWorkingDirectory: (id: string, wd: string) => void;
   hydrateSessions: (sessions: Session[]) => void;
 }
 
@@ -109,6 +110,11 @@ export const createSessionSlice: StateCreator<ViewStoreState, [], [], SessionSli
         tabs: state.tabs.map((t) => (t.sessionId === id ? { ...t, title: sanitized } : t)),
       };
     }),
+
+  setSessionWorkingDirectory: (id, wd) =>
+    set((state) => ({
+      sessions: state.sessions.map((s) => (s.id === id ? { ...s, workingDirectory: wd } : s)),
+    })),
 
   hydrateSessions: (dbSessions) =>
     set((state) => {

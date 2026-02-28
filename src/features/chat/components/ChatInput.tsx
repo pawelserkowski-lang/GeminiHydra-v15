@@ -58,6 +58,10 @@ interface ChatInputProps {
   onAttachPath?: (path: string) => void;
   /** Previous user prompts for arrow-key navigation (newest last). */
   promptHistory?: string[];
+  /** Per-session working directory props */
+  sessionId?: string;
+  workingDirectory?: string;
+  onWorkingDirectoryChange?: (wd: string) => void;
 }
 
 // ============================================================================
@@ -136,6 +140,9 @@ export const ChatInput = memo<ChatInputProps>(
     onPasteImage,
     onPasteFile,
     promptHistory = [],
+    sessionId,
+    workingDirectory,
+    onWorkingDirectoryChange,
   }) => {
     const { t } = useTranslation();
     const theme = useViewTheme();
@@ -383,8 +390,14 @@ export const ChatInput = memo<ChatInputProps>(
           )}
         </AnimatePresence>
 
-        {/* Working folder picker */}
-        <WorkingFolderPicker />
+        {/* Per-session working folder picker */}
+        {sessionId && onWorkingDirectoryChange && (
+          <WorkingFolderPicker
+            sessionId={sessionId}
+            workingDirectory={workingDirectory ?? ''}
+            onDirectoryChange={onWorkingDirectoryChange}
+          />
+        )}
 
         <div className="flex gap-3 items-end w-full">
           {/* Textarea wrapper */}

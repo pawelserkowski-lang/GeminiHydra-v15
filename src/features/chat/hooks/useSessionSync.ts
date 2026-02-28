@@ -53,6 +53,7 @@ export function useSessionSync() {
         id: s.id,
         title: s.title,
         createdAt: new Date(s.created_at).getTime(),
+        workingDirectory: s.working_directory ?? '',
       }));
       hydrateSessions(mapped);
       localStorage.setItem(MIGRATION_FLAG, 'true');
