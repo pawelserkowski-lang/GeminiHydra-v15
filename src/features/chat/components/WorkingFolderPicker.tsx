@@ -75,18 +75,15 @@ const DirBrowser = memo<DirBrowserProps>(({ onSelect, onClose, initialPath }) =>
   }, []);
 
   const goUp = useCallback(() => {
-    // Handle both C:\foo\bar and C:\ root
     const sep = currentPath.includes('/') ? '/' : '\\';
     const parts = currentPath.split(sep).filter(Boolean);
-    if (parts.length <= 1) return; // already at root
+    if (parts.length <= 1) return;
     parts.pop();
     let parent = parts.join(sep);
-    // Windows drive root needs trailing backslash: C:\
     if (parent.length === 2 && parent[1] === ':') parent += '\\';
     fetchDirs(parent);
   }, [currentPath, fetchDirs]);
 
-  // Breadcrumb segments
   const sep = currentPath.includes('/') ? '/' : '\\';
   const segments = currentPath.split(sep).filter(Boolean);
 
@@ -98,25 +95,25 @@ const DirBrowser = memo<DirBrowserProps>(({ onSelect, onClose, initialPath }) =>
       transition={{ duration: 0.15 }}
       className={cn(
         'absolute bottom-full left-0 mb-2 z-50',
-        'w-[420px] rounded-lg shadow-2xl border border-white/10',
+        'w-[480px] rounded-xl shadow-2xl border border-[var(--matrix-accent)]/20',
         'backdrop-blur-xl',
         theme.dropdown,
       )}
       onClick={(e) => e.stopPropagation()}
     >
       {/* Header: breadcrumb */}
-      <div className="flex items-center gap-1 px-3 py-2 border-b border-white/10 overflow-x-auto scrollbar-hide">
+      <div className="flex items-center gap-1.5 px-4 py-2.5 border-b border-white/10 overflow-x-auto scrollbar-hide">
         {segments.map((seg, i) => {
           const pathUpTo = segments.slice(0, i + 1).join(sep) + (i === 0 && seg.endsWith(':') ? sep : '');
           return (
-            <span key={pathUpTo} className="flex items-center gap-1 shrink-0">
-              {i > 0 && <ChevronRight size={10} className={theme.textMuted} />}
+            <span key={pathUpTo} className="flex items-center gap-1.5 shrink-0">
+              {i > 0 && <ChevronRight size={12} className={theme.textMuted} />}
               <button
                 type="button"
                 onClick={() => fetchDirs(pathUpTo)}
                 className={cn(
-                  'text-xs font-mono px-1 py-0.5 rounded hover:bg-white/10 transition-colors',
-                  i === segments.length - 1 ? 'text-[var(--matrix-accent)]' : theme.textMuted,
+                  'text-sm font-mono px-1.5 py-0.5 rounded hover:bg-white/10 transition-colors',
+                  i === segments.length - 1 ? 'text-[var(--matrix-accent)] font-semibold' : theme.textMuted,
                 )}
               >
                 {seg}
@@ -127,32 +124,31 @@ const DirBrowser = memo<DirBrowserProps>(({ onSelect, onClose, initialPath }) =>
       </div>
 
       {/* Directory list */}
-      <div ref={scrollRef} className="max-h-[240px] overflow-y-auto scrollbar-hide">
-        {/* Go up */}
+      <div ref={scrollRef} className="max-h-[280px] overflow-y-auto scrollbar-hide py-1">
         <button
           type="button"
           onClick={goUp}
           disabled={segments.length <= 1}
           className={cn(
-            'w-full flex items-center gap-2 px-3 py-1.5 text-xs font-mono transition-colors',
+            'w-full flex items-center gap-2.5 px-4 py-2 text-sm font-mono transition-colors',
             theme.dropdownItem,
             segments.length <= 1 && 'opacity-30 cursor-not-allowed',
           )}
         >
-          <FolderUp size={14} className="text-[var(--matrix-accent)]" />
+          <FolderUp size={16} className="text-[var(--matrix-accent)]" />
           ..
         </button>
 
         {loading && (
-          <div className={cn('px-3 py-4 text-xs text-center', theme.textMuted)}>
+          <div className={cn('px-4 py-5 text-sm text-center', theme.textMuted)}>
             {t('common.loading', 'Loading...')}
           </div>
         )}
 
-        {error && <div className="px-3 py-3 text-xs text-red-400 text-center">{error}</div>}
+        {error && <div className="px-4 py-4 text-sm text-red-400 text-center">{error}</div>}
 
         {!loading && !error && dirs.length === 0 && (
-          <div className={cn('px-3 py-3 text-xs text-center italic', theme.textMuted)}>
+          <div className={cn('px-4 py-4 text-sm text-center italic', theme.textMuted)}>
             {t('settings.workingFolder.noDirs', 'No subdirectories')}
           </div>
         )}
@@ -164,33 +160,33 @@ const DirBrowser = memo<DirBrowserProps>(({ onSelect, onClose, initialPath }) =>
               type="button"
               onClick={() => fetchDirs(dir.path)}
               className={cn(
-                'w-full flex items-center gap-2 px-3 py-1.5 text-xs font-mono transition-colors',
+                'w-full flex items-center gap-2.5 px-4 py-2 text-sm font-mono transition-colors',
                 theme.dropdownItem,
               )}
             >
-              <FolderOpen size={14} className="shrink-0 text-[var(--matrix-accent)]/70" />
+              <FolderOpen size={16} className="shrink-0 text-[var(--matrix-accent)]/70" />
               <span className="truncate">{dir.name}</span>
             </button>
           ))}
       </div>
 
       {/* Footer: select / cancel */}
-      <div className="flex items-center justify-between px-3 py-2 border-t border-white/10">
-        <span className={cn('text-[10px] font-mono truncate max-w-[260px]', theme.textMuted)} title={currentPath}>
+      <div className="flex items-center justify-between px-4 py-2.5 border-t border-white/10">
+        <span className={cn('text-xs font-mono truncate max-w-[280px]', theme.textMuted)} title={currentPath}>
           {currentPath}
         </span>
         <div className="flex gap-2">
           <button
             type="button"
             onClick={onClose}
-            className={cn('text-xs px-2 py-1 rounded transition-colors', theme.textMuted, 'hover:bg-white/10')}
+            className={cn('text-sm px-3 py-1.5 rounded transition-colors', theme.textMuted, 'hover:bg-white/10')}
           >
             {t('common.cancel', 'Cancel')}
           </button>
           <button
             type="button"
             onClick={() => onSelect(currentPath)}
-            className="text-xs px-3 py-1 rounded bg-[var(--matrix-accent)]/20 text-[var(--matrix-accent)] hover:bg-[var(--matrix-accent)]/30 transition-colors font-semibold"
+            className="text-sm px-4 py-1.5 rounded bg-[var(--matrix-accent)]/20 text-[var(--matrix-accent)] hover:bg-[var(--matrix-accent)]/30 transition-colors font-semibold"
           >
             {t('settings.workingFolder.select', 'Select')}
           </button>
@@ -294,7 +290,6 @@ export const WorkingFolderPicker = memo<WorkingFolderPickerProps>(
       [saveFolder],
     );
 
-    // Truncate long paths for display
     const displayPath =
       currentFolder.length > 40
         ? `…${currentFolder.slice(currentFolder.lastIndexOf('\\', currentFolder.length - 20))}`
@@ -309,9 +304,9 @@ export const WorkingFolderPicker = memo<WorkingFolderPickerProps>(
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: 'auto' }}
               exit={{ opacity: 0, height: 0 }}
-              className="flex items-center gap-2 px-1 pb-2"
+              className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg bg-[var(--matrix-bg-secondary)]/50"
             >
-              <FolderOpen size={14} className="shrink-0 text-[var(--matrix-accent)]" />
+              <FolderOpen size={18} className="shrink-0 text-[var(--matrix-accent)]" />
               <input
                 ref={inputRef}
                 type="text"
@@ -327,7 +322,7 @@ export const WorkingFolderPicker = memo<WorkingFolderPickerProps>(
                 placeholder="C:\Users\you\project"
                 disabled={saving}
                 className={cn(
-                  'flex-1 text-xs font-mono px-2 py-1 rounded-md bg-transparent',
+                  'flex-1 text-sm font-mono px-2.5 py-1.5 rounded-md bg-transparent',
                   'border border-[var(--matrix-accent)]/30 focus:border-[var(--matrix-accent)]/60',
                   'focus:outline-none transition-colors',
                   theme.text,
@@ -337,19 +332,19 @@ export const WorkingFolderPicker = memo<WorkingFolderPickerProps>(
                 type="button"
                 onClick={handleSave}
                 disabled={saving}
-                className="p-1 rounded hover:bg-green-500/20 text-green-400 transition-colors"
+                className="p-1.5 rounded hover:bg-green-500/20 text-green-400 transition-colors"
                 title={t('common.save', 'Save')}
               >
-                <Check size={14} />
+                <Check size={16} />
               </button>
               <button
                 type="button"
                 onClick={handleCancel}
                 disabled={saving}
-                className="p-1 rounded hover:bg-red-500/20 text-red-400 transition-colors"
+                className="p-1.5 rounded hover:bg-red-500/20 text-red-400 transition-colors"
                 title={t('common.cancel', 'Cancel')}
               >
-                <X size={14} />
+                <X size={16} />
               </button>
             </motion.div>
           ) : (
@@ -358,41 +353,45 @@ export const WorkingFolderPicker = memo<WorkingFolderPickerProps>(
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="flex items-center gap-2 px-1 pb-2"
+              className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg bg-[var(--matrix-bg-secondary)]/30"
             >
               {currentFolder ? (
                 <>
                   <button
                     type="button"
                     onClick={() => setBrowsing((b) => !b)}
-                    className="shrink-0 p-1 rounded transition-colors text-[var(--matrix-accent)] hover:bg-[var(--matrix-accent)]/10"
+                    className="shrink-0 p-1.5 rounded-md transition-colors text-[var(--matrix-accent)] hover:bg-[var(--matrix-accent)]/10"
                     title={t('settings.workingFolder.browse', 'Browse folders')}
                   >
-                    <FolderOpen size={14} />
+                    <FolderOpen size={18} />
                   </button>
-                  <span className={cn('text-xs font-mono truncate', theme.textMuted)} title={currentFolder}>
+                  <span className={cn('text-sm font-mono truncate', theme.textMuted)} title={currentFolder}>
                     {displayPath}
                   </span>
                   <button
                     type="button"
                     onClick={() => setEditing(true)}
                     className={cn(
-                      'p-1 rounded transition-colors',
+                      'p-1.5 rounded-md transition-colors',
                       theme.textMuted,
-                      'hover:text-[var(--matrix-accent)]',
+                      'hover:text-[var(--matrix-accent)] hover:bg-white/5',
                     )}
                     title={t('settings.workingFolder.change', 'Change')}
                   >
-                    <Pencil size={12} />
+                    <Pencil size={14} />
                   </button>
                   <button
                     type="button"
                     onClick={handleClear}
                     disabled={saving}
-                    className={cn('p-1 rounded transition-colors', theme.textMuted, 'hover:text-red-400')}
+                    className={cn(
+                      'p-1.5 rounded-md transition-colors',
+                      theme.textMuted,
+                      'hover:text-red-400 hover:bg-red-500/5',
+                    )}
                     title={t('settings.workingFolder.clear', 'Clear')}
                   >
-                    <X size={12} />
+                    <X size={14} />
                   </button>
                 </>
               ) : (
@@ -400,12 +399,12 @@ export const WorkingFolderPicker = memo<WorkingFolderPickerProps>(
                   type="button"
                   onClick={() => setBrowsing((b) => !b)}
                   className={cn(
-                    'flex items-center gap-2 text-xs font-mono italic transition-colors',
+                    'flex items-center gap-2.5 text-sm font-mono italic py-0.5 transition-colors',
                     theme.textMuted,
                     'hover:text-[var(--matrix-accent)]',
                   )}
                 >
-                  <FolderOpen size={14} />
+                  <FolderOpen size={18} />
                   {t('settings.workingFolder.set', 'Set working folder…')}
                 </button>
               )}
