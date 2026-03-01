@@ -28,7 +28,7 @@
 - Entry point: `backend/src/lib.rs` → `create_router()` builds all API routes
 - Key modules: `handlers.rs` (system prompt + tool defs), `state.rs` (AppState + LogRingBuffer), `sessions.rs`, `logs.rs` (4 log endpoints — backend/audit/flyio/activity), `tools/` (mod.rs + fs_tools.rs + pdf_tools.rs + zip_tools.rs + image_tools.rs + git_tools.rs + github_tools.rs + vercel_tools.rs + fly_tools.rs), `files.rs`, `analysis.rs` (tree-sitter code analysis), `model_registry.rs` (auto-fetches models from providers at startup, selects best chat/thinking/image model), `oauth.rs` (Anthropic OAuth PKCE), `oauth_google.rs` (Google OAuth PKCE + API key), `oauth_github.rs` (GitHub OAuth), `oauth_vercel.rs` (Vercel OAuth), `service_tokens.rs` (Fly.io PAT), `mcp/` (client.rs + server.rs + config.rs), `a2a.rs` (A2A v0.3 protocol)
 - DB: `geminihydra` on localhost:5432 (user: gemini, pass: gemini_local)
-- Tables: gh_settings, gh_chat_messages, gh_sessions, gh_memories, gh_knowledge_nodes, gh_knowledge_edges, gh_agents, gh_rag_documents, gh_rag_chunks, gh_model_pins, gh_oauth_tokens, gh_google_auth, gh_oauth_github, gh_oauth_vercel, gh_service_tokens, gh_mcp_servers, gh_mcp_discovered_tools, gh_a2a_tasks, gh_a2a_messages, gh_a2a_artifacts, gh_audit_log
+- Tables: gh_settings, gh_chat_messages, gh_sessions, gh_memories, gh_knowledge_nodes, gh_knowledge_edges, gh_agents, gh_rag_documents, gh_rag_chunks, gh_model_pins, gh_oauth_tokens, gh_google_auth, gh_oauth_github, gh_oauth_vercel, gh_service_tokens, gh_mcp_servers, gh_mcp_discovered_tools, gh_a2a_tasks, gh_a2a_messages, gh_a2a_artifacts, gh_audit_log, gh_prompt_history
 
 ## Backend Local Dev
 - Wymaga Docker Desktop (PostgreSQL container)
@@ -52,12 +52,14 @@
 ## Migrations
 - Folder: `backend/migrations/`
 - SQLx sorts by filename prefix — each migration MUST have a unique date prefix
-- Current order: 20260214_001 → 20260215_002 → 20260216_003 → 20260217_004 → 20260218_005 → 20260219_006 → 20260220_007 → 20260221_008 → 20260222_009 → 20260224_010 → 20260225_011
+- Current order: 20260214_001 → ... → 20260225_011 → ... → 2026030101_034 → 2026030102_035
 - All migrations MUST be idempotent (IF NOT EXISTS, ON CONFLICT DO NOTHING) — SQLx checks checksums
 - All migration files MUST use LF line endings (not CRLF) — `.gitattributes` with `*.sql text eol=lf` enforces this
 - Migration 009: pgvector wrapped in DO/EXCEPTION block — skips gracefully if extension unavailable
 - Migration 010: model_pins table for pinning preferred models per role
 - Migration 011: oauth_tokens table (singleton row, PKCE tokens for Anthropic Claude MAX)
+- Migration 034: prompt_history table for input history persistence
+- Migration 035: agent enhancements
 
 ## Migrations Gotchas (learned the hard way)
 - **Checksum mismatch on deploy**: SQLx stores SHA-256 checksum per migration. If line endings change (CRLF→LF between Windows and Docker), checksum won't match → `VersionMismatch` panic. Fix: reset `_sqlx_migrations` table
@@ -115,10 +117,11 @@
 - Without "Local Machine Access" section, Gemini models default to "I can't access your files"
 - Without "Tool Selection Rules", Gemini wastes iterations using `execute_command` with Linux commands on Windows
 
-## Agent Tools (31+ tools, all tested & working)
+## Agent Tools (34+ tools, all tested & working)
 - **Filesystem** (fs_tools.rs): `list_directory`, `read_file`, `search_files`, `get_code_structure`, `write_file`, `edit_file`, `read_file_section`, `find_file`, `diff_files`, `execute_command` (LAST RESORT, cmd.exe, 30s timeout)
 - **PDF/ZIP** (pdf_tools.rs, zip_tools.rs): `read_pdf`, `list_zip`, `extract_zip_file`
 - **Image** (image_tools.rs): `analyze_image` (Gemini Vision API)
+- **Web Scraping v2** (tools.rs inline, `web_` prefixed): `fetch_webpage` (SSRF protection, enhanced HTML→markdown, metadata/OpenGraph/JSON-LD, link categorization, retry+backoff, JSON output), `crawl_website` (robots.txt, sitemap, concurrent JoinSet, SHA-256 dedup, path prefix filter, exclude patterns)
 - **Git** (git_tools.rs): `git_status`, `git_log`, `git_diff`, `git_branch`, `git_commit` (NO push)
 - **GitHub** (github_tools.rs): `github_list_repos`, `github_get_repo`, `github_list_issues`, `github_get_issue`, `github_create_issue`, `github_create_pr`
 - **Vercel** (vercel_tools.rs): `vercel_list_projects`, `vercel_deploy`, `vercel_get_deployment`

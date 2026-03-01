@@ -179,7 +179,9 @@
       "backend": "Backend",
       "audit": "Audyt",
       "flyio": "Fly.io",
-      "activity": "Aktywność"
+      "activity": "Aktywność",
+      "usage": "Użycie",
+      "leaderboard": "Ranking"
     },
     "searchPlaceholder": "Szukaj logów...",
     "searchAudit": "Szukaj logów audytu...",

@@ -40,6 +40,7 @@ pub struct ResolvedModels {
     pub chat: Option<ModelInfo>,
     pub thinking: Option<ModelInfo>,
     pub image: Option<ModelInfo>,
+    pub flash: Option<ModelInfo>,
 }
 
 // ── Pin request ──────────────────────────────────────────────────────────────
@@ -364,10 +365,40 @@ pub async fn resolve_models(state: &AppState) -> ResolvedModels {
     let image = select_best(&google, &["image"], &["robotics", "computer"])
         .or_else(|| chat.clone());
 
+    // Flash: fastest Gemini model for simple tasks
+    let flash = select_best(
+        &google,
+        &["flash"],
+        &["lite", "latest", "image", "tts", "computer", "robotics", "audio", "thinking"],
+    );
+
     ResolvedModels {
         chat,
         thinking,
         image,
+        flash,
+    }
+}
+
+/// Classify prompt complexity for auto-tier routing.
+/// Returns "simple" (→ flash), "complex" (→ thinking), or "medium" (→ chat).
+pub fn classify_complexity(prompt: &str) -> &'static str {
+    let chars = prompt.len();
+    let words = prompt.split_whitespace().count();
+    let lower = prompt.to_lowercase();
+    let complex_keywords = [
+        "architect", "refactor", "design pattern", "migration", "security audit",
+        "performance", "optimize", "scale", "infrastructure", "deploy",
+        "```", "fn ", "function ", "class ", "impl ", "async ", "struct ",
+    ];
+    let has_complex = complex_keywords.iter().any(|k| lower.contains(k));
+
+    if chars > 1000 || has_complex {
+        "complex"
+    } else if chars < 80 && words < 15 {
+        "simple"
+    } else {
+        "medium"
     }
 }
 
@@ -396,6 +427,7 @@ pub async fn get_model_id(state: &AppState, use_case: &str) -> String {
         "chat" => (resolved.chat, "gemini-3.1-pro-preview-customtools"),
         "thinking" => (resolved.thinking, "gemini-3.1-pro-preview-customtools"),
         "image" => (resolved.image, "gemini-3-pro-image-preview"),
+        "flash" => (resolved.flash, "gemini-3-flash-preview"),
         _ => (resolved.chat, "gemini-3.1-pro-preview-customtools"),
     };
 
@@ -462,10 +494,11 @@ pub async fn startup_sync(state: &AppState) {
 
     // Log all resolved use cases
     tracing::info!(
-        "model_registry: resolved → chat={}, thinking={}, image={}",
+        "model_registry: resolved → chat={}, thinking={}, image={}, flash={}",
         resolved.chat.as_ref().map(|m| m.id.as_str()).unwrap_or("(none)"),
         resolved.thinking.as_ref().map(|m| m.id.as_str()).unwrap_or("(none)"),
         resolved.image.as_ref().map(|m| m.id.as_str()).unwrap_or("(none)"),
+        resolved.flash.as_ref().map(|m| m.id.as_str()).unwrap_or("(none)"),
     );
 }
 
@@ -493,6 +526,7 @@ pub async fn list_models(State(state): State<AppState>) -> impl IntoResponse {
             "chat": resolved.chat,
             "thinking": resolved.thinking,
             "image": resolved.image,
+            "flash": resolved.flash,
         },
         "providers": {
             "google": cache.models.get("google").cloned().unwrap_or_default(),
@@ -523,6 +557,7 @@ pub async fn refresh_models(State(state): State<AppState>) -> Json<Value> {
             "chat": resolved.chat,
             "thinking": resolved.thinking,
             "image": resolved.image,
+            "flash": resolved.flash,
         }
     });
     if !errors.is_empty() {
@@ -541,7 +576,7 @@ pub async fn pin_model(
     axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<std::net::SocketAddr>,
     Json(body): Json<PinModelRequest>,
 ) -> Json<Value> {
-    let valid = ["chat", "thinking", "image"];
+    let valid = ["chat", "thinking", "image", "flash"];
 
     if !valid.contains(&body.use_case.as_str()) {
         return Json(json!({ "error": format!("Invalid use_case '{}'. Valid: {:?}", body.use_case, valid) }));

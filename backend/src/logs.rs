@@ -36,6 +36,20 @@ pub struct ActivityLogsQuery {
     pub offset: Option<i64>,
 }
 
+#[derive(Deserialize)]
+pub struct UsageLogsQuery {
+    pub agent_id: Option<String>,
+    pub model: Option<String>,
+    pub tier: Option<String>,
+    pub days: Option<i64>,
+    pub limit: Option<i64>,
+}
+
+#[derive(Deserialize)]
+pub struct LeaderboardQuery {
+    pub days: Option<i64>,
+}
+
 // ── GET /api/logs/backend ───────────────────────────────────────────
 
 pub async fn backend_logs(
@@ -243,4 +257,96 @@ pub async fn activity_logs(
         .collect();
 
     Json(json!({ "logs": logs, "total": total }))
+}
+
+// ── GET /api/logs/usage ───────────────────────────────────────────
+
+pub async fn usage_logs(
+    State(state): State<AppState>,
+    Query(q): Query<UsageLogsQuery>,
+) -> Json<Value> {
+    let days = q.days.unwrap_or(7).min(90).max(1);
+    let limit = q.limit.unwrap_or(200).min(1000);
+
+    let rows = sqlx::query_as::<_, (
+        i32, Option<String>, String, i32, i32, i32, i32, bool, Option<String>, chrono::DateTime<chrono::Utc>,
+    )>(
+        concat!(
+            "SELECT id, agent_id, model, input_tokens, output_tokens, total_tokens, latency_ms, success, tier, created_at",
+            " FROM gh_agent_usage",
+            " WHERE created_at > NOW() - ($1::bigint || ' days')::interval",
+            " AND ($2::text IS NULL OR agent_id = $2)",
+            " AND ($3::text IS NULL OR model = $3)",
+            " AND ($4::text IS NULL OR tier = $4)",
+            " ORDER BY created_at DESC LIMIT $5",
+        ),
+    )
+    .bind(days)
+    .bind(q.agent_id.as_deref())
+    .bind(q.model.as_deref())
+    .bind(q.tier.as_deref())
+    .bind(limit)
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+
+    let logs: Vec<Value> = rows
+        .into_iter()
+        .map(|(id, agent_id, model, inp, out, total, lat, success, tier, created)| {
+            json!({
+                "id": id,
+                "agent_id": agent_id,
+                "model": model,
+                "input_tokens": inp,
+                "output_tokens": out,
+                "total_tokens": total,
+                "latency_ms": lat,
+                "success": success,
+                "tier": tier,
+                "created_at": created.to_rfc3339(),
+            })
+        })
+        .collect();
+
+    Json(json!({ "logs": logs, "total": logs.len() }))
+}
+
+// ── GET /api/logs/leaderboard ─────────────────────────────────────
+
+pub async fn leaderboard(
+    State(state): State<AppState>,
+    Query(q): Query<LeaderboardQuery>,
+) -> Json<Value> {
+    let days = q.days.unwrap_or(7).min(90).max(1);
+
+    let rows = sqlx::query_as::<_, (Option<String>, i64, f64, f64, f64)>(
+        concat!(
+            "SELECT agent_id, COUNT(*)::bigint AS total_calls,",
+            " AVG(latency_ms)::float8 AS avg_latency,",
+            " (SUM(CASE WHEN success THEN 1 ELSE 0 END)::float8 / NULLIF(COUNT(*), 0)::float8 * 100) AS success_rate,",
+            " AVG(total_tokens)::float8 AS avg_tokens",
+            " FROM gh_agent_usage",
+            " WHERE created_at > NOW() - ($1::bigint || ' days')::interval",
+            " GROUP BY agent_id ORDER BY total_calls DESC",
+        ),
+    )
+    .bind(days)
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
+
+    let entries: Vec<Value> = rows
+        .into_iter()
+        .map(|(agent_id, calls, avg_lat, success_rate, avg_tokens)| {
+            json!({
+                "agent_id": agent_id,
+                "total_calls": calls,
+                "avg_latency_ms": (avg_lat * 10.0).round() / 10.0,
+                "success_rate": (success_rate * 10.0).round() / 10.0,
+                "avg_tokens": (avg_tokens * 10.0).round() / 10.0,
+            })
+        })
+        .collect();
+
+    Json(json!({ "entries": entries, "days": days }))
 }

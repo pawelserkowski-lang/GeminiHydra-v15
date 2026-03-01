@@ -253,9 +253,14 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/logs/audit", get(logs::audit_logs))
         .route("/api/logs/flyio", get(logs::flyio_logs))
         .route("/api/logs/activity", get(logs::activity_logs))
+        .route("/api/logs/usage", get(logs::usage_logs))
+        .route("/api/logs/leaderboard", get(logs::leaderboard))
         // OCR — text extraction from images and PDFs
         .route("/api/ocr", post(ocr::ocr))
         .route("/api/ocr/stream", post(ocr::ocr_stream))
+        .route("/api/ocr/batch/stream", post(ocr::ocr_batch_stream))
+        .route("/api/ocr/history", get(ocr::ocr_history))
+        .route("/api/ocr/history/{id}", get(ocr::ocr_history_item).delete(ocr::ocr_history_delete))
         // Admin — hot-reload API keys
         .route("/api/admin/rotate-key", post(handlers::rotate_key))
         // A2A v0.3 — Agent-to-Agent protocol endpoints

@@ -86,6 +86,18 @@ pub struct WitcherAgent {
     #[serde(default)]
     #[sqlx(default)]
     pub model_override: Option<String>,
+    /// Per-agent thinking level override (NULL = use global setting)
+    #[serde(default)]
+    #[sqlx(default)]
+    pub thinking_level: Option<String>,
+    /// A/B testing: secondary model (NULL = no A/B test)
+    #[serde(default)]
+    #[sqlx(default)]
+    pub model_b: Option<String>,
+    /// A/B testing: probability of using model_b (0.0–1.0, NULL = no split)
+    #[serde(default)]
+    #[sqlx(default)]
+    pub ab_split: Option<f64>,
 }
 
 // ---------------------------------------------------------------------------

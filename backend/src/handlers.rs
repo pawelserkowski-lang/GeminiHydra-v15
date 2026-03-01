@@ -666,6 +666,20 @@ pub async fn delete_agent(
 // Execution Context & Helpers
 // ---------------------------------------------------------------------------
 
+/// Context window token budget per model tier.
+fn tier_token_budget(model: &str) -> i32 {
+    let lower = model.to_lowercase();
+    if lower.contains("flash") { 8192 }
+    else if lower.contains("pro") { 65536 }
+    else { 32768 }
+}
+
+/// Whether an HTTP status code is retryable (transient failure).
+fn is_retryable_status(code: u16) -> bool {
+    matches!(code, 429 | 502 | 503)
+}
+
+#[derive(Clone)]
 pub(crate) struct ExecuteContext {
     pub(crate) agent_id: String,
     pub(crate) confidence: f64,
@@ -792,16 +806,40 @@ pub(crate) async fn prepare_execution(
     let working_directory = if !session_wd.is_empty() { session_wd.to_string() } else { settings_wd };
 
     // #48 — Per-agent temperature override
-    let agent_temp = agents_lock.iter()
-        .find(|a| a.id == agent_id)
-        .and_then(|a| a.temperature);
+    let matched_agent = agents_lock.iter().find(|a| a.id == agent_id);
+    let agent_temp = matched_agent.and_then(|a| a.temperature);
     let effective_temperature = agent_temp.unwrap_or(temperature);
 
-    // Model priority: 1) user request override → 2) per-agent DB override → 3) global default
-    let agent_model = agents_lock.iter()
-        .find(|a| a.id == agent_id)
-        .and_then(|a| a.model_override.clone());
-    let model = model_override.unwrap_or_else(|| agent_model.unwrap_or(def_model));
+    // Per-agent thinking level override (NULL = use global setting)
+    let agent_thinking = matched_agent.and_then(|a| a.thinking_level.clone());
+    let effective_thinking = agent_thinking.unwrap_or(thinking_level);
+
+    // Model priority: 1) user request override → 2) per-agent DB override → 3) auto-tier → 4) global default
+    let agent_model = matched_agent.and_then(|a| a.model_override.clone());
+    let model = if let Some(ov) = model_override {
+        ov
+    } else if let Some(am) = agent_model {
+        am
+    } else {
+        // Auto-tier routing based on prompt complexity
+        let complexity = crate::model_registry::classify_complexity(prompt);
+        match complexity {
+            "simple" => crate::model_registry::get_model_id(state, "flash").await,
+            "complex" => crate::model_registry::get_model_id(state, "thinking").await,
+            _ => def_model,
+        }
+    };
+
+    // A/B testing: per-agent model_b with ab_split probability
+    let model = if let Some(agent) = matched_agent {
+        if let (Some(ref model_b), Some(split)) = (&agent.model_b, agent.ab_split) {
+            if rand::random::<f64>() < split {
+                tracing::info!("A/B test: agent {} using model_b={} (split={:.0}%)", agent.id, model_b, split * 100.0);
+                model_b.clone()
+            } else { model }
+        } else { model }
+    } else { model };
+
     let language = match lang.as_str() { "pl" => "Polish", "en" => "English", other => other };
 
     let (api_key, is_oauth) = crate::oauth::get_google_credential(state)
@@ -936,11 +974,11 @@ pub(crate) async fn prepare_execution(
         files_loaded,
         steps,
         temperature: effective_temperature,
-        max_tokens,
+        max_tokens: max_tokens.min(tier_token_budget(&model)),
         top_p,
         response_style,
         max_iterations,
-        thinking_level,
+        thinking_level: effective_thinking,
         call_depth: 0,
         working_directory,
     }
@@ -1462,10 +1500,46 @@ async fn execute_streaming(
     if !ws_send(sender, &WsServerMessage::Start { id: resp_id.to_string(), agent: ctx.agent_id.clone(), model: ctx.model.clone(), files_loaded: ctx.files_loaded.clone() }).await { return; }
     let _ = ws_send(sender, &WsServerMessage::Plan { agent: ctx.agent_id.clone(), confidence: ctx.confidence, steps: ctx.steps.clone(), reasoning: ctx.reasoning.clone() }).await;
 
-    // Dispatch to Gemini streaming
-    let full_text = execute_streaming_gemini(sender, state, &ctx, sid, cancel).await;
+    // Dispatch to Gemini streaming (with fallback to flash on failure)
+    let full_text = execute_streaming_gemini(sender, state, &ctx, sid, cancel.clone()).await;
+    let (full_text, used_model) = if full_text.is_empty() && !ctx.model.contains("flash") {
+        let flash_model = crate::model_registry::get_model_id(state, "flash").await;
+        tracing::warn!("Model fallback: {} failed, retrying with {}", ctx.model, flash_model);
+        let mut fallback_ctx = ctx.clone();
+        fallback_ctx.model = flash_model;
+        let fb_text = execute_streaming_gemini(sender, state, &fallback_ctx, sid, cancel).await;
+        (fb_text, fallback_ctx.model)
+    } else {
+        (full_text, ctx.model.clone())
+    };
 
     store_messages(&state.db, sid, resp_id, prompt, &full_text, &ctx).await;
+
+    // Token usage tracking — fire-and-forget INSERT
+    let latency = start.elapsed().as_millis() as i32;
+    let success = !full_text.is_empty();
+    let input_est = (prompt.len() / 4) as i32;
+    let output_est = (full_text.len() / 4) as i32;
+    let db = state.db.clone();
+    let agent_id = ctx.agent_id.clone();
+    let model = used_model;
+    tokio::spawn(async move {
+        let _ = sqlx::query(
+            "INSERT INTO gh_agent_usage (agent_id, model, input_tokens, output_tokens, total_tokens, latency_ms, success, tier) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+        )
+        .bind(&agent_id)
+        .bind(&model)
+        .bind(input_est)
+        .bind(output_est)
+        .bind(input_est + output_est)
+        .bind(latency)
+        .bind(success)
+        .bind(if model.contains("flash") { "flash" } else if model.contains("thinking") { "thinking" } else { "chat" })
+        .execute(&db)
+        .await;
+    });
+
     let _ = ws_send(sender, &WsServerMessage::Complete { duration_ms: start.elapsed().as_millis() as u64 }).await;
 }
 
