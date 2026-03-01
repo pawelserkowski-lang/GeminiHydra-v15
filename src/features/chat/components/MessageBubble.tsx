@@ -313,7 +313,15 @@ export const MessageBubble = memo<MessageBubbleProps>(({ message, isLast, isStre
                       const codeContent = extractText(children).replace(/\n$/, '');
                       if (isInline) {
                         return (
-                          <code className={cn(className, 'bg-black/20 px-1.5 py-0.5 rounded text-sm')}>{children}</code>
+                          <code
+                            className={cn(
+                              className,
+                              theme.isLight ? 'bg-black/8 text-[var(--matrix-text)]' : 'bg-black/20',
+                              'px-1.5 py-0.5 rounded text-sm',
+                            )}
+                          >
+                            {children}
+                          </code>
                         );
                       }
                       return <CodeBlock {...(match?.[1] != null && { language: match[1] })} code={codeContent} />;
@@ -331,19 +339,35 @@ export const MessageBubble = memo<MessageBubbleProps>(({ message, isLast, isStre
               );
             }
             // Render mixed text + tool segments
-            return segments.map((segment) => {
-              const segKey = `${segment.type}-${segment.type === 'tool' ? segment.name : segment.content.slice(0, 32)}`;
+            return segments.map((segment, i) => {
+              const segKey = `${segment.type}-${i}-${segment.type === 'tool' ? segment.name : segment.content.slice(0, 32)}`;
               if (segment.type === 'tool') {
                 return (
-                  <details key={segKey} className="my-2 rounded-lg border border-white/10 bg-black/20">
-                    <summary className="cursor-pointer px-3 py-2 text-xs text-white/60 hover:text-white/80 flex items-center gap-2">
+                  <details
+                    key={segKey}
+                    className={cn(
+                      'my-2 rounded-lg border',
+                      theme.isLight ? 'border-black/10 bg-black/5' : 'border-white/10 bg-black/20',
+                    )}
+                  >
+                    <summary
+                      className={cn(
+                        'cursor-pointer px-3 py-2 text-xs flex items-center gap-2',
+                        theme.isLight ? 'text-black/60 hover:text-black/80' : 'text-white/60 hover:text-white/80',
+                      )}
+                    >
                       <Terminal className="w-3.5 h-3.5" />
                       <span>{t('chat.toolLabel', { name: segment.name })}</span>
                       <span className="ml-auto text-[10px]">
                         {t('chat.linesCount', { count: segment.content.split('\n').length })}
                       </span>
                     </summary>
-                    <pre className="overflow-x-auto px-3 py-2 text-xs text-white/70 border-t border-white/5 max-h-60 overflow-y-auto">
+                    <pre
+                      className={cn(
+                        'overflow-x-auto px-3 py-2 text-xs border-t max-h-60 overflow-y-auto',
+                        theme.isLight ? 'text-black/70 border-black/5' : 'text-white/70 border-white/5',
+                      )}
+                    >
                       <code>{segment.content}</code>
                     </pre>
                   </details>
@@ -370,7 +394,15 @@ export const MessageBubble = memo<MessageBubbleProps>(({ message, isLast, isStre
                       const codeContent = extractText(children).replace(/\n$/, '');
                       if (isInline) {
                         return (
-                          <code className={cn(className, 'bg-black/20 px-1.5 py-0.5 rounded text-sm')}>{children}</code>
+                          <code
+                            className={cn(
+                              className,
+                              theme.isLight ? 'bg-black/8 text-[var(--matrix-text)]' : 'bg-black/20',
+                              'px-1.5 py-0.5 rounded text-sm',
+                            )}
+                          >
+                            {children}
+                          </code>
                         );
                       }
                       return <CodeBlock {...(match?.[1] != null && { language: match[1] })} code={codeContent} />;
@@ -392,7 +424,12 @@ export const MessageBubble = memo<MessageBubbleProps>(({ message, isLast, isStre
 
         {/* Response metadata badge (#42) */}
         {message.role === 'assistant' && !isStreaming && (
-          <div className="mt-2 flex items-center gap-3 text-[10px] text-white/30">
+          <div
+            className={cn(
+              'mt-2 flex items-center gap-3 text-[10px]',
+              theme.isLight ? 'text-black/40' : 'text-white/30',
+            )}
+          >
             {message.content && (
               <span>
                 {(message.content.length / 1000).toFixed(1)}K {t('chat.charsCount')}

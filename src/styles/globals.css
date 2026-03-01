@@ -34,6 +34,10 @@
   padding: 0;
   color: #e5e7eb;
 }
+
+[data-theme="light"] .markdown-body pre code {
+  color: var(--matrix-text);
+}
 .markdown-body ul,
 .markdown-body ol {
   margin-left: 1.5em;
