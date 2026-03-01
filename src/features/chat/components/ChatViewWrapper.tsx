@@ -14,6 +14,7 @@ import type { WsCallbacks } from '@/shared/hooks/useWebSocketChat';
 import { MAX_RECONNECT_ATTEMPTS, useWebSocketChat } from '@/shared/hooks/useWebSocketChat';
 import { useViewStore } from '@/stores/viewStore';
 import { useOrchestration } from '../hooks/useOrchestration';
+import { usePromptHistory } from '../hooks/usePromptHistory';
 import { type AgentActivity, EMPTY_ACTIVITY, type ToolActivity } from './AgentActivityPanel';
 
 // ============================================================================
@@ -31,6 +32,7 @@ export function ChatViewWrapper() {
   const updateLastMessageInSession = useViewStore((s) => s.updateLastMessageInSession);
   const currentSessionId = useViewStore((s) => s.currentSessionId);
   const { generateTitleWithSync } = useSessionSync();
+  const { addPrompt } = usePromptHistory();
   const [usingFallback, setUsingFallback] = useState(false);
   const fallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const httpStreamingSessionIdRef = useRef<string | null>(null);
@@ -285,6 +287,7 @@ export function ChatViewWrapper() {
       }
 
       addMessageToSession(sessionId, { role: 'user', content: prompt, timestamp: Date.now() });
+      addPrompt(prompt);
       // Reset activity panel for new execution
       setAgentActivity(EMPTY_ACTIVITY);
 
@@ -332,7 +335,15 @@ export function ChatViewWrapper() {
         );
       }
     },
-    [addMessageToSession, usingFallback, status, sendExecute, executeMutation, scheduleBackgroundTitleGeneration],
+    [
+      addMessageToSession,
+      addPrompt,
+      usingFallback,
+      status,
+      sendExecute,
+      executeMutation,
+      scheduleBackgroundTitleGeneration,
+    ],
   );
 
   const handleOrchestrate = useCallback(
@@ -353,6 +364,7 @@ export function ChatViewWrapper() {
       }
 
       addMessageToSession(sessionId, { role: 'user', content: prompt, timestamp: Date.now() });
+      addPrompt(prompt);
       setAgentActivity(EMPTY_ACTIVITY);
       resetOrchestration();
 
@@ -374,7 +386,7 @@ export function ChatViewWrapper() {
         });
       }
     },
-    [addMessageToSession, usingFallback, status, sendOrchestrate, resetOrchestration],
+    [addMessageToSession, addPrompt, usingFallback, status, sendOrchestrate, resetOrchestration],
   );
 
   const handleStop = useCallback(() => {

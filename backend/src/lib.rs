@@ -111,6 +111,10 @@ pub async fn request_id_middleware(
         sessions::get_knowledge_graph,
         sessions::add_knowledge_node,
         sessions::add_graph_edge,
+        // Prompt history
+        sessions::list_prompt_history,
+        sessions::add_prompt_history,
+        sessions::clear_prompt_history,
     ),
     components(schemas(
         // Core models
@@ -149,6 +153,8 @@ pub async fn request_id_middleware(
         model_registry::ModelInfo,
         model_registry::ResolvedModels,
         model_registry::PinModelRequest,
+        // Prompt history
+        models::AddPromptRequest,
     )),
     tags(
         (name = "health", description = "Health & readiness endpoints"),

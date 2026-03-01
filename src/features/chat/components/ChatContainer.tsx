@@ -37,6 +37,7 @@ import { type Message, useViewStore } from '@/stores/viewStore';
 
 import { useFileReadMutation } from '../hooks/useFiles';
 import type { OrchestrationState } from '../hooks/useOrchestration';
+import { usePromptHistory } from '../hooks/usePromptHistory';
 import { type AgentActivity, AgentActivityPanel } from './AgentActivityPanel';
 import { ChatInput } from './ChatInput';
 import { MessageBubble } from './MessageBubble';
@@ -502,9 +503,9 @@ export const ChatContainer = memo<ChatContainerProps>(
       [currentSessionId, setSessionWorkingDirectory],
     );
 
-    // ----- Prompt history for arrow-key navigation ----------------------
+    // ----- Prompt history for arrow-key navigation (global, SQL-backed) --
 
-    const promptHistory = useMemo(() => messages.filter((m) => m.role === 'user').map((m) => m.content), [messages]);
+    const { promptHistory } = usePromptHistory();
 
     // ----- Context menu handlers ----------------------------------------
 

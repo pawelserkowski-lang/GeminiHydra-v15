@@ -160,6 +160,14 @@ export const ChatInput = memo<ChatInputProps>(
     const [historyIndex, setHistoryIndex] = useState(-1);
     const savedDraftRef = useRef('');
 
+    // Reset history index when session changes (global history persists across sessions)
+    const prevSessionRef = useRef(sessionId);
+    if (prevSessionRef.current !== sessionId) {
+      prevSessionRef.current = sessionId;
+      setHistoryIndex(-1);
+      savedDraftRef.current = '';
+    }
+
     const charCount = value.length;
     const isOverLimit = charCount > MAX_CHARS;
     const canSubmit = !isStreaming && !isOverLimit && (value.trim().length > 0 || !!pendingImage);

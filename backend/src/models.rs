@@ -399,6 +399,22 @@ pub struct UpdateWorkingDirectoryRequest {
 }
 
 // ---------------------------------------------------------------------------
+// Prompt History
+// ---------------------------------------------------------------------------
+
+#[derive(sqlx::FromRow)]
+pub struct PromptHistoryRow {
+    pub id: i32,
+    pub content: String,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct AddPromptRequest {
+    pub content: String,
+}
+
+// ---------------------------------------------------------------------------
 // WebSocket Protocol
 // ---------------------------------------------------------------------------
 
