@@ -2,6 +2,7 @@
   "nav": {
     "home": "Start",
     "chat": "Czat",
+    "logs": "Logi",
     "settings": "Ustawienia"
   },
   "sidebar": {
@@ -171,6 +172,26 @@
     "bannerDesc": "Wprowadź klucz API lub zaloguj się przez Google, aby zacząć czatować.",
     "setupAuth": "Skonfiguruj dane",
     "useApiKeyDismiss": "Zrobię to później"
+  },
+  "logs": {
+    "title": "Logi",
+    "tabs": {
+      "backend": "Backend",
+      "audit": "Audyt",
+      "flyio": "Fly.io",
+      "activity": "Aktywność"
+    },
+    "searchPlaceholder": "Szukaj logów...",
+    "searchAudit": "Szukaj logów audytu...",
+    "allLevels": "Wszystkie poziomy",
+    "allActions": "Wszystkie akcje",
+    "autoOn": "Auto",
+    "autoOff": "Wstrzymane",
+    "refresh": "Odśwież",
+    "noLogs": "Brak wpisów logów",
+    "noActivity": "Brak zarejestrowanej aktywności",
+    "loadMore": "Załaduj więcej",
+    "flyioApp": "Nazwa aplikacji Fly.io..."
   },
   "memory": {
     "neuralNetwork": "Sieć neuronowa"

@@ -340,6 +340,7 @@ const sessionSummarySchema = z.object({
   created_at: z.string(),
   message_count: z.number(),
   working_directory: z.string().optional(),
+  agent_id: z.string().nullable().optional(),
 });
 
 export type SessionSummary = z.infer<typeof sessionSummarySchema>;
@@ -364,3 +365,24 @@ const sessionSchema = z.object({
 });
 
 export type Session = z.infer<typeof sessionSchema>;
+
+// ============================================================================
+// OCR
+// ============================================================================
+
+export const ocrPageSchema = z.object({
+  page_number: z.number(),
+  text: z.string(),
+});
+
+export type OcrPage = z.infer<typeof ocrPageSchema>;
+
+export const ocrResponseSchema = z.object({
+  text: z.string(),
+  pages: z.array(ocrPageSchema),
+  total_pages: z.number(),
+  processing_time_ms: z.number(),
+  provider: z.string(),
+});
+
+export type OcrResponse = z.infer<typeof ocrResponseSchema>;

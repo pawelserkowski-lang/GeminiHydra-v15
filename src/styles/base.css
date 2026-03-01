@@ -512,3 +512,57 @@ pre,
     scroll-behavior: auto !important;
   }
 }
+
+/* ============================================
+   OCR RENDERED MARKDOWN
+   ============================================ */
+.ocr-rendered table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 8px 0;
+  font-size: 11px;
+}
+.ocr-rendered th,
+.ocr-rendered td {
+  border: 1px solid var(--matrix-border);
+  padding: 4px 8px;
+  text-align: left;
+}
+.ocr-rendered th {
+  font-weight: 600;
+  background: color-mix(in srgb, var(--matrix-accent) 12%, transparent);
+}
+.ocr-rendered tr:nth-child(even) td {
+  background: color-mix(in srgb, var(--matrix-bg-primary) 50%, var(--matrix-bg-secondary));
+}
+.ocr-rendered h1,
+.ocr-rendered h2,
+.ocr-rendered h3 {
+  margin: 8px 0 4px;
+  font-weight: 600;
+}
+.ocr-rendered h1 {
+  font-size: 16px;
+}
+.ocr-rendered h2 {
+  font-size: 14px;
+}
+.ocr-rendered h3 {
+  font-size: 12px;
+}
+.ocr-rendered ul,
+.ocr-rendered ol {
+  padding-left: 20px;
+  margin: 4px 0;
+}
+.ocr-rendered li {
+  margin: 2px 0;
+}
+.ocr-rendered p {
+  margin: 4px 0;
+}
+.ocr-rendered hr {
+  border: none;
+  border-top: 1px solid var(--matrix-border);
+  margin: 8px 0;
+}

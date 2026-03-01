@@ -7,10 +7,10 @@ use tower_http::compression::CompressionLayer;
 use tower_http::trace::TraceLayer;
 
 use geminihydra_backend::model_registry;
-use geminihydra_backend::state::AppState;
+use geminihydra_backend::state::{AppState, LogEntry, LogRingBuffer};
 use geminihydra_backend::watchdog;
 
-async fn build_app() -> (axum::Router, AppState) {
+async fn build_app(log_buffer: std::sync::Arc<LogRingBuffer>) -> (axum::Router, AppState) {
     dotenvy::dotenv().ok();
 
     let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL required");
@@ -28,7 +28,7 @@ async fn build_app() -> (axum::Router, AppState) {
         tracing::warn!("Migration skipped (schema likely exists): {}", e);
     }
 
-    let state = AppState::new(pool).await;
+    let state = AppState::new(pool, log_buffer).await;
 
     // ── Spawn system monitor (CPU/memory stats, refreshed every 5s) ──
     geminihydra_backend::system_monitor::spawn(state.system_monitor.clone());
@@ -116,11 +116,56 @@ async fn build_app() -> (axum::Router, AppState) {
     (app, state)
 }
 
+// ── Log buffer tracing layer ────────────────────────────────────────
+struct LogBufferLayer {
+    buffer: std::sync::Arc<LogRingBuffer>,
+}
+
+impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for LogBufferLayer {
+    fn on_event(
+        &self,
+        event: &tracing::Event<'_>,
+        _ctx: tracing_subscriber::layer::Context<'_, S>,
+    ) {
+        let meta = event.metadata();
+        let mut visitor = MessageVisitor(String::new());
+        event.record(&mut visitor);
+
+        self.buffer.push(LogEntry {
+            timestamp: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+            level: meta.level().to_string(),
+            target: meta.target().to_string(),
+            message: visitor.0,
+        });
+    }
+}
+
+struct MessageVisitor(String);
+
+impl tracing::field::Visit for MessageVisitor {
+    fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+        if field.name() == "message" {
+            self.0 = format!("{:?}", value);
+        } else if self.0.is_empty() {
+            self.0 = format!("{}={:?}", field.name(), value);
+        }
+    }
+
+    fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
+        if field.name() == "message" {
+            self.0 = value.to_string();
+        } else if self.0.is_empty() {
+            self.0 = format!("{}={}", field.name(), value);
+        }
+    }
+}
+
 // ── Shuttle deployment entry point ──────────────────────────────────
 #[cfg(feature = "shuttle")]
 #[shuttle_runtime::main]
 async fn main() -> shuttle_axum::ShuttleAxum {
-    let (app, state) = build_app().await;
+    let log_buffer = std::sync::Arc::new(LogRingBuffer::new(1000));
+    let (app, state) = build_app(log_buffer).await;
     model_registry::startup_sync(&state).await;
     state.mark_ready();
     Ok(app.into())
@@ -130,24 +175,31 @@ async fn main() -> shuttle_axum::ShuttleAxum {
 #[cfg(not(feature = "shuttle"))]
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    use tracing_subscriber::prelude::*;
     use tracing_subscriber::EnvFilter;
 
     enable_ansi();
 
+    // Create log ring buffer BEFORE subscriber so the Layer can capture events
+    let log_buffer = std::sync::Arc::new(LogRingBuffer::new(1000));
+    let buffer_layer = LogBufferLayer { buffer: log_buffer.clone() };
+
     let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into());
     if std::env::var("RUST_LOG_FORMAT").as_deref() == Ok("json") {
-        tracing_subscriber::fmt()
-            .with_env_filter(env_filter)
-            .json()
+        tracing_subscriber::registry()
+            .with(env_filter)
+            .with(tracing_subscriber::fmt::layer().json())
+            .with(buffer_layer)
             .init();
     } else {
-        tracing_subscriber::fmt()
-            .with_env_filter(env_filter)
-            .with_ansi(true)
+        tracing_subscriber::registry()
+            .with(env_filter)
+            .with(tracing_subscriber::fmt::layer().with_ansi(true))
+            .with(buffer_layer)
             .init();
     }
 
-    let (app, state) = build_app().await;
+    let (app, state) = build_app(log_buffer).await;
 
     // ── Non-blocking startup: model sync in background with retry ──
     let startup_state = state.clone();

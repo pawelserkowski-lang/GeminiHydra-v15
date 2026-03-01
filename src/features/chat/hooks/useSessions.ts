@@ -71,6 +71,20 @@ export function useGenerateTitleMutation() {
   });
 }
 
+/** POST /api/sessions/:id/unlock — remove locked agent */
+export function useUnlockSessionMutation() {
+  const queryClient = useQueryClient();
+  return useMutation<{ success: boolean }, Error, string>({
+    mutationFn: (id) => apiPost<{ success: boolean }>(`/api/sessions/${id}/unlock`),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['sessions'] });
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : 'Failed to unlock agent');
+    },
+  });
+}
+
 /** POST /api/sessions/:id/messages */
 export function useAddMessageMutation() {
   const queryClient = useQueryClient();

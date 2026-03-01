@@ -18,9 +18,11 @@ import {
   ExternalLink,
   Home,
   Loader2,
+  LockOpen,
   type LucideIcon,
   MessageSquare,
   Plus,
+  ScrollText,
   Settings,
   Sparkles,
   Swords,
@@ -83,6 +85,7 @@ interface SessionItemProps {
   onSelect: () => void;
   onDelete: () => void;
   onRename: (newTitle: string) => void;
+  onUnlock?: () => void;
 }
 
 function SessionItem({
@@ -94,6 +97,7 @@ function SessionItem({
   onSelect,
   onDelete,
   onRename,
+  onUnlock,
 }: SessionItemProps) {
   const { t } = useTranslation();
   const [isEditing, setIsEditing] = useState(false);
@@ -214,13 +218,42 @@ function SessionItem({
         <span className={cn('text-sm truncate block leading-tight', isPending && 'opacity-60 italic')}>
           {session.title}
         </span>
-        {msgCount > 0 && (
-          <span className={cn('text-[10px] font-mono', textDim)}>
-            {msgCount} {msgCount === 1 ? t('sidebar.message', 'msg') : t('sidebar.messages', 'msgs')}
-          </span>
-        )}
+        <div className="flex items-center gap-1">
+          {msgCount > 0 && (
+            <span className={cn('text-[10px] font-mono', textDim)}>
+              {msgCount} {msgCount === 1 ? t('sidebar.message', 'msg') : t('sidebar.messages', 'msgs')}
+            </span>
+          )}
+          {session.agentId && (
+            <span
+              className={cn(
+                'text-[9px] font-mono px-1 py-0.5 rounded leading-none',
+                isLight ? 'bg-emerald-100 text-emerald-700' : 'bg-emerald-500/20 text-emerald-400',
+              )}
+              title={`Agent: ${session.agentId}`}
+            >
+              {session.agentId}
+            </span>
+          )}
+        </div>
       </div>
       <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+        {session.agentId && onUnlock && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onUnlock();
+            }}
+            className={cn(
+              'p-1 rounded',
+              isLight ? 'hover:bg-amber-500/15 text-amber-600' : 'hover:bg-amber-500/20 text-amber-400',
+            )}
+            title={t('sidebar.unlockAgent', 'Unlock agent')}
+          >
+            <LockOpen size={12} />
+          </button>
+        )}
         <button
           type="button"
           onClick={(e) => {
@@ -287,6 +320,7 @@ export function Sidebar() {
     createSessionWithSync,
     deleteSessionWithSync,
     renameSessionWithSync,
+    unlockSessionWithSync,
   } = useSessionSync();
 
   // Partner sessions (ClaudeHydra)
@@ -454,6 +488,13 @@ export function Sidebar() {
     [renameSessionWithSync],
   );
 
+  const handleUnlockSession = useCallback(
+    (id: string) => {
+      void unlockSessionWithSync(id);
+    },
+    [unlockSessionWithSync],
+  );
+
   // #42 — Keyboard navigation for session list
   const [focusedSessionIndex, setFocusedSessionIndex] = useState(-1);
 
@@ -490,6 +531,7 @@ export function Sidebar() {
       items: [
         { id: 'home', icon: Home, label: t('nav.home', 'Start') },
         { id: 'chat', icon: MessageSquare, label: t('nav.chat', 'Chat') },
+        { id: 'logs' as View, icon: ScrollText, label: t('nav.logs', 'Logs') },
         { id: 'settings', icon: Settings, label: t('nav.settings', 'Settings') },
       ],
     },
@@ -736,6 +778,7 @@ export function Sidebar() {
                       onSelect={() => handleSelectSession(session.id)}
                       onDelete={() => handleDeleteSession(session.id)}
                       onRename={(newTitle) => handleRenameSession(session.id, newTitle)}
+                      onUnlock={() => handleUnlockSession(session.id)}
                     />
                   ))
                 )}

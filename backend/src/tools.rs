@@ -1,7 +1,7 @@
 // backend/src/tools.rs
 //! Tool execution module for Gemini function calling.
 //!
-//! Provides 10 local tools that Gemini agents can invoke:
+//! Provides 12 local tools that Gemini agents can invoke:
 //! - `execute_command` — run shell commands with timeout + safety filters
 //! - `read_file` — read file contents (reuses files::read_file_for_context)
 //! - `read_file_section` — read specific line range from a file (1-indexed)
@@ -12,11 +12,17 @@
 //! - `get_code_structure` — analyze code AST without full read
 //! - `find_file` — find files by glob pattern (recursive)
 //! - `diff_files` — line-by-line diff between two files
+//! - `read_pdf` — extract text from PDF with OCR fallback via Gemini Vision
+//! - `analyze_image` — Gemini Vision API image analysis + OCR text extraction
 
+use base64::Engine;
 use regex::Regex;
+use scraper::{Html, Selector};
 use serde_json::Value;
+use std::collections::{HashSet, VecDeque};
 use std::time::Duration;
 use tokio::process::Command;
+use url::Url;
 use crate::state::AppState;
 
 /// Max output bytes from a single command (50 KB).
@@ -24,6 +30,16 @@ const MAX_COMMAND_OUTPUT: usize = 50 * 1024;
 
 /// Command execution timeout.
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
+
+// ---------------------------------------------------------------------------
+// Web Scraping Constants
+// ---------------------------------------------------------------------------
+const MAX_PAGE_SIZE: usize = 5 * 1024 * 1024; // 5 MB
+const FETCH_TIMEOUT: Duration = Duration::from_secs(30);
+const CRAWL_DELAY: Duration = Duration::from_millis(500);
+const MAX_CRAWL_DEPTH: u32 = 3;
+const MAX_CRAWL_PAGES: usize = 20;
+const WEB_USER_AGENT: &str = "Jaskier-Bot/1.0 (AI Agent Tool)";
 
 // ---------------------------------------------------------------------------
 // Gemini 3 — Multimodal Tool Output
@@ -217,6 +233,53 @@ pub async fn execute_tool(name: &str, args: &Value, state: &AppState, working_di
                 .ok_or("Missing required argument: path_b")?;
             let resolved_b = resolve_path(path_b, working_directory);
             tool_diff_files(&resolved_a, &resolved_b).await.map(ToolOutput::text)
+        }
+        "read_pdf" => {
+            let path = args["path"]
+                .as_str()
+                .ok_or("Missing required argument: path")?;
+            let resolved = resolve_path(path, working_directory);
+            let page_range = args["page_range"].as_str();
+            tool_read_pdf(&resolved, page_range, state).await.map(ToolOutput::text)
+        }
+        "analyze_image" => {
+            let path = args["path"]
+                .as_str()
+                .ok_or("Missing required argument: path")?;
+            let resolved = resolve_path(path, working_directory);
+            let prompt = args["prompt"].as_str();
+            let extract_text = args["extract_text"].as_bool();
+            tool_analyze_image(&resolved, prompt, extract_text, state).await
+        }
+        "ocr_document" => {
+            let path = args["path"]
+                .as_str()
+                .ok_or("Missing required argument: path")?;
+            let resolved = resolve_path(path, working_directory);
+            let prompt = args["prompt"].as_str();
+            tool_ocr_document(&resolved, prompt, state).await.map(ToolOutput::text)
+        }
+        "fetch_webpage" => {
+            let url = args["url"]
+                .as_str()
+                .ok_or("Missing required argument: url")?;
+            let extract_links = args["extract_links"].as_bool().unwrap_or(true);
+            tool_fetch_webpage(url, extract_links, &state.client).await
+        }
+        "crawl_website" => {
+            let url = args["url"]
+                .as_str()
+                .ok_or("Missing required argument: url")?;
+            let max_depth = args["max_depth"].as_u64().unwrap_or(1) as u32;
+            let max_pages = args["max_pages"].as_u64().unwrap_or(10) as usize;
+            let same_domain = args["same_domain_only"].as_bool().unwrap_or(true);
+            tool_crawl_website(
+                url,
+                max_depth.min(MAX_CRAWL_DEPTH),
+                max_pages.min(MAX_CRAWL_PAGES),
+                same_domain,
+                &state.client,
+            ).await
         }
         _ => Err(format!("Unknown tool: {}", name)),
     }
@@ -955,4 +1018,698 @@ async fn tool_diff_files(path_a: &str, path_b: &str) -> Result<String, String> {
         diff_output.join("\n"),
         changed.max(0)
     ))
+}
+
+// ---------------------------------------------------------------------------
+// read_pdf — PDF text extraction with OCR fallback
+// ---------------------------------------------------------------------------
+
+/// Maximum PDF file size (50 MB).
+const MAX_PDF_SIZE: u64 = 50 * 1024 * 1024;
+
+/// Maximum output text length for PDF/image tools.
+const MAX_TOOL_OUTPUT_CHARS: usize = 6000;
+
+/// Minimum alphanumeric characters to consider extraction successful.
+const MIN_ALPHA_THRESHOLD: usize = 20;
+
+/// Read and extract text from a PDF file.
+/// Falls back to Gemini Vision OCR when pdf-extract yields empty/garbage text.
+async fn tool_read_pdf(
+    path: &str,
+    page_range: Option<&str>,
+    state: &AppState,
+) -> Result<String, String> {
+    let file_path = std::path::Path::new(path);
+
+    if !file_path.exists() {
+        return Err(format!("File not found: {}", path));
+    }
+
+    match file_path.extension().and_then(|e| e.to_str()) {
+        Some(ext) if ext.eq_ignore_ascii_case("pdf") => {}
+        _ => return Err(format!("Not a PDF file: {}", path)),
+    }
+
+    let metadata = tokio::fs::metadata(file_path)
+        .await
+        .map_err(|e| format!("Cannot read file metadata: {}", e))?;
+    if metadata.len() > MAX_PDF_SIZE {
+        return Err(format!(
+            "PDF too large: {} bytes (max {} MB)",
+            metadata.len(),
+            MAX_PDF_SIZE / (1024 * 1024)
+        ));
+    }
+
+    let bytes = tokio::fs::read(file_path)
+        .await
+        .map_err(|e| format!("Cannot read file: {}", e))?;
+
+    let filename = file_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("unknown.pdf");
+
+    // Extract text (blocking — pdf-extract is synchronous)
+    let bytes_clone = bytes.clone();
+    let text = tokio::task::spawn_blocking(move || {
+        pdf_extract::extract_text_from_mem(&bytes_clone)
+            .map_err(|e| format!("PDF extraction failed: {}", e))
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))??;
+
+    // Check if extraction yielded meaningful text
+    let alpha_count = text.chars().filter(|c| c.is_alphanumeric()).count();
+    let is_scanned = text.trim().len() < 50 || alpha_count < MIN_ALPHA_THRESHOLD;
+
+    if is_scanned {
+        tracing::info!(
+            "read_pdf: text extraction yielded {} alphanumeric chars, falling back to Vision OCR",
+            alpha_count
+        );
+        let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+        let ocr_text = crate::ocr::ocr_pdf_text(state, &b64, page_range).await?;
+
+        let mut output = format!("### PDF (OCR): {} (Vision API)\n\n", filename);
+        if ocr_text.len() + output.len() > MAX_TOOL_OUTPUT_CHARS {
+            let available = MAX_TOOL_OUTPUT_CHARS.saturating_sub(output.len() + 40);
+            let truncated: String = ocr_text.chars().take(available).collect();
+            output.push_str(&truncated);
+            output.push_str("\n\n[... truncated ...]");
+        } else {
+            output.push_str(&ocr_text);
+        }
+        return Ok(output);
+    }
+
+    // Split into pages (form feed character)
+    let pages: Vec<&str> = text.split('\x0c').collect();
+    let total_pages = pages.len();
+
+    let (selected_text, range_label) = if let Some(range) = page_range {
+        let (start, end) = parse_pdf_page_range(range, total_pages)?;
+        let selected: String = pages[start - 1..end]
+            .iter()
+            .enumerate()
+            .map(|(i, p)| format!("--- Page {} ---\n{}", start + i, p.trim()))
+            .collect::<Vec<_>>()
+            .join("\n\n");
+        (selected, format!("pages {}-{} of {}", start, end, total_pages))
+    } else {
+        (text.clone(), format!("{} pages", total_pages))
+    };
+
+    let header = format!("### PDF: {} ({})\n\n", filename, range_label);
+    let mut output = header;
+
+    if selected_text.len() + output.len() > MAX_TOOL_OUTPUT_CHARS {
+        let available = MAX_TOOL_OUTPUT_CHARS.saturating_sub(output.len() + 40);
+        let truncated: String = selected_text.chars().take(available).collect();
+        output.push_str(&truncated);
+        output.push_str("\n\n[... truncated ...]");
+    } else {
+        output.push_str(&selected_text);
+    }
+
+    Ok(output)
+}
+
+/// Parse a page range string like "1-5" or "3" into (start, end) 1-indexed.
+fn parse_pdf_page_range(range: &str, total: usize) -> Result<(usize, usize), String> {
+    let range = range.trim();
+    if let Some((start_s, end_s)) = range.split_once('-') {
+        let start: usize = start_s.trim().parse().map_err(|_| "Invalid page range start")?;
+        let end: usize = end_s.trim().parse().map_err(|_| "Invalid page range end")?;
+        if start < 1 || end < start || end > total {
+            return Err(format!(
+                "Page range {}-{} out of bounds (1-{})",
+                start, end, total
+            ));
+        }
+        Ok((start, end))
+    } else {
+        let page: usize = range.parse().map_err(|_| "Invalid page number")?;
+        if page < 1 || page > total {
+            return Err(format!("Page {} out of bounds (1-{})", page, total));
+        }
+        Ok((page, page))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// analyze_image — Gemini Vision API with OCR mode
+// ---------------------------------------------------------------------------
+
+/// Allowed image extensions.
+const IMAGE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "webp", "gif"];
+
+/// Maximum image file size (10 MB — Gemini limit).
+const MAX_IMAGE_SIZE: u64 = 10 * 1024 * 1024;
+
+/// OCR prompt for text extraction mode.
+const OCR_PROMPT: &str = "\
+Extract ALL text from this image exactly as written. Preserve:\n\
+- Line breaks and paragraph structure\n\
+- Formatting (headers, lists, tables)\n\
+- Special characters and numbers\n\
+- Reading order (left-to-right, top-to-bottom)\n\
+\n\
+If the text is handwritten, transcribe it as accurately as possible.\n\
+If there are tables, format them using markdown table syntax.\n\
+Return ONLY the extracted text, no descriptions or commentary.";
+
+/// Analyze an image using Gemini Vision API.
+/// When `extract_text` is true, performs OCR instead of description.
+/// Returns ToolOutput with text + optional inline_data for Gemini multimodal responses.
+async fn tool_analyze_image(
+    path: &str,
+    prompt: Option<&str>,
+    extract_text: Option<bool>,
+    state: &AppState,
+) -> Result<ToolOutput, String> {
+    let file_path = std::path::Path::new(path);
+
+    if !file_path.exists() {
+        return Err(format!("Image file not found: {}", path));
+    }
+
+    let ext = file_path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_lowercase())
+        .unwrap_or_default();
+    if !IMAGE_EXTENSIONS.contains(&ext.as_str()) {
+        return Err(format!(
+            "Not a supported image format: {}. Supported: {:?}",
+            path, IMAGE_EXTENSIONS
+        ));
+    }
+
+    let metadata = tokio::fs::metadata(file_path)
+        .await
+        .map_err(|e| format!("Cannot read metadata: {}", e))?;
+    if metadata.len() > MAX_IMAGE_SIZE {
+        return Err(format!(
+            "Image too large: {} bytes (max {} MB)",
+            metadata.len(),
+            MAX_IMAGE_SIZE / (1024 * 1024)
+        ));
+    }
+
+    let bytes = tokio::fs::read(file_path)
+        .await
+        .map_err(|e| format!("Cannot read image: {}", e))?;
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+
+    let mime_type = match ext.as_str() {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "webp" => "image/webp",
+        "gif" => "image/gif",
+        _ => "application/octet-stream",
+    };
+
+    let analysis_prompt = if extract_text.unwrap_or(false) {
+        prompt.unwrap_or(OCR_PROMPT)
+    } else {
+        prompt.unwrap_or(
+            "Describe this image in detail. Include any text, objects, people, colors, layout, and notable features.",
+        )
+    };
+
+    // Get credential via oauth module
+    let (credential, is_oauth) = crate::oauth::get_google_credential(state)
+        .await
+        .ok_or_else(|| "No Google API credential configured".to_string())?;
+
+    let url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent";
+
+    let request_body = serde_json::json!({
+        "contents": [{
+            "parts": [
+                {
+                    "inlineData": {
+                        "mimeType": mime_type,
+                        "data": b64
+                    }
+                },
+                {
+                    "text": analysis_prompt
+                }
+            ]
+        }],
+        "generationConfig": {
+            "temperature": 1.0,  // Gemini 3: ALWAYS 1.0
+            "maxOutputTokens": 4096
+        }
+    });
+
+    let builder = state.client.post(url).json(&request_body);
+    let builder = crate::oauth::apply_google_auth(builder, &credential, is_oauth);
+
+    let response = builder
+        .send()
+        .await
+        .map_err(|e| format!("Gemini API request failed: {}", e))?;
+
+    let status = response.status();
+    let body: Value = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse Gemini response: {}", e))?;
+
+    if !status.is_success() {
+        let msg = body["error"]["message"]
+            .as_str()
+            .unwrap_or("Unknown Gemini API error");
+        return Err(format!("Gemini API error ({}): {}", status, msg));
+    }
+
+    let text = body["candidates"][0]["content"]["parts"]
+        .as_array()
+        .and_then(|parts| {
+            parts
+                .iter()
+                .filter_map(|p| p["text"].as_str())
+                .collect::<Vec<_>>()
+                .first()
+                .map(|s| s.to_string())
+        })
+        .unwrap_or_default();
+
+    if text.is_empty() {
+        return Err("Gemini returned empty result".to_string());
+    }
+
+    let filename = file_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("image");
+    let label = if extract_text.unwrap_or(false) { "OCR" } else { "Image Analysis" };
+    let output_text = format!(
+        "### {}: {} ({}, {} bytes)\n\n{}",
+        label, filename, mime_type, metadata.len(), text
+    );
+
+    // Return text + inline_data for Gemini multimodal function responses
+    Ok(ToolOutput {
+        text: output_text,
+        inline_data: Some(InlineData {
+            mime_type: mime_type.to_string(),
+            data: b64,
+        }),
+    })
+}
+
+// ---------------------------------------------------------------------------
+// ocr_document — dedicated OCR tool with markdown table preservation
+// ---------------------------------------------------------------------------
+
+const OCR_DOCUMENT_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "webp", "gif", "pdf"];
+
+async fn tool_ocr_document(
+    path: &str,
+    custom_prompt: Option<&str>,
+    state: &AppState,
+) -> Result<String, String> {
+    let file_path = std::path::Path::new(path);
+
+    if !file_path.exists() {
+        return Err(format!("File not found: {}", path));
+    }
+
+    let ext = file_path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_lowercase())
+        .unwrap_or_default();
+
+    if !OCR_DOCUMENT_EXTENSIONS.contains(&ext.as_str()) {
+        return Err(format!(
+            "Unsupported file type: .{}. Supported: {:?}",
+            ext, OCR_DOCUMENT_EXTENSIONS
+        ));
+    }
+
+    let metadata = tokio::fs::metadata(file_path)
+        .await
+        .map_err(|e| format!("Cannot read metadata: {}", e))?;
+    if metadata.len() > 30_000_000 {
+        return Err(format!(
+            "File too large: {} bytes (max 22 MB decoded)",
+            metadata.len()
+        ));
+    }
+
+    let bytes = tokio::fs::read(file_path)
+        .await
+        .map_err(|e| format!("Cannot read file: {}", e))?;
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+
+    let mime_type = match ext.as_str() {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "webp" => "image/webp",
+        "gif" => "image/gif",
+        "pdf" => "application/pdf",
+        _ => "application/octet-stream",
+    };
+
+    // OCR functions use the default OCR_PROMPT which already preserves tables as markdown
+    let _ = custom_prompt; // reserved for future custom prompt support
+    let text = if ext == "pdf" {
+        crate::ocr::ocr_pdf_text(state, &b64, None).await?
+    } else {
+        crate::ocr::ocr_image_text(state, &b64, mime_type).await?
+    };
+
+    let filename = file_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("document");
+    Ok(format!(
+        "### OCR: {} ({}, {} bytes)\n\n{}",
+        filename, mime_type, metadata.len(), text
+    ))
+}
+
+// ---------------------------------------------------------------------------
+// Web Scraping Tools
+// ---------------------------------------------------------------------------
+
+/// Validate URL — only http/https allowed
+fn validate_web_url(raw: &str) -> Result<Url, String> {
+    let parsed = Url::parse(raw).map_err(|e| format!("Invalid URL '{}': {}", raw, e))?;
+    match parsed.scheme() {
+        "http" | "https" => Ok(parsed),
+        other => Err(format!("Unsupported URL scheme '{}' — only http/https allowed", other)),
+    }
+}
+
+/// Extract readable text from HTML, preserving structure
+fn extract_text_from_html(html: &str) -> String {
+    let doc = Html::parse_document(html);
+
+    // Extract title
+    let title = Selector::parse("title").ok()
+        .and_then(|sel| doc.select(&sel).next())
+        .map(|el| el.text().collect::<String>());
+
+    // Walk body for text
+    let mut raw_text = String::new();
+    if let Ok(body_sel) = Selector::parse("body") {
+        if let Some(body) = doc.select(&body_sel).next() {
+            collect_element_text(body, &mut raw_text);
+        }
+    }
+
+    // Clean up excessive whitespace
+    let lines: Vec<&str> = raw_text.lines().map(|l| l.trim()).collect();
+    let mut output = String::new();
+    let mut last_was_blank = false;
+    for line in lines {
+        if line.is_empty() {
+            if !last_was_blank {
+                output.push('\n');
+                last_was_blank = true;
+            }
+        } else {
+            output.push_str(line);
+            output.push('\n');
+            last_was_blank = false;
+        }
+    }
+
+    if let Some(t) = title {
+        let t = t.trim();
+        if !t.is_empty() {
+            return format!("# {}\n\n{}", t, output.trim());
+        }
+    }
+
+    output.trim().to_string()
+}
+
+/// Recursively collect text from an ElementRef, skipping noise tags
+fn collect_element_text(element: scraper::ElementRef, output: &mut String) {
+    let tag = element.value().name();
+
+    // Skip noise elements entirely
+    if matches!(tag, "script" | "style" | "nav" | "footer" | "noscript" | "svg" | "iframe") {
+        return;
+    }
+
+    let is_block = matches!(
+        tag,
+        "p" | "div" | "section" | "article" | "main" | "blockquote"
+        | "pre" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6"
+        | "ul" | "ol" | "table" | "tr" | "br" | "hr"
+    );
+    let is_list_item = tag == "li";
+    let is_heading = matches!(tag, "h1" | "h2" | "h3" | "h4" | "h5" | "h6");
+
+    if is_block {
+        output.push('\n');
+    }
+    if is_list_item {
+        output.push_str("\n- ");
+    }
+    if is_heading {
+        let level: usize = tag[1..].parse().unwrap_or(1);
+        let prefix = "#".repeat(level);
+        output.push_str(&format!("\n{} ", prefix));
+    }
+
+    for child in element.children() {
+        match child.value() {
+            scraper::node::Node::Text(text) => {
+                let t = text.text.trim();
+                if !t.is_empty() {
+                    output.push_str(t);
+                    output.push(' ');
+                }
+            }
+            scraper::node::Node::Element(_) => {
+                if let Some(child_el) = scraper::ElementRef::wrap(child) {
+                    collect_element_text(child_el, output);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    if is_block {
+        output.push('\n');
+    }
+}
+
+/// Extract all links from HTML, resolving relative URLs
+fn extract_links_from_html(html: &str, base_url: &Url) -> Vec<(String, String)> {
+    let doc = Html::parse_document(html);
+    let mut links = Vec::new();
+    let mut seen = HashSet::new();
+
+    if let Ok(sel) = Selector::parse("a[href]") {
+        for el in doc.select(&sel) {
+            if let Some(href) = el.value().attr("href") {
+                let href = href.trim();
+                // Skip anchors, javascript, mailto
+                if href.is_empty()
+                    || href.starts_with('#')
+                    || href.starts_with("javascript:")
+                    || href.starts_with("mailto:")
+                    || href.starts_with("tel:")
+                {
+                    continue;
+                }
+                // Resolve relative URL
+                let resolved = match base_url.join(href) {
+                    Ok(u) => u.to_string(),
+                    Err(_) => continue,
+                };
+                if seen.contains(&resolved) {
+                    continue;
+                }
+                seen.insert(resolved.clone());
+
+                let anchor: String = el.text().collect::<Vec<_>>().join(" ");
+                let anchor = anchor.trim().to_string();
+                links.push((resolved, anchor));
+            }
+        }
+    }
+
+    links
+}
+
+/// Fetch a URL and return (html_body, final_url)
+async fn fetch_url(client: &reqwest::Client, url: &str) -> Result<(String, Url), String> {
+    let parsed = validate_web_url(url)?;
+
+    let resp = client
+        .get(parsed.as_str())
+        .header("User-Agent", WEB_USER_AGENT)
+        .timeout(FETCH_TIMEOUT)
+        .send()
+        .await
+        .map_err(|e| format!("Failed to fetch '{}': {}", url, e))?;
+
+    let status = resp.status();
+    if !status.is_success() {
+        return Err(format!("HTTP {} for '{}'", status, url));
+    }
+
+    // Check content length
+    if let Some(len) = resp.content_length() {
+        if len as usize > MAX_PAGE_SIZE {
+            return Err(format!("Response too large: {} bytes (max {})", len, MAX_PAGE_SIZE));
+        }
+    }
+
+    let final_url = Url::parse(resp.url().as_str())
+        .unwrap_or(parsed);
+
+    let bytes = resp.bytes().await
+        .map_err(|e| format!("Failed to read body from '{}': {}", url, e))?;
+
+    if bytes.len() > MAX_PAGE_SIZE {
+        return Err(format!("Response too large: {} bytes (max {})", bytes.len(), MAX_PAGE_SIZE));
+    }
+
+    let body = String::from_utf8_lossy(&bytes).to_string();
+    Ok((body, final_url))
+}
+
+/// Fetch a single web page and extract text + links
+async fn tool_fetch_webpage(
+    url: &str,
+    extract_links: bool,
+    client: &reqwest::Client,
+) -> Result<ToolOutput, String> {
+    let (html, final_url) = fetch_url(client, url).await?;
+
+    let text = extract_text_from_html(&html);
+    let mut output = format!("### Web Page: {}\n\n{}", final_url, text);
+
+    if extract_links {
+        let links = extract_links_from_html(&html, &final_url);
+        if !links.is_empty() {
+            output.push_str("\n\n---\n### Links Found\n\n");
+            for (i, (href, anchor)) in links.iter().enumerate() {
+                let label = if anchor.is_empty() { href.as_str() } else { anchor.as_str() };
+                output.push_str(&format!("{}. [{}]({})\n", i + 1, label, href));
+            }
+            output.push_str(&format!("\nTotal: {} links", links.len()));
+        }
+    }
+
+    Ok(ToolOutput::text(output))
+}
+
+/// Crawl a website starting from a URL, following links to subpages
+async fn tool_crawl_website(
+    start_url: &str,
+    max_depth: u32,
+    max_pages: usize,
+    same_domain_only: bool,
+    client: &reqwest::Client,
+) -> Result<ToolOutput, String> {
+    let start_parsed = validate_web_url(start_url)?;
+    let start_domain = start_parsed.domain().unwrap_or("").to_string();
+
+    let mut visited: HashSet<String> = HashSet::new();
+    let mut queue: VecDeque<(String, u32)> = VecDeque::new();
+    let mut results: Vec<(String, String)> = Vec::new(); // (url, text_excerpt)
+    let mut all_links: Vec<(String, String, String)> = Vec::new(); // (source, href, anchor)
+    let mut errors: Vec<String> = Vec::new();
+
+    queue.push_back((start_parsed.to_string(), 0));
+
+    while let Some((url, depth)) = queue.pop_front() {
+        if visited.contains(&url) || visited.len() >= max_pages {
+            continue;
+        }
+        visited.insert(url.clone());
+
+        // Rate limiting
+        if visited.len() > 1 {
+            tokio::time::sleep(CRAWL_DELAY).await;
+        }
+
+        match fetch_url(client, &url).await {
+            Ok((html, final_url)) => {
+                let text = extract_text_from_html(&html);
+                // Excerpt — first 2000 chars
+                let excerpt: String = text.char_indices()
+                    .take_while(|(i, _)| *i < 2000)
+                    .map(|(_, c)| c)
+                    .collect();
+                results.push((final_url.to_string(), excerpt));
+
+                let links = extract_links_from_html(&html, &final_url);
+                for (href, anchor) in &links {
+                    all_links.push((url.clone(), href.clone(), anchor.clone()));
+
+                    // Enqueue subpages
+                    if depth < max_depth && !visited.contains(href) {
+                        if same_domain_only {
+                            if let Ok(link_url) = Url::parse(href) {
+                                let link_domain = link_url.domain().unwrap_or("");
+                                if link_domain != start_domain {
+                                    continue;
+                                }
+                            }
+                        }
+                        // Only follow HTML-like URLs (skip files)
+                        let path = href.to_lowercase();
+                        if path.ends_with(".pdf") || path.ends_with(".zip")
+                            || path.ends_with(".png") || path.ends_with(".jpg")
+                            || path.ends_with(".gif") || path.ends_with(".svg")
+                            || path.ends_with(".css") || path.ends_with(".js")
+                            || path.ends_with(".xml") || path.ends_with(".json")
+                        {
+                            continue;
+                        }
+                        queue.push_back((href.clone(), depth + 1));
+                    }
+                }
+            }
+            Err(e) => {
+                errors.push(format!("{}: {}", url, e));
+            }
+        }
+    }
+
+    // Format output
+    let mut output = format!(
+        "### Crawl Results: {}\nPages fetched: {} | Errors: {} | Links indexed: {}\n",
+        start_url, results.len(), errors.len(), all_links.len()
+    );
+
+    // Page contents
+    output.push_str("\n---\n## Pages\n\n");
+    for (i, (url, excerpt)) in results.iter().enumerate() {
+        output.push_str(&format!("### {}. {}\n{}\n\n", i + 1, url, excerpt));
+    }
+
+    // Link index
+    if !all_links.is_empty() {
+        output.push_str("---\n## Link Index\n\n");
+        for (source, href, anchor) in &all_links {
+            let label = if anchor.is_empty() { href.as_str() } else { anchor.as_str() };
+            output.push_str(&format!("- [{}]({}) ← {}\n", label, href, source));
+        }
+    }
+
+    // Errors
+    if !errors.is_empty() {
+        output.push_str("\n---\n## Errors\n\n");
+        for err in &errors {
+            output.push_str(&format!("- {}\n", err));
+        }
+    }
+
+    Ok(ToolOutput::text(output))
 }

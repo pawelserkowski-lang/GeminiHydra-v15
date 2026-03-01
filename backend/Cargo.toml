@@ -13,7 +13,7 @@ serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.145"
 regex = "1"
 tracing = "0.1.44"
-tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "registry"] }
 anyhow = "1.0.100"
 thiserror = "2.0.18"
 uuid = { version = "1", features = ["v4"] }
@@ -38,6 +38,9 @@ rand = "0.8"
 url = "2"
 aes-gcm = "0.10"
 hex = "0.4"
+pdf-extract = "0.10"
+scraper = "0.22"
+ego-tree = "0.10"
 utoipa = { version = "5", features = ["axum_extras", "uuid", "chrono"] }
 utoipa-swagger-ui = { version = "9", features = ["axum"] }
 shuttle-axum = { version = "0.57.0", optional = true }

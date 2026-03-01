@@ -700,6 +700,7 @@ pub(crate) async fn prepare_execution(
     prompt: &str,
     model_override: Option<String>,
     agent_override: Option<(String, f64, String)>,
+    session_wd: &str,
 ) -> ExecuteContext {
     let agents_lock = state.agents.read().await;
 
@@ -764,7 +765,7 @@ pub(crate) async fn prepare_execution(
         String::new()
     };
 
-    let (def_model, lang, temperature, max_tokens, top_p, response_style, max_iterations, thinking_level, working_directory) =
+    let (def_model, lang, temperature, max_tokens, top_p, response_style, max_iterations, thinking_level, settings_wd) =
         sqlx::query_as::<_, (String, String, f64, i32, f64, String, i32, String, String)>(
             "SELECT default_model, language, temperature, max_tokens, top_p, response_style, max_iterations, thinking_level, working_directory \
              FROM gh_settings WHERE id = 1",
@@ -774,6 +775,9 @@ pub(crate) async fn prepare_execution(
         .unwrap_or_else(|_| (
             "gemini-3.1-pro-preview-customtools".to_string(), "en".to_string(), 1.0, 65536, 0.95, "balanced".to_string(), 10, "medium".to_string(), String::new()
         ));
+
+    // Session WD takes priority over global settings WD
+    let working_directory = if !session_wd.is_empty() { session_wd.to_string() } else { settings_wd };
 
     // #48 — Per-agent temperature override
     let agent_temp = agents_lock.iter()
@@ -1427,34 +1431,21 @@ async fn execute_streaming(
         None
     };
 
-    let mut ctx = prepare_execution(state, prompt, model_override, agent_info).await;
-    let resp_id = Uuid::new_v4();
-
-    // Session WD override (takes priority over global setting)
-    if let Some(ref s) = sid {
-        let session_wd: String = sqlx::query_scalar(
-            "SELECT working_directory FROM gh_sessions WHERE id = $1",
-        )
-        .bind(s)
-        .fetch_optional(&state.db)
-        .await
-        .ok()
-        .flatten()
-        .unwrap_or_default();
-        if !session_wd.is_empty() {
-            ctx.working_directory = session_wd.clone();
-            // Rebuild system prompt with session WD
-            let agents_lock = state.agents.read().await;
-            let (_, lang, ..) = sqlx::query_as::<_, (String, String,)>(
-                "SELECT default_model, language FROM gh_settings WHERE id = 1",
-            )
-            .fetch_one(&state.db)
+    // Fetch session WD before prepare_execution so cache key includes correct WD
+    let session_wd: String = if let Some(ref s) = sid {
+        sqlx::query_scalar("SELECT working_directory FROM gh_sessions WHERE id = $1")
+            .bind(s)
+            .fetch_optional(&state.db)
             .await
-            .unwrap_or_else(|_| ("gemini-3.1-pro-preview".to_string(), "en".to_string()));
-            let language = match lang.as_str() { "pl" => "Polish", "en" => "English", other => other };
-            ctx.system_prompt = build_system_prompt(&ctx.agent_id, &agents_lock, language, &ctx.model, &session_wd);
-        }
-    }
+            .ok()
+            .flatten()
+            .unwrap_or_default()
+    } else {
+        String::new()
+    };
+
+    let ctx = prepare_execution(state, prompt, model_override, agent_info, &session_wd).await;
+    let resp_id = Uuid::new_v4();
 
     if !ws_send(sender, &WsServerMessage::Start { id: resp_id.to_string(), agent: ctx.agent_id.clone(), model: ctx.model.clone(), files_loaded: ctx.files_loaded.clone() }).await { return; }
     let _ = ws_send(sender, &WsServerMessage::Plan { agent: ctx.agent_id.clone(), confidence: ctx.confidence, steps: ctx.steps.clone(), reasoning: ctx.reasoning.clone() }).await;
@@ -2408,6 +2399,31 @@ pub(crate) fn build_tools() -> Value {
                 "parameters": { "type": "object", "properties": { "path_a": { "type": "string", "description": "Absolute path to the first file" }, "path_b": { "type": "string", "description": "Absolute path to the second file" } }, "required": ["path_a", "path_b"] }
             },
             {
+                "name": "read_pdf",
+                "description": "Extract text from a PDF file. Uses pdf-extract for embedded text; falls back to Gemini Vision OCR for scanned/image-based PDFs. Supports page range filtering.",
+                "parameters": { "type": "object", "properties": { "path": { "type": "string", "description": "Absolute path to the PDF file" }, "page_range": { "type": "string", "description": "Optional page range like '1-5' or '3' (1-indexed)" } }, "required": ["path"] }
+            },
+            {
+                "name": "analyze_image",
+                "description": "Analyze an image file using Gemini Vision API. Describes contents, text, objects, colors, and notable features. Set extract_text=true to perform OCR (extract text from the image). Supports PNG, JPEG, WebP, GIF (max 10 MB).",
+                "parameters": { "type": "object", "properties": { "path": { "type": "string", "description": "Absolute path to the image file" }, "prompt": { "type": "string", "description": "Optional custom analysis prompt" }, "extract_text": { "type": "boolean", "description": "When true, extract text (OCR) from the image instead of describing it" } }, "required": ["path"] }
+            },
+            {
+                "name": "ocr_document",
+                "description": "Extract text from an image or PDF using Gemini Vision OCR. Returns text with preserved formatting: tables as markdown (| pipes + --- separators), headers, lists, paragraphs. Ideal for invoices, reports, forms, tables, receipts, scanned documents. The extracted text can be copied with rich formatting (pastes as real tables in Word/Excel). Supports PNG, JPEG, WebP, GIF, PDF (max 22 MB).",
+                "parameters": { "type": "object", "properties": { "path": { "type": "string", "description": "Absolute path to the image or PDF file" }, "prompt": { "type": "string", "description": "Optional custom OCR prompt (default extracts all text preserving tables and formatting)" } }, "required": ["path"] }
+            },
+            {
+                "name": "fetch_webpage",
+                "description": "Fetch a web page, extract readable text content (HTML stripped) and index all links. Use for reading articles, documentation, blog posts, or any web content. Returns page title, clean text, and optionally all discovered links with anchor text.",
+                "parameters": { "type": "object", "properties": { "url": { "type": "string", "description": "Full URL to fetch (http or https)" }, "extract_links": { "type": "boolean", "description": "Whether to extract and list all links found on the page (default: true)" } }, "required": ["url"] }
+            },
+            {
+                "name": "crawl_website",
+                "description": "Crawl a website starting from a URL, following links to subpages within the same domain. Extracts text from each page and builds a complete link index. Use for reading documentation sites, multi-page articles, or mapping website structure. Respects same-domain restriction by default. Rate-limited to 1 request per 500ms.",
+                "parameters": { "type": "object", "properties": { "url": { "type": "string", "description": "Starting URL to crawl (http or https)" }, "max_depth": { "type": "integer", "description": "Max link depth to follow from start page (default: 1, max: 3)" }, "max_pages": { "type": "integer", "description": "Max number of pages to fetch (default: 10, max: 20)" }, "same_domain_only": { "type": "boolean", "description": "Only follow links on the same domain as the start URL (default: true)" } }, "required": ["url"] }
+            },
+            {
                 "name": "call_agent",
                 "description": "Delegate a subtask to another Witcher agent via A2A protocol. The target agent has full tool access and can read files, search code, etc. Use when the task requires specialized expertise (e.g., code analysis → Eskel, debugging → Lambert, data → Triss). Returns the agent's complete response. Max 3 delegation levels.",
                 "parameters": { "type": "object", "properties": { "agent_id": { "type": "string", "description": "Target agent ID (e.g., 'eskel', 'lambert', 'triss', 'yennefer')" }, "task": { "type": "string", "description": "The subtask to delegate. Be specific about what you need and provide context." } }, "required": ["agent_id", "task"] }
@@ -2444,7 +2460,7 @@ pub async fn execute(State(state): State<AppState>, Json(body): Json<ExecuteRequ
     } else {
         None
     };
-    let ctx = prepare_execution(&state, &body.prompt, body.model.clone(), mode_override).await;
+    let ctx = prepare_execution(&state, &body.prompt, body.model.clone(), mode_override, "").await;
     if ctx.api_key.is_empty() { return (StatusCode::UNAUTHORIZED, Json(json!({ "error": "No API Key" }))); }
 
     // Circuit breaker — fail fast if the Gemini provider is tripped.

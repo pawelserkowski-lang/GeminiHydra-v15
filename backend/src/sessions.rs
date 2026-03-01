@@ -408,7 +408,7 @@ pub async fn list_sessions(
         let cursor_id = uuid::Uuid::parse_str(after_id).map_err(|_| StatusCode::BAD_REQUEST)?;
 
         let rows = sqlx::query_as::<_, SessionSummaryRow>(
-            "SELECT s.id, s.title, s.created_at, s.working_directory, \
+            "SELECT s.id, s.title, s.created_at, s.working_directory, s.agent_id, \
              (SELECT COUNT(*) FROM gh_chat_messages WHERE session_id = s.id) as message_count \
              FROM gh_sessions s \
              WHERE s.updated_at < (SELECT updated_at FROM gh_sessions WHERE id = $1) \
@@ -429,6 +429,7 @@ pub async fn list_sessions(
                 created_at: r.created_at.to_rfc3339(),
                 message_count: r.message_count as usize,
                 working_directory: r.working_directory.clone(),
+                agent_id: r.agent_id.clone(),
             })
             .collect();
 
@@ -447,7 +448,7 @@ pub async fn list_sessions(
     let offset = params.offset.unwrap_or(0).max(0);
 
     let rows = sqlx::query_as::<_, SessionSummaryRow>(
-        "SELECT s.id, s.title, s.created_at, s.working_directory, \
+        "SELECT s.id, s.title, s.created_at, s.working_directory, s.agent_id, \
          (SELECT COUNT(*) FROM gh_chat_messages WHERE session_id = s.id) as message_count \
          FROM gh_sessions s ORDER BY s.updated_at DESC \
          LIMIT $1 OFFSET $2",
@@ -466,6 +467,7 @@ pub async fn list_sessions(
             created_at: r.created_at.to_rfc3339(),
             message_count: r.message_count as usize,
             working_directory: r.working_directory,
+            agent_id: r.agent_id,
         })
         .collect();
 
@@ -619,6 +621,7 @@ pub async fn update_session(
         created_at: row.created_at.to_rfc3339(),
         message_count: 0,
         working_directory: row.working_directory,
+        agent_id: None,
     };
 
     Ok(Json(serde_json::to_value(summary).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?))

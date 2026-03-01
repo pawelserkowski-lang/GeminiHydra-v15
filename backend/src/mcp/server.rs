@@ -429,6 +429,24 @@ fn build_mcp_tool_list() -> Vec<Value> {
             },
             "required": ["path_a", "path_b"]
         })),
+        mcp_tool("fetch_webpage", "Fetch a web page, extract readable text (HTML stripped) and index all links.", json!({
+            "type": "object",
+            "properties": {
+                "url": { "type": "string", "description": "Full URL to fetch (http/https)" },
+                "extract_links": { "type": "boolean", "description": "Extract and list all links (default: true)" }
+            },
+            "required": ["url"]
+        })),
+        mcp_tool("crawl_website", "Crawl a website following links to subpages. Extracts text and builds link index.", json!({
+            "type": "object",
+            "properties": {
+                "url": { "type": "string", "description": "Starting URL to crawl" },
+                "max_depth": { "type": "integer", "description": "Max link depth (default: 1, max: 3)" },
+                "max_pages": { "type": "integer", "description": "Max pages to fetch (default: 10, max: 20)" },
+                "same_domain_only": { "type": "boolean", "description": "Only follow same-domain links (default: true)" }
+            },
+            "required": ["url"]
+        })),
         mcp_tool("execute_command", "Execute a shell command on the local machine. Use for build/test/npm/cargo operations.", json!({
             "type": "object",
             "properties": {

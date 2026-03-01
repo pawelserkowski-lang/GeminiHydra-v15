@@ -2,6 +2,7 @@
   "nav": {
     "home": "Home",
     "chat": "Chat",
+    "logs": "Logs",
     "settings": "Settings"
   },
   "sidebar": {
@@ -171,6 +172,26 @@
     "bannerDesc": "Enter your API key or sign in with Google to start chatting.",
     "setupAuth": "Set up credentials",
     "useApiKeyDismiss": "I'll do it later"
+  },
+  "logs": {
+    "title": "Logs",
+    "tabs": {
+      "backend": "Backend",
+      "audit": "Audit",
+      "flyio": "Fly.io",
+      "activity": "Activity"
+    },
+    "searchPlaceholder": "Search logs...",
+    "searchAudit": "Search audit logs...",
+    "allLevels": "All levels",
+    "allActions": "All actions",
+    "autoOn": "Auto",
+    "autoOff": "Paused",
+    "refresh": "Refresh",
+    "noLogs": "No log entries",
+    "noActivity": "No activity recorded",
+    "loadMore": "Load more",
+    "flyioApp": "Fly.io app name..."
   },
   "memory": {
     "neuralNetwork": "Neural Network"

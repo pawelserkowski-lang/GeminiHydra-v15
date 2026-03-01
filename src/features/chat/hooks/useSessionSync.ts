@@ -16,6 +16,7 @@ import {
   useDeleteSessionMutation,
   useGenerateTitleMutation,
   useSessionsQuery,
+  useUnlockSessionMutation,
   useUpdateSessionMutation,
 } from './useSessions';
 
@@ -39,6 +40,7 @@ export function useSessionSync() {
   const updateMutation = useUpdateSessionMutation();
   const addMessageMutation = useAddMessageMutation();
   const generateTitleMutation = useGenerateTitleMutation();
+  const unlockMutation = useUnlockSessionMutation();
 
   // One-time hydration from DB
   const hydratedRef = useRef(false);
@@ -55,6 +57,7 @@ export function useSessionSync() {
         title: s.title,
         createdAt: new Date(s.created_at).getTime(),
         workingDirectory: s.working_directory ?? '',
+        agentId: s.agent_id ?? undefined,
       }));
       hydrateSessions(mapped);
       localStorage.setItem(MIGRATION_FLAG, 'true');
@@ -147,6 +150,26 @@ export function useSessionSync() {
     [generateTitleMutation, updateSessionTitleLocal],
   );
 
+  /** Unlock agent from session — removes agent_id lock. */
+  const unlockSessionWithSync = useCallback(
+    async (id: string) => {
+      try {
+        await unlockMutation.mutateAsync(id);
+        // Clear agentId in local store
+        const store = useViewStore.getState();
+        const session = store.sessions.find((s) => s.id === id);
+        if (session) {
+          useViewStore.setState({
+            sessions: store.sessions.map((s) => (s.id === id ? { ...s, agentId: undefined } : s)),
+          });
+        }
+      } catch {
+        // Error toast already shown by mutation
+      }
+    },
+    [unlockMutation],
+  );
+
   /** Persist a message to the DB for the given session. */
   const addMessageWithSync = useCallback(
     async (params: { sessionId: string; role: string; content: string; model?: string; agent?: string }) => {
@@ -166,6 +189,7 @@ export function useSessionSync() {
     createSessionWithSync,
     deleteSessionWithSync,
     renameSessionWithSync,
+    unlockSessionWithSync,
     generateTitleWithSync,
     addMessageWithSync,
     isLoading: createMutation.isPending,

@@ -1,7 +1,7 @@
 // Jaskier Shared Pattern — state
 // GeminiHydra v15 - Application state
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
@@ -13,6 +13,71 @@ use tokio_util::sync::CancellationToken;
 
 use crate::model_registry::ModelCache;
 use crate::models::WitcherAgent;
+
+// ── Log Ring Buffer — Jaskier Shared Pattern ────────────────────────────────
+/// In-memory ring buffer for backend log entries (last N events).
+/// Uses `std::sync::Mutex` because writes happen in the tracing Layer
+/// (sync context — not inside a tokio runtime poll).
+
+#[derive(Clone, serde::Serialize)]
+pub struct LogEntry {
+    pub timestamp: String,
+    pub level: String,
+    pub target: String,
+    pub message: String,
+}
+
+pub struct LogRingBuffer {
+    entries: std::sync::Mutex<VecDeque<LogEntry>>,
+    capacity: usize,
+}
+
+impl LogRingBuffer {
+    pub fn new(capacity: usize) -> Self {
+        Self {
+            entries: std::sync::Mutex::new(VecDeque::with_capacity(capacity)),
+            capacity,
+        }
+    }
+
+    pub fn push(&self, entry: LogEntry) {
+        let mut buf = self.entries.lock().unwrap_or_else(|p| p.into_inner());
+        if buf.len() >= self.capacity {
+            buf.pop_front();
+        }
+        buf.push_back(entry);
+    }
+
+    pub fn recent(&self, limit: usize, min_level: Option<&str>, search: Option<&str>) -> Vec<LogEntry> {
+        let buf = self.entries.lock().unwrap_or_else(|p| p.into_inner());
+        buf.iter()
+            .rev()
+            .filter(|e| {
+                min_level.map_or(true, |lvl| level_ord(&e.level) >= level_ord(lvl))
+            })
+            .filter(|e| {
+                search.map_or(true, |s| {
+                    let s_lower = s.to_lowercase();
+                    e.message.to_lowercase().contains(&s_lower)
+                        || e.target.to_lowercase().contains(&s_lower)
+                })
+            })
+            .take(limit)
+            .cloned()
+            .collect()
+    }
+}
+
+fn level_ord(level: &str) -> u8 {
+    match level.to_uppercase().as_str() {
+        "ERROR" => 5,
+        "WARN" => 4,
+        "INFO" => 3,
+        "DEBUG" => 2,
+        "TRACE" => 1,
+        _ => 0,
+    }
+}
 
 // ── Circuit Breaker ─────────────────────────────────────────────────────────
 // Jaskier Shared Pattern -- circuit_breaker
@@ -185,6 +250,8 @@ pub struct AppState {
     /// Causes credential resolution to skip OAuth and use API key.
     /// Reset to `true` on new OAuth login.
     pub oauth_gemini_valid: Arc<AtomicBool>,
+    /// In-memory ring buffer for backend log entries (last 1000).
+    pub log_buffer: Arc<LogRingBuffer>,
 }
 
 // ── Shared: readiness helpers ───────────────────────────────────────────────
@@ -200,7 +267,7 @@ impl AppState {
 }
 
 impl AppState {
-    pub async fn new(db: PgPool) -> Self {
+    pub async fn new(db: PgPool, log_buffer: Arc<LogRingBuffer>) -> Self {
         // ── API keys from environment ──────────────────────────────────
         let mut api_keys = HashMap::new();
 
@@ -277,6 +344,7 @@ impl AppState {
             prompt_cache: Arc::new(RwLock::new(HashMap::new())),
             a2a_cancel_tokens: Arc::new(RwLock::new(HashMap::new())),
             oauth_gemini_valid: Arc::new(AtomicBool::new(true)),
+            log_buffer,
         }
     }
 

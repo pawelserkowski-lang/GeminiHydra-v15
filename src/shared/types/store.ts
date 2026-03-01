@@ -9,6 +9,8 @@ export interface ChatSession {
   preview?: string;
   /** Per-session working directory (empty = inherit from global settings) */
   workingDirectory?: string;
+  /** Locked agent ID for this session (GH only) */
+  agentId?: string;
 }
 
 export interface ChatTab {

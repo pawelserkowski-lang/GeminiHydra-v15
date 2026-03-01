@@ -327,7 +327,7 @@ async fn execute_a2a_task(
         .execute(&state.db)
         .await;
 
-    let mut ctx = crate::handlers::prepare_execution(state, prompt, None, agent_override).await;
+    let mut ctx = crate::handlers::prepare_execution(state, prompt, None, agent_override, "").await;
     ctx.call_depth = call_depth;
     let agent_id = ctx.agent_id.clone();
 

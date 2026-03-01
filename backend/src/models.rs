@@ -361,6 +361,8 @@ pub struct SessionSummaryRow {
     pub message_count: i64,
     #[sqlx(default)]
     pub working_directory: String,
+    #[sqlx(default)]
+    pub agent_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -381,6 +383,8 @@ pub struct SessionSummary {
     pub message_count: usize,
     #[serde(default)]
     pub working_directory: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]

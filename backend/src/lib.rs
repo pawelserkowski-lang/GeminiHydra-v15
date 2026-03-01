@@ -4,9 +4,11 @@ pub mod audit;
 pub mod auth;
 pub mod files;
 pub mod handlers;
+pub mod logs;
 pub mod model_registry;
 pub mod models;
 pub mod oauth;
+pub mod ocr;
 pub mod sessions;
 pub mod state;
 pub mod system_monitor;
@@ -246,6 +248,14 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/files/list", post(handlers::list_files))
         .route("/api/files/browse", post(handlers::browse_directory))
         .route("/api/system/stats", get(handlers::system_stats))
+        // Logs — centralized log endpoints for LogsView
+        .route("/api/logs/backend", get(logs::backend_logs))
+        .route("/api/logs/audit", get(logs::audit_logs))
+        .route("/api/logs/flyio", get(logs::flyio_logs))
+        .route("/api/logs/activity", get(logs::activity_logs))
+        // OCR — text extraction from images and PDFs
+        .route("/api/ocr", post(ocr::ocr))
+        .route("/api/ocr/stream", post(ocr::ocr_stream))
         // Admin — hot-reload API keys
         .route("/api/admin/rotate-key", post(handlers::rotate_key))
         // A2A v0.3 — Agent-to-Agent protocol endpoints

@@ -34,6 +34,7 @@ const LazyWelcomeScreen = lazy(() => import('@/features/home/components/WelcomeS
 const LazyAgentsView = lazy(() => import('@/features/agents/components/AgentsView'));
 const LazyKnowledgeGraphView = lazy(() => import('@/features/memory/components/KnowledgeGraphView'));
 const LazySettingsView = lazy(() => import('@/features/settings/components/SettingsView'));
+const LazyLogsView = lazy(() => import('@/features/logs/components/LogsView'));
 const LazyLoginView = lazy(() => import('@/features/auth/components/LoginView'));
 
 // ============================================================================
@@ -68,6 +69,12 @@ function ViewRouter() {
             fallback={<FeatureErrorFallback feature="Settings" onRetry={() => window.location.reload()} />}
           >
             <LazySettingsView />
+          </ErrorBoundary>
+        );
+      case 'logs':
+        return (
+          <ErrorBoundary fallback={<FeatureErrorFallback feature="Logs" onRetry={() => window.location.reload()} />}>
+            <LazyLogsView />
           </ErrorBoundary>
         );
       default:

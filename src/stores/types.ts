@@ -6,13 +6,13 @@ import type {
   MessageRole as SharedMessageRole,
 } from '@/shared/types/store';
 
-export type View = 'home' | 'login' | 'chat' | 'agents' | 'brain' | 'settings';
+export type View = 'home' | 'login' | 'chat' | 'agents' | 'brain' | 'settings' | 'logs';
 
 /**
  * GeminiHydra session — extends shared ChatSession.
  * Local alias `Session` kept for backward compatibility across all slices.
  */
-export type Session = Pick<ChatSession, 'id' | 'title' | 'createdAt' | 'workingDirectory'>;
+export type Session = Pick<ChatSession, 'id' | 'title' | 'createdAt' | 'workingDirectory' | 'agentId'>;
 
 export type { SharedChatTab as ChatTab };
 

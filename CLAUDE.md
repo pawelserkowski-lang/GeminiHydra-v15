@@ -6,7 +6,7 @@
 
 ## Architecture
 - Pure Vite SPA (no Tauri) — React 19 + Zustand 5
-- Views: home, chat, agents, history, settings, status
+- Views: home, chat, agents, history, settings, status, logs
 - Lazy-loaded via React.lazy in `src/main.tsx`
 - Sidebar: `src/components/organisms/Sidebar.tsx` (grouped nav, session list, theme/lang toggles)
 
@@ -26,9 +26,9 @@
 - Stack: Rust + Axum 0.8 + SQLx + PostgreSQL 17 (pgvector)
 - Route syntax: `{id}` (NOT `:id` — axum 0.8 breaking change)
 - Entry point: `backend/src/lib.rs` → `create_router()` builds all API routes
-- Key modules: `handlers.rs` (system prompt + tool defs), `state.rs` (AppState), `sessions.rs`, `tools/` (mod.rs + fs_tools.rs + pdf_tools.rs + zip_tools.rs + image_tools.rs + git_tools.rs + github_tools.rs + vercel_tools.rs + fly_tools.rs), `files.rs`, `analysis.rs` (tree-sitter code analysis), `model_registry.rs` (auto-fetches models from providers at startup, selects best chat/thinking/image model), `oauth.rs` (Anthropic OAuth PKCE), `oauth_google.rs` (Google OAuth PKCE + API key), `oauth_github.rs` (GitHub OAuth), `oauth_vercel.rs` (Vercel OAuth), `service_tokens.rs` (Fly.io PAT), `mcp/` (client.rs + server.rs + config.rs), `a2a.rs` (A2A v0.3 protocol)
+- Key modules: `handlers.rs` (system prompt + tool defs), `state.rs` (AppState + LogRingBuffer), `sessions.rs`, `logs.rs` (4 log endpoints — backend/audit/flyio/activity), `tools/` (mod.rs + fs_tools.rs + pdf_tools.rs + zip_tools.rs + image_tools.rs + git_tools.rs + github_tools.rs + vercel_tools.rs + fly_tools.rs), `files.rs`, `analysis.rs` (tree-sitter code analysis), `model_registry.rs` (auto-fetches models from providers at startup, selects best chat/thinking/image model), `oauth.rs` (Anthropic OAuth PKCE), `oauth_google.rs` (Google OAuth PKCE + API key), `oauth_github.rs` (GitHub OAuth), `oauth_vercel.rs` (Vercel OAuth), `service_tokens.rs` (Fly.io PAT), `mcp/` (client.rs + server.rs + config.rs), `a2a.rs` (A2A v0.3 protocol)
 - DB: `geminihydra` on localhost:5432 (user: gemini, pass: gemini_local)
-- Tables: gh_settings, gh_chat_messages, gh_sessions, gh_memories, gh_knowledge_nodes, gh_knowledge_edges, gh_agents, gh_rag_documents, gh_rag_chunks, gh_model_pins, gh_oauth_tokens, gh_google_auth, gh_oauth_github, gh_oauth_vercel, gh_service_tokens, gh_mcp_servers, gh_mcp_discovered_tools, gh_a2a_tasks, gh_a2a_messages, gh_a2a_artifacts
+- Tables: gh_settings, gh_chat_messages, gh_sessions, gh_memories, gh_knowledge_nodes, gh_knowledge_edges, gh_agents, gh_rag_documents, gh_rag_chunks, gh_model_pins, gh_oauth_tokens, gh_google_auth, gh_oauth_github, gh_oauth_vercel, gh_service_tokens, gh_mcp_servers, gh_mcp_discovered_tools, gh_a2a_tasks, gh_a2a_messages, gh_a2a_artifacts, gh_audit_log
 
 ## Backend Local Dev
 - Wymaga Docker Desktop (PostgreSQL container)
@@ -149,11 +149,19 @@
 - Deleted: useHistory.ts (4 hooks), useGeminiModelsQuery, useClassifyMutation, useExecuteMutation, useFileListMutation, useHealthQuery, useSessionQuery, clearHistory action, selectCurrentMessages/selectSortedSessions/selectMessageCount selectors, DataSkeleton component, 6 barrel index.ts files, empty workers/ dir
 - Schema types made private: fileEntrySchema, geminiModelSchema, historyMessageSchema, memoryEntrySchema, knowledgeNodeSchema, knowledgeEdgeSchema
 
+## Logs View (F21)
+- Frontend: `src/features/logs/` — `LogsView.tsx` (4 tabs: Backend/Audit/Fly.io/Activity) + `useLogs.ts` (TanStack Query hooks, 5s polling)
+- Backend: `logs.rs` — 4 endpoints (`/api/logs/backend`, `/api/logs/audit`, `/api/logs/flyio`, `/api/logs/activity`)
+- `LogRingBuffer` in `state.rs` — in-memory ring buffer (capacity 1000) with `std::sync::Mutex`
+- `LogBufferLayer` in `main.rs` — custom tracing Layer capturing events into ring buffer
+- Sidebar: `ScrollText` icon, i18n keys `nav.logs`, `logs.*`
+- View type: `| 'logs'` in `src/stores/types.ts`
+
 ## Workspace CLAUDE.md (canonical reference)
 - Full Jaskier ecosystem docs: `C:\Users\BIURODOM\Desktop\ClaudeDesktop\CLAUDE.md`
 - Covers: shared patterns, cross-project conventions, backend safety rules, OAuth details, MCP, A2A, ONNX pipeline, fly.io infra
 - This file is a project-scoped summary; workspace CLAUDE.md is the source of truth
-- Last synced: 2026-02-28 (F20)
+- Last synced: 2026-03-01 (F21)
 
 ## Knowledge Base (SQLite)
 - Plik: `C:\Users\BIURODOM\Desktop\ClaudeDesktop\jaskier_knowledge.db`
