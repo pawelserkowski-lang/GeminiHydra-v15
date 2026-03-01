@@ -116,6 +116,8 @@
 - Tool definitions in `build_tools()` — explicit local filesystem descriptions with Windows path examples
 - Without "Local Machine Access" section, Gemini models default to "I can't access your files"
 - Without "Tool Selection Rules", Gemini wastes iterations using `execute_command` with Linux commands on Windows
+- **"Co dalej?"** rule: after every completed task, agent MUST add a `**Co dalej?**` section with exactly 5 numbered follow-up tasks (specific, actionable, relevant)
+- Uses `**Co dalej?**` (NOT `## Co dalej?`) inside `r#""#` raw string — `"#` would terminate the raw string
 
 ## Agent Tools (34+ tools, all tested & working)
 - **Filesystem** (fs_tools.rs): `list_directory`, `read_file`, `search_files`, `get_code_structure`, `write_file`, `edit_file`, `read_file_section`, `find_file`, `diff_files`, `execute_command` (LAST RESORT, cmd.exe, 30s timeout)
@@ -160,11 +162,24 @@
 - Sidebar: `ScrollText` icon, i18n keys `nav.logs`, `logs.*`
 - View type: `| 'logs'` in `src/stores/types.ts`
 
+## Prompt History (Jaskier Shared Pattern — identical in CH)
+- **Hook**: `usePromptHistory.ts` w `src/features/chat/hooks/` — eksportuje `{ promptHistory, addPrompt }`
+- **Storage**: DB table `gh_prompt_history` (max 200 wpisów, auto-cleanup) + `localStorage` cache (`'prompt-history-cache'`)
+- **Endpoints** (PROTECTED): `GET /api/prompt-history` (ASC, limit 500), `POST /api/prompt-history` (consecutive dedup + cap 200), `DELETE /api/prompt-history`
+- **Backend**: `sessions.rs` linie 1370-1469
+- **Migration**: `034_prompt_history.sql`
+- **Arrow Up/Down w ChatInput.tsx** — bash-like nawigacja historii promptów:
+  - **ArrowUp**: kursor na początku textarea LUB single-line → nawigacja wstecz (newest→oldest). Pierwszy press zapisuje draft do `savedDraftRef`
+  - **ArrowDown**: kursor na końcu LUB single-line → nawigacja do przodu. Po ostatnim wpisie przywraca zapisany draft
+  - **Draft preservation**: tekst użytkownika zachowany przy nawigacji, przywracany po wyjściu z historii
+  - **Session change**: resetuje `historyIndex` do -1
+- **Integracja**: `ChatContainer.tsx` → `usePromptHistory()` → props `promptHistory` do `ChatInput`
+
 ## Workspace CLAUDE.md (canonical reference)
 - Full Jaskier ecosystem docs: `C:\Users\BIURODOM\Desktop\ClaudeDesktop\CLAUDE.md`
 - Covers: shared patterns, cross-project conventions, backend safety rules, OAuth details, MCP, A2A, ONNX pipeline, fly.io infra
 - This file is a project-scoped summary; workspace CLAUDE.md is the source of truth
-- Last synced: 2026-03-01 (F21)
+- Last synced: 2026-03-01 (F23 + Prompt History + Co dalej?)
 
 ## Knowledge Base (SQLite)
 - Plik: `C:\Users\BIURODOM\Desktop\ClaudeDesktop\jaskier_knowledge.db`

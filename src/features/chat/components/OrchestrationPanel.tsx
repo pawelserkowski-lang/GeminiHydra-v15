@@ -191,7 +191,10 @@ export const OrchestrationPanel = memo<{ orchestration: OrchestrationState }>(({
   }, [orchestration.pattern]);
 
   const PatternIcon = patternCfg.icon;
-  const doneCount = orchestration.agents.filter((a) => a.status === 'done').length;
+  const doneCount = useMemo(
+    () => orchestration.agents.filter((a) => a.status === 'done').length,
+    [orchestration.agents],
+  );
 
   if (!orchestration.isOrchestrating && orchestration.agents.length === 0) {
     return null;

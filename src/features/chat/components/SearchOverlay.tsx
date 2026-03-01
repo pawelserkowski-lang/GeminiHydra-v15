@@ -169,10 +169,23 @@ export const SearchOverlay = memo<SearchOverlayProps>(({ messages, scrollContain
   const [query, setQuery] = useState('');
   const [activeIndex, setActiveIndex] = useState(0);
 
-  // Count total matches across all messages
+  // Debounce query for expensive DOM highlighting (300ms)
+  const [debouncedQuery, setDebouncedQuery] = useState('');
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      setDebouncedQuery(query);
+    }, 300);
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [query]);
+
+  // Count total matches across all messages (uses debounced query)
   const totalMatches = useMemo(() => {
-    if (!query.trim()) return 0;
-    const lowerQuery = query.toLowerCase();
+    if (!debouncedQuery.trim()) return 0;
+    const lowerQuery = debouncedQuery.toLowerCase();
     let count = 0;
     for (const msg of messages) {
       const lowerContent = msg.content.toLowerCase();
@@ -183,7 +196,7 @@ export const SearchOverlay = memo<SearchOverlayProps>(({ messages, scrollContain
       }
     }
     return count;
-  }, [messages, query]);
+  }, [messages, debouncedQuery]);
 
   // Clamp active index
   useEffect(() => {
@@ -192,14 +205,14 @@ export const SearchOverlay = memo<SearchOverlayProps>(({ messages, scrollContain
     }
   }, [totalMatches, activeIndex]);
 
-  // Apply DOM highlights
+  // Apply DOM highlights (uses debounced query to avoid per-keystroke DOM walks)
   useEffect(() => {
     if (!isOpen) {
       clearHighlights(scrollContainerRef.current);
       return;
     }
-    applyHighlights(scrollContainerRef.current, query, activeIndex);
-  }, [isOpen, query, activeIndex, scrollContainerRef]);
+    applyHighlights(scrollContainerRef.current, debouncedQuery, activeIndex);
+  }, [isOpen, debouncedQuery, activeIndex, scrollContainerRef]);
 
   // Scroll active match into view
   useEffect(() => {
@@ -226,6 +239,7 @@ export const SearchOverlay = memo<SearchOverlayProps>(({ messages, scrollContain
   useEffect(() => {
     if (!isOpen) {
       setQuery('');
+      setDebouncedQuery('');
       setActiveIndex(0);
     }
   }, [isOpen]);

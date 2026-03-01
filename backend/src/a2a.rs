@@ -344,7 +344,7 @@ async fn execute_a2a_task(
 
     state.gemini_circuit.check().await?;
 
-    let tools = crate::handlers::build_tools();
+    let tools = crate::handlers::build_tools(state);
     let mut gen_config = json!({
         "temperature": ctx.temperature,
         "topP": ctx.top_p,

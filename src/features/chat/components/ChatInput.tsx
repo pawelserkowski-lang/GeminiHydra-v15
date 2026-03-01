@@ -11,7 +11,7 @@
  * - Atom/Molecule reuse (Button, ModelSelector)
  */
 
-import { AlertCircle, ChevronDown, FolderOpen, Network, Send, StopCircle, X } from 'lucide-react';
+import { AlertCircle, ChevronDown, FolderOpen, Network, Send, StopCircle } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
   type ChangeEvent,
@@ -26,8 +26,10 @@ import {
 
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/atoms';
+import { useTextareaAutoResize } from '@/shared/hooks/useTextareaAutoResize';
 import { useViewTheme } from '@/shared/hooks/useViewTheme';
 import { cn } from '@/shared/utils/cn';
+import { ImagePreview } from './ImagePreview';
 import { WorkingFolderPicker } from './WorkingFolderPicker';
 
 // ============================================================================
@@ -71,49 +73,6 @@ interface ChatInputProps {
 const MAX_CHARS = 4000;
 const MAX_ROWS = 12;
 const MIN_ROWS = 1;
-
-// ============================================================================
-// IMAGE PREVIEW
-// ============================================================================
-
-interface ImagePreviewProps {
-  src: string;
-  onRemove: () => void;
-}
-
-const ImagePreview = memo<ImagePreviewProps>(({ src, onRemove }) => (
-  <motion.div
-    layout
-    initial={{ opacity: 0, scale: 0.8, y: 10 }}
-    animate={{ opacity: 1, scale: 1, y: 0 }}
-    exit={{ opacity: 0, scale: 0.8, y: 10 }}
-    className="relative inline-block w-fit mb-3 group"
-  >
-    <img
-      src={src}
-      alt="Preview"
-      className={cn(
-        'h-24 w-auto rounded-xl border shadow-lg',
-        'border-[var(--matrix-accent)]/50',
-        'shadow-[0_0_15px_rgba(255,255,255,0.1)]',
-      )}
-    />
-    <button
-      type="button"
-      onClick={onRemove}
-      className={cn(
-        'absolute -top-2 -right-2 p-1 rounded-full',
-        'bg-red-500 text-white',
-        'opacity-0 group-hover:opacity-100',
-        'transition-all shadow-sm hover:scale-110',
-      )}
-    >
-      <X size={14} strokeWidth={3} />
-    </button>
-  </motion.div>
-));
-
-ImagePreview.displayName = 'ImagePreview';
 
 // ============================================================================
 // CHAT INPUT COMPONENT
@@ -180,15 +139,12 @@ export const ChatInput = memo<ChatInputProps>(
 
     // ----- Auto-resize textarea -----------------------------------------
 
-    const adjustHeight = useCallback(() => {
-      const el = textareaRef.current;
-      if (!el) return;
-      el.style.height = 'auto';
-      const lineHeight = 24;
-      const maxHeight = lineHeight * MAX_ROWS;
-      const minHeight = lineHeight * MIN_ROWS;
-      el.style.height = `${Math.min(Math.max(el.scrollHeight, minHeight), maxHeight)}px`;
-    }, []);
+    const adjustHeight = useTextareaAutoResize({
+      textareaRef,
+      lineHeight: 24,
+      minRows: MIN_ROWS,
+      maxRows: MAX_ROWS,
+    });
 
     const handleChange = useCallback(
       (e: ChangeEvent<HTMLTextAreaElement>) => {

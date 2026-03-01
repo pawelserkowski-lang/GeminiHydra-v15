@@ -8,6 +8,7 @@ import { useTranslation } from 'react-i18next';
 import { Card } from '@/components/atoms';
 import { useViewTheme } from '@/shared/hooks/useViewTheme';
 import { cn } from '@/shared/utils/cn';
+import { MaxIterationsSection } from './MaxIterationsSection';
 import { OAuthSection } from './OAuthSection';
 
 export const SettingsView = memo(() => {
@@ -34,6 +35,13 @@ export const SettingsView = memo(() => {
         <Card>
           <div className="p-6">
             <OAuthSection />
+          </div>
+        </Card>
+
+        {/* Agent Iterations Section */}
+        <Card>
+          <div className="p-6">
+            <MaxIterationsSection />
           </div>
         </Card>
       </motion.div>

@@ -121,6 +121,8 @@ const settingsSchema = z
     welcome_message: z.string().optional().default(''),
     /** Gemini 3 thinking level — controls reasoning depth per request */
     thinking_level: z.enum(['none', 'minimal', 'low', 'medium', 'high']).optional().default('medium'),
+    /** Max tool-call iterations per request (higher = more autonomous agent work) */
+    max_iterations: z.number().optional().default(20),
     /** Working directory for filesystem tools (empty = absolute paths only) */
     working_directory: z.string().optional().default(''),
   })

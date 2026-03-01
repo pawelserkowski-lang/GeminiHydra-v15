@@ -3,7 +3,7 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::Instant;
 
 use reqwest::Client;
@@ -257,6 +257,9 @@ pub struct AppState {
     pub oauth_gemini_valid: Arc<AtomicBool>,
     /// In-memory ring buffer for backend log entries (last 1000).
     pub log_buffer: Arc<LogRingBuffer>,
+    /// Cached native tool definitions (computed once, reused across all requests).
+    /// MCP tools are merged at request time since they can change dynamically.
+    pub tool_defs_cache: Arc<OnceLock<serde_json::Value>>,
 }
 
 // ── Shared: readiness helpers ───────────────────────────────────────────────
@@ -350,6 +353,7 @@ impl AppState {
             a2a_cancel_tokens: Arc::new(RwLock::new(HashMap::new())),
             oauth_gemini_valid: Arc::new(AtomicBool::new(true)),
             log_buffer,
+            tool_defs_cache: Arc::new(OnceLock::new()),
         }
     }
 

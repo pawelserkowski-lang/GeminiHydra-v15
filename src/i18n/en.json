@@ -130,7 +130,12 @@
   },
   "settings": {
     "title": "Settings",
-    "authSection": "Authentication"
+    "authSection": "Authentication",
+    "maxIterations": {
+      "title": "Agent Iterations",
+      "description": "How many tool-call rounds the agent can perform per request. Higher values let agents complete complex tasks autonomously.",
+      "saved": "Max iterations updated"
+    }
   },
   "auth": {
     "title": "Google Authentication",

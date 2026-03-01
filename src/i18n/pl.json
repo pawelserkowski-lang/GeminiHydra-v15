@@ -130,7 +130,12 @@
   },
   "settings": {
     "title": "Ustawienia",
-    "authSection": "Uwierzytelnianie"
+    "authSection": "Uwierzytelnianie",
+    "maxIterations": {
+      "title": "Iteracje Agenta",
+      "description": "Ile rund wywołań narzędzi agent może wykonać na zapytanie. Wyższe wartości pozwalają agentom samodzielnie realizować złożone zadania.",
+      "saved": "Zaktualizowano limit iteracji"
+    }
   },
   "auth": {
     "title": "Uwierzytelnianie Google",

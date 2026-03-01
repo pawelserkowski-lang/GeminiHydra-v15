@@ -13,13 +13,13 @@
  */
 
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { Check, ClipboardList, Copy, FileText, MessageSquare, Paperclip, Trash2, X } from 'lucide-react';
+import { Check, ClipboardList, FileText, X } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
-  type DragEvent,
+  lazy,
   memo,
   type MouseEvent as ReactMouseEvent,
-  type ReactNode,
+  Suspense,
   useCallback,
   useEffect,
   useMemo,
@@ -28,7 +28,6 @@ import {
 } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
-import { EmptyState } from '@/components/molecules/EmptyState';
 import { useSettingsQuery } from '@/features/settings/hooks/useSettings';
 import { useOnlineStatus } from '@/shared/hooks/useOnlineStatus';
 import { useViewTheme } from '@/shared/hooks/useViewTheme';
@@ -38,13 +37,20 @@ import { type Message, useViewStore } from '@/stores/viewStore';
 import { useFileReadMutation } from '../hooks/useFiles';
 import type { OrchestrationState } from '../hooks/useOrchestration';
 import { usePromptHistory } from '../hooks/usePromptHistory';
-import { type AgentActivity, AgentActivityPanel } from './AgentActivityPanel';
+import type { AgentActivity } from './AgentActivityPanel';
+import { ChatContextMenu } from './ChatContextMenu';
+import { ChatEmptyState } from './ChatEmptyState';
 import { ChatInput } from './ChatInput';
+import { DragDropZone } from './DragDropZone';
 import { MessageBubble } from './MessageBubble';
 import { NewMessagesButton } from './NewMessagesButton';
 import { OfflineBanner } from './OfflineBanner';
-import { OrchestrationPanel } from './OrchestrationPanel';
 import { SearchOverlay } from './SearchOverlay';
+import { StreamingIndicator } from './StreamingIndicator';
+
+// Lazy-loaded panels — only downloaded when agent activity or orchestration is active
+const AgentActivityPanel = lazy(() => import('./AgentActivityPanel').then((m) => ({ default: m.AgentActivityPanel })));
+const OrchestrationPanel = lazy(() => import('./OrchestrationPanel').then((m) => ({ default: m.OrchestrationPanel })));
 
 // ============================================================================
 // TYPES
@@ -74,236 +80,6 @@ interface ContextMenuState {
   y: number;
   message: Message;
 }
-
-// ============================================================================
-// DRAG-DROP ZONE
-// ============================================================================
-
-interface DragDropZoneProps {
-  children: ReactNode;
-  onImageDrop: (base64: string) => void;
-  onTextDrop: (content: string, filename: string) => void;
-}
-
-const DragDropZone = memo<DragDropZoneProps>(({ children, onImageDrop, onTextDrop }) => {
-  const { t } = useTranslation();
-  const [isDragActive, setIsDragActive] = useState(false);
-
-  const handleDrag = useCallback((e: DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (e.type === 'dragenter' || e.type === 'dragover') {
-      setIsDragActive(true);
-    } else if (e.type === 'dragleave') {
-      setIsDragActive(false);
-    }
-  }, []);
-
-  const handleDrop = useCallback(
-    (e: DragEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      setIsDragActive(false);
-
-      const file = e.dataTransfer.files[0];
-      if (!file) return;
-
-      const MAX_SIZE = 5 * 1024 * 1024;
-      if (file.size > MAX_SIZE) {
-        toast.error('File too large (max 5MB)');
-        return;
-      }
-
-      const reader = new FileReader();
-      if (file.type.startsWith('image/')) {
-        reader.onload = (event) => {
-          const result = event.target?.result;
-          if (typeof result === 'string') onImageDrop(result);
-        };
-        reader.readAsDataURL(file);
-      } else {
-        reader.onload = (event) => {
-          const result = event.target?.result;
-          if (typeof result === 'string') {
-            onTextDrop(result.substring(0, 20_000), file.name);
-          }
-        };
-        reader.readAsText(file);
-      }
-    },
-    [onImageDrop, onTextDrop],
-  );
-
-  return (
-    <section
-      aria-label={t('chat.fileDropZone', 'File drop zone')}
-      className="flex flex-col w-full h-full min-h-0 relative"
-      onDragEnter={handleDrag}
-      onDragLeave={handleDrag}
-      onDragOver={handleDrag}
-      onDrop={handleDrop}
-    >
-      {/* Drop overlay */}
-      <AnimatePresence>
-        {isDragActive && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className={cn(
-              'absolute inset-0 z-50',
-              'bg-black/80 backdrop-blur-sm',
-              'flex items-center justify-center',
-              'border-4 border-[var(--matrix-accent)] border-dashed rounded-xl',
-              'pointer-events-none',
-            )}
-          >
-            <div className="text-[var(--matrix-accent)] text-2xl font-mono animate-pulse flex flex-col items-center gap-4">
-              <Paperclip size={64} />
-              <span>{t('chat.dropFileToAddContext', 'DROP FILE TO ADD CONTEXT')}</span>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-      {children}
-    </section>
-  );
-});
-
-DragDropZone.displayName = 'DragDropZone';
-
-// ============================================================================
-// CONTEXT MENU
-// ============================================================================
-
-interface ChatContextMenuProps {
-  x: number;
-  y: number;
-  isUser: boolean;
-  onClose: () => void;
-  onCopy: () => void;
-  onDelete?: () => void;
-}
-
-const ChatContextMenu = memo<ChatContextMenuProps>(({ x, y, isUser: _isUser, onClose, onCopy, onDelete }) => {
-  const menuRef = useRef<HTMLDivElement>(null);
-  const theme = useViewTheme();
-
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        onClose();
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [onClose]);
-
-  return (
-    <div
-      ref={menuRef}
-      role="menu"
-      className={cn('fixed z-50 min-w-[150px] py-1 text-sm', 'rounded-lg shadow-lg', theme.dropdown)}
-      style={{ top: y, left: x }}
-      onClick={(e) => e.stopPropagation()}
-      onKeyDown={(e) => {
-        if (e.key === 'Escape') onClose();
-      }}
-    >
-      <button
-        type="button"
-        onClick={onCopy}
-        className={cn('w-full text-left px-4 py-2 flex items-center gap-2 transition-colors', theme.dropdownItem)}
-      >
-        <Copy size={14} />
-        <span>Copy</span>
-      </button>
-
-      {onDelete && (
-        <>
-          <div className={theme.divider} />
-          <button
-            type="button"
-            onClick={onDelete}
-            className="w-full text-left px-4 py-2 hover:bg-red-900/30 text-red-400 flex items-center gap-2 transition-colors rounded-lg"
-          >
-            <Trash2 size={14} />
-            <span>Delete</span>
-          </button>
-        </>
-      )}
-
-      <div className={theme.divider} />
-      <button
-        type="button"
-        onClick={onClose}
-        className={cn(
-          'w-full text-left px-4 py-2 flex items-center gap-2 transition-colors',
-          theme.dropdownItem,
-          'opacity-60',
-        )}
-      >
-        <X size={14} />
-        <span>Cancel</span>
-      </button>
-    </div>
-  );
-});
-
-ChatContextMenu.displayName = 'ChatContextMenu';
-
-// ============================================================================
-// EMPTY STATE (uses shared EmptyState molecule)
-// ============================================================================
-
-const ChatEmptyState = memo(() => {
-  const { t } = useTranslation();
-  return (
-    <EmptyState
-      icon={MessageSquare}
-      title={t('chat.emptyState', 'Start a conversation')}
-      description={t('chat.emptyStateDesc', 'Type a message or drop a file to begin.')}
-      className="h-full"
-    />
-  );
-});
-
-ChatEmptyState.displayName = 'ChatEmptyState';
-
-// ============================================================================
-// STREAMING INDICATOR
-// ============================================================================
-
-const StreamingIndicator = memo(() => {
-  const { t } = useTranslation();
-  const theme = useViewTheme();
-  return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      className="flex items-center gap-2 px-4 py-2"
-    >
-      <div className="flex gap-1">
-        {[0, 1, 2].map((i) => (
-          <motion.span
-            key={i}
-            className={cn('w-1.5 h-1.5 rounded-full', theme.accentBg)}
-            animate={{ opacity: [0.3, 1, 0.3] }}
-            transition={{
-              duration: 1.2,
-              repeat: Number.POSITIVE_INFINITY,
-              delay: i * 0.2,
-            }}
-          />
-        ))}
-      </div>
-      <span className={cn('text-xs font-mono', theme.textMuted)}>{t('chat.generating', 'Generating...')}</span>
-    </motion.div>
-  );
-});
-
-StreamingIndicator.displayName = 'StreamingIndicator';
 
 // ============================================================================
 // CHAT CONTAINER
@@ -691,11 +467,23 @@ export const ChatContainer = memo<ChatContainerProps>(
             />
           )}
 
-          {/* Orchestration panel (ADK multi-agent pipeline) */}
-          <AnimatePresence>{orchestration && <OrchestrationPanel orchestration={orchestration} />}</AnimatePresence>
+          {/* Orchestration panel (ADK multi-agent pipeline) — lazy-loaded */}
+          <AnimatePresence>
+            {orchestration && (
+              <Suspense fallback={null}>
+                <OrchestrationPanel orchestration={orchestration} />
+              </Suspense>
+            )}
+          </AnimatePresence>
 
-          {/* Agent activity panel (live tool calls, plan steps) */}
-          <AnimatePresence>{agentActivity && <AgentActivityPanel activity={agentActivity} />}</AnimatePresence>
+          {/* Agent activity panel (live tool calls, plan steps) — lazy-loaded */}
+          <AnimatePresence>
+            {agentActivity && (
+              <Suspense fallback={null}>
+                <AgentActivityPanel activity={agentActivity} />
+              </Suspense>
+            )}
+          </AnimatePresence>
 
           {/* Text context indicator */}
           <AnimatePresence>
