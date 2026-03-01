@@ -2355,7 +2355,16 @@ public class FolderPicker {{
             SHCreateItemFromParsingName(initialPath, IntPtr.Zero, IShellItemGuid, out folder);
             dlg.SetFolder(folder);
         }}
-        int hr = dlg.Show(IntPtr.Zero);
+        // Hidden TopMost owner form — forces dialog above all windows
+        var owner = new System.Windows.Forms.Form();
+        owner.TopMost = true;
+        owner.ShowInTaskbar = false;
+        owner.Size = new System.Drawing.Size(0, 0);
+        owner.StartPosition = System.Windows.Forms.FormStartPosition.Manual;
+        owner.Location = new System.Drawing.Point(-9999, -9999);
+        owner.Show();
+        int hr = dlg.Show(owner.Handle);
+        owner.Dispose();
         if (hr != 0) return "__CANCELLED__";
         IShellItem result;
         dlg.GetResult(out result);

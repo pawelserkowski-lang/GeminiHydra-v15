@@ -48,6 +48,11 @@ impl LogRingBuffer {
         buf.push_back(entry);
     }
 
+    pub fn clear(&self) {
+        let mut buf = self.entries.lock().unwrap_or_else(|p| p.into_inner());
+        buf.clear();
+    }
+
     pub fn recent(&self, limit: usize, min_level: Option<&str>, search: Option<&str>) -> Vec<LogEntry> {
         let buf = self.entries.lock().unwrap_or_else(|p| p.into_inner());
         buf.iter()
