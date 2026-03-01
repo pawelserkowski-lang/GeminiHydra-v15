@@ -42,7 +42,7 @@ FORMATTING RULES:\n\
 Return ONLY the extracted text with markdown formatting, no descriptions or commentary.";
 
 const GEMINI_API_BASE: &str = "https://generativelanguage.googleapis.com/v1beta/models";
-const OCR_MODEL: &str = "gemini-2.5-flash";
+const OCR_MODEL: &str = "gemini-3-flash-preview";
 const MAX_INPUT_SIZE: usize = 30_000_000; // ~22 MB decoded
 
 // ── Request / Response models ────────────────────────────────────────────────
@@ -202,7 +202,7 @@ pub async fn ocr_stream(
         let result = ocr_with_gemini(&state, &body.data_base64, &body.mime_type, &effective_prompt).await;
 
         match result {
-            Ok((text, _confidence)) => {
+            Ok((text, confidence)) => {
                 let pages = split_into_pages(&text);
                 let total = pages.len().max(1);
 
@@ -242,7 +242,7 @@ pub async fn ocr_stream(
                     total_pages: total,
                     processing_time_ms: started.elapsed().as_millis() as u64,
                     provider: "gemini".to_string(),
-                    confidence: None,
+                    confidence,
                 };
                 let complete = Event::default()
                     .event("complete")

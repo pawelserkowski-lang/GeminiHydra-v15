@@ -429,21 +429,37 @@ fn build_mcp_tool_list() -> Vec<Value> {
             },
             "required": ["path_a", "path_b"]
         })),
-        mcp_tool("fetch_webpage", "Fetch a web page, extract readable text (HTML stripped) and index all links.", json!({
+        mcp_tool("fetch_webpage", "Fetch a web page with SSRF protection, extract readable text (tables→markdown, code→fenced), metadata, and categorized links.", json!({
             "type": "object",
             "properties": {
                 "url": { "type": "string", "description": "Full URL to fetch (http/https)" },
-                "extract_links": { "type": "boolean", "description": "Extract and list all links (default: true)" }
+                "extract_links": { "type": "boolean", "description": "Extract categorized links (default: true)" },
+                "extract_metadata": { "type": "boolean", "description": "Extract OpenGraph/JSON-LD metadata (default: false)" },
+                "include_images": { "type": "boolean", "description": "Include image alt text (default: false)" },
+                "output_format": { "type": "string", "description": "'text' or 'json' (default: 'text')" },
+                "max_text_length": { "type": "integer", "description": "Max text chars, 0=unlimited (default: 0)" },
+                "headers": { "type": "object", "description": "Custom HTTP headers" }
             },
             "required": ["url"]
         })),
-        mcp_tool("crawl_website", "Crawl a website following links to subpages. Extracts text and builds link index.", json!({
+        mcp_tool("crawl_website", "Crawl a website with robots.txt, sitemap, concurrent requests, content dedup, and categorized link index.", json!({
             "type": "object",
             "properties": {
                 "url": { "type": "string", "description": "Starting URL to crawl" },
-                "max_depth": { "type": "integer", "description": "Max link depth (default: 1, max: 3)" },
-                "max_pages": { "type": "integer", "description": "Max pages to fetch (default: 10, max: 20)" },
-                "same_domain_only": { "type": "boolean", "description": "Only follow same-domain links (default: true)" }
+                "max_depth": { "type": "integer", "description": "Max depth (default: 1, max: 5)" },
+                "max_pages": { "type": "integer", "description": "Max pages (default: 10, max: 50)" },
+                "same_domain_only": { "type": "boolean", "description": "Same-domain only (default: true)" },
+                "path_prefix": { "type": "string", "description": "Only crawl URLs with this path prefix" },
+                "exclude_patterns": { "type": "array", "items": { "type": "string" }, "description": "Skip URLs containing these substrings" },
+                "respect_robots_txt": { "type": "boolean", "description": "Respect robots.txt (default: true)" },
+                "use_sitemap": { "type": "boolean", "description": "Seed from sitemap.xml (default: false)" },
+                "concurrent_requests": { "type": "integer", "description": "Concurrent fetches (default: 1, max: 5)" },
+                "delay_ms": { "type": "integer", "description": "Delay between requests in ms (default: 300)" },
+                "max_total_seconds": { "type": "integer", "description": "Max crawl time (default: 180)" },
+                "output_format": { "type": "string", "description": "'text' or 'json' (default: 'text')" },
+                "max_text_length": { "type": "integer", "description": "Max text per page (default: 2000)" },
+                "include_metadata": { "type": "boolean", "description": "Include metadata per page (default: false)" },
+                "headers": { "type": "object", "description": "Custom HTTP headers" }
             },
             "required": ["url"]
         })),

@@ -730,18 +730,30 @@ pub(crate) async fn prepare_execution(
         prefix_ov
     } else {
         let (kw_agent, kw_conf, kw_reason) = classify_prompt(&prompt_clean, &agents_lock);
-        // #28 — If keyword confidence is low, try Gemini Flash as fallback
+        // #28 — If keyword confidence is low, try Gemini Flash as fallback (with timeout)
         if kw_conf < 0.65 {
-            let classify_cred = crate::oauth::get_google_credential(&state).await;
-            if let Some((classify_key, classify_is_oauth)) = classify_cred {
-                if let Some(gemini_result) = classify_with_gemini(&state.client, &classify_key, classify_is_oauth, &prompt_clean, &agents_lock).await {
-                    tracing::info!("classify: Gemini Flash override — {} (keyword was {} @ {:.0}%)", gemini_result.0, kw_agent, kw_conf * 100.0);
-                    gemini_result
-                } else {
+            let gemini_result = tokio::time::timeout(
+                std::time::Duration::from_secs(8),
+                async {
+                    let classify_cred = crate::oauth::get_google_credential(&state).await;
+                    if let Some((classify_key, classify_is_oauth)) = classify_cred {
+                        classify_with_gemini(&state.client, &classify_key, classify_is_oauth, &prompt_clean, &agents_lock).await
+                    } else {
+                        None
+                    }
+                },
+            )
+            .await;
+            match gemini_result {
+                Ok(Some(result)) => {
+                    tracing::info!("classify: Gemini Flash override — {} (keyword was {} @ {:.0}%)", result.0, kw_agent, kw_conf * 100.0);
+                    result
+                }
+                Ok(None) => (kw_agent, kw_conf, kw_reason),
+                Err(_) => {
+                    tracing::warn!("classify: Gemini Flash classification timed out after 8s, using keyword result");
                     (kw_agent, kw_conf, kw_reason)
                 }
-            } else {
-                (kw_agent, kw_conf, kw_reason)
             }
         } else {
             (kw_agent, kw_conf, kw_reason)
@@ -2415,13 +2427,37 @@ pub(crate) fn build_tools() -> Value {
             },
             {
                 "name": "fetch_webpage",
-                "description": "Fetch a web page, extract readable text content (HTML stripped) and index all links. Use for reading articles, documentation, blog posts, or any web content. Returns page title, clean text, and optionally all discovered links with anchor text.",
-                "parameters": { "type": "object", "properties": { "url": { "type": "string", "description": "Full URL to fetch (http or https)" }, "extract_links": { "type": "boolean", "description": "Whether to extract and list all links found on the page (default: true)" } }, "required": ["url"] }
+                "description": "Fetch a web page with SSRF protection, extract readable text (HTML tables→markdown, code→fenced blocks, inline links preserved), metadata (OpenGraph, JSON-LD, language), and categorized links (internal/external/resource). Supports retry with backoff, content deduplication, custom headers, and JSON output format.",
+                "parameters": { "type": "object", "properties": {
+                    "url": { "type": "string", "description": "Full URL to fetch (http/https). Private IPs and localhost are blocked." },
+                    "extract_links": { "type": "boolean", "description": "Extract and categorize all links as internal/external/resource (default: true)" },
+                    "extract_metadata": { "type": "boolean", "description": "Extract OpenGraph, JSON-LD, canonical URL, language (default: false)" },
+                    "include_images": { "type": "boolean", "description": "Include image alt text as ![alt](src) in output (default: false)" },
+                    "output_format": { "type": "string", "description": "Output format: 'text' (markdown) or 'json' (structured). Default: 'text'" },
+                    "max_text_length": { "type": "integer", "description": "Max characters of page text to return. 0 = unlimited (default: 0)" },
+                    "headers": { "type": "object", "description": "Custom HTTP headers as key-value pairs" }
+                }, "required": ["url"] }
             },
             {
                 "name": "crawl_website",
-                "description": "Crawl a website starting from a URL, following links to subpages within the same domain. Extracts text from each page and builds a complete link index. Use for reading documentation sites, multi-page articles, or mapping website structure. Respects same-domain restriction by default. Rate-limited to 1 request per 500ms.",
-                "parameters": { "type": "object", "properties": { "url": { "type": "string", "description": "Starting URL to crawl (http or https)" }, "max_depth": { "type": "integer", "description": "Max link depth to follow from start page (default: 1, max: 3)" }, "max_pages": { "type": "integer", "description": "Max number of pages to fetch (default: 10, max: 20)" }, "same_domain_only": { "type": "boolean", "description": "Only follow links on the same domain as the start URL (default: true)" } }, "required": ["url"] }
+                "description": "Crawl a website with robots.txt compliance, optional sitemap seeding, concurrent requests, SSRF protection, and content deduplication. Extracts text from each page (tables→markdown, code→fenced) and builds categorized link index. Supports path prefix filtering, exclude patterns, and configurable rate limiting.",
+                "parameters": { "type": "object", "properties": {
+                    "url": { "type": "string", "description": "Starting URL to crawl (http/https)" },
+                    "max_depth": { "type": "integer", "description": "Max link depth (default: 1, max: 5)" },
+                    "max_pages": { "type": "integer", "description": "Max pages to fetch (default: 10, max: 50)" },
+                    "same_domain_only": { "type": "boolean", "description": "Only follow same-domain links (default: true)" },
+                    "path_prefix": { "type": "string", "description": "Only crawl URLs whose path starts with this prefix (e.g. '/docs/')" },
+                    "exclude_patterns": { "type": "array", "items": { "type": "string" }, "description": "Skip URLs containing any of these substrings" },
+                    "respect_robots_txt": { "type": "boolean", "description": "Fetch and respect robots.txt (default: true)" },
+                    "use_sitemap": { "type": "boolean", "description": "Seed crawl queue from sitemap.xml (default: false)" },
+                    "concurrent_requests": { "type": "integer", "description": "Concurrent fetches (default: 1, max: 5)" },
+                    "delay_ms": { "type": "integer", "description": "Delay between requests in ms (default: 300)" },
+                    "max_total_seconds": { "type": "integer", "description": "Max total crawl time in seconds (default: 180)" },
+                    "output_format": { "type": "string", "description": "Output format: 'text' or 'json' (default: 'text')" },
+                    "max_text_length": { "type": "integer", "description": "Max text chars per page excerpt (default: 2000)" },
+                    "include_metadata": { "type": "boolean", "description": "Include OpenGraph/JSON-LD metadata per page (default: false)" },
+                    "headers": { "type": "object", "description": "Custom HTTP headers as key-value pairs" }
+                }, "required": ["url"] }
             },
             {
                 "name": "call_agent",
