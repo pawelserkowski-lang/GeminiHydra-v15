@@ -55,6 +55,7 @@ vi.mock('@/stores/viewStore', () => ({
       ],
       activeSessionId: 'session-1',
       collapsed: false,
+      chatHistory: {},
     }),
 }));
 

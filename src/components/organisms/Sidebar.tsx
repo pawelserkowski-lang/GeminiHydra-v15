@@ -10,15 +10,12 @@
  */
 
 import {
-  Check,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
-  Edit2,
   ExternalLink,
   Home,
   Loader2,
-  LockOpen,
   type LucideIcon,
   MessageSquare,
   Plus,
@@ -26,13 +23,10 @@ import {
   Settings,
   Sparkles,
   Swords,
-  Trash2,
   WifiOff,
-  X,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
-  type KeyboardEvent,
   lazy,
   type TouchEvent as ReactTouchEvent,
   Suspense,
@@ -49,9 +43,8 @@ const PartnerChatModal = lazy(() => import('@/features/chat/components/PartnerCh
 
 import { SessionSearch } from '@/components/molecules/SessionSearch';
 import { usePartnerSessions } from '@/features/chat/hooks/usePartnerSessions';
-import { useSessionSync } from '@/features/chat/hooks/useSessionSync';
 import { cn } from '@/shared/utils/cn';
-import { type Session, useViewStore, type View } from '@/stores/viewStore';
+import { useViewStore, type View } from '@/stores/viewStore';
 import { FooterControls } from './sidebar/FooterControls';
 import { LogoButton } from './sidebar/LogoButton';
 
@@ -72,230 +65,8 @@ interface NavGroup {
   items: NavItem[];
 }
 
-// ============================================
-// SESSION ITEM SUB-COMPONENT
-// ============================================
-
-interface SessionItemProps {
-  session: Session;
-  isActive: boolean;
-  isFocused?: boolean;
-  msgCount: number;
-  isLight: boolean;
-  onSelect: () => void;
-  onDelete: () => void;
-  onRename: (newTitle: string) => void;
-  onUnlock?: () => void;
-}
-
-function SessionItem({
-  session,
-  isActive,
-  isFocused = false,
-  msgCount,
-  isLight,
-  onSelect,
-  onDelete,
-  onRename,
-  onUnlock,
-}: SessionItemProps) {
-  const { t } = useTranslation();
-  const [isEditing, setIsEditing] = useState(false);
-  const [editTitle, setEditTitle] = useState(session.title);
-  const [confirmDelete, setConfirmDelete] = useState(false);
-  // Optimistic session detection (#16) — pending sessions have temporary IDs
-  const isPending = session.id.startsWith('pending-');
-
-  useEffect(() => {
-    if (!confirmDelete) return;
-    const timer = setTimeout(() => setConfirmDelete(false), 3000);
-    return () => clearTimeout(timer);
-  }, [confirmDelete]);
-
-  const handleSave = () => {
-    if (editTitle.trim() && editTitle !== session.title) {
-      onRename(editTitle.trim());
-    }
-    setIsEditing(false);
-  };
-
-  const handleCancel = () => {
-    setEditTitle(session.title);
-    setIsEditing(false);
-  };
-
-  const handleDeleteClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (confirmDelete) {
-      onDelete();
-      setConfirmDelete(false);
-    } else {
-      setConfirmDelete(true);
-    }
-  };
-
-  const handleEditKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') handleSave();
-    if (e.key === 'Escape') handleCancel();
-  };
-
-  const textMuted = isLight ? 'text-slate-700' : 'text-white/80';
-  const textDim = isLight ? 'text-slate-600' : 'text-white/50';
-  const hoverBg = isLight ? 'hover:bg-black/5' : 'hover:bg-white/5';
-  const iconMuted = isLight ? 'text-slate-600' : 'text-white/50';
-
-  if (isEditing) {
-    return (
-      <div className="flex items-center gap-1 p-1">
-        <input
-          type="text"
-          value={editTitle}
-          onChange={(e) => setEditTitle(e.target.value)}
-          onKeyDown={handleEditKeyDown}
-          className="flex-1 glass-input text-xs py-1 px-2"
-          ref={(el) => el?.focus()}
-        />
-        <button
-          type="button"
-          onClick={handleSave}
-          className={cn('p-1 rounded', isLight ? 'text-emerald-600 hover:bg-black/5' : 'text-white hover:bg-white/15')}
-        >
-          <Check size={14} />
-        </button>
-        <button
-          type="button"
-          onClick={handleCancel}
-          className={cn(
-            'p-1 rounded',
-            isLight ? 'hover:bg-red-500/15 text-red-600' : 'hover:bg-red-500/20 text-red-400',
-          )}
-        >
-          <X size={14} />
-        </button>
-      </div>
-    );
-  }
-
-  return (
-    <div
-      role="option"
-      aria-selected={isActive}
-      tabIndex={0}
-      onClick={onSelect}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          onSelect();
-        }
-      }}
-      aria-label={`Select session: ${session.title}`}
-      className={cn(
-        'relative w-full flex items-center gap-2 px-2 py-1.5 rounded-lg transition-all duration-200 group text-left cursor-pointer',
-        isActive
-          ? isLight
-            ? 'bg-emerald-500/15 text-emerald-800'
-            : 'bg-white/10 text-white'
-          : cn(textMuted, hoverBg, isLight ? 'hover:text-slate-900' : 'hover:text-white'),
-        isFocused && 'ring-2 ring-[var(--matrix-accent)]/50',
-      )}
-      title={session.title}
-    >
-      {isPending ? (
-        <Loader2
-          size={14}
-          className={cn('flex-shrink-0 animate-spin', isLight ? 'text-emerald-600' : 'text-white/60')}
-        />
-      ) : (
-        <MessageSquare
-          size={14}
-          className={cn(
-            'flex-shrink-0 transition-colors',
-            isActive ? (isLight ? 'text-emerald-700' : 'text-white') : iconMuted,
-          )}
-        />
-      )}
-      <div className="flex-1 min-w-0">
-        <span className={cn('text-sm truncate block leading-tight', isPending && 'opacity-60 italic')}>
-          {session.title}
-        </span>
-        <div className="flex items-center gap-1">
-          {msgCount > 0 && (
-            <span className={cn('text-[10px] font-mono', textDim)}>
-              {msgCount} {msgCount === 1 ? t('sidebar.message', 'msg') : t('sidebar.messages', 'msgs')}
-            </span>
-          )}
-          {session.agentId && (
-            <span
-              className={cn(
-                'text-[9px] font-mono px-1 py-0.5 rounded leading-none',
-                isLight ? 'bg-emerald-100 text-emerald-700' : 'bg-emerald-500/20 text-emerald-400',
-              )}
-              title={`Agent: ${session.agentId}`}
-            >
-              {session.agentId}
-            </span>
-          )}
-        </div>
-      </div>
-      <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-        {session.agentId && onUnlock && (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onUnlock();
-            }}
-            className={cn(
-              'p-1 rounded',
-              isLight ? 'hover:bg-amber-500/15 text-amber-600' : 'hover:bg-amber-500/20 text-amber-400',
-            )}
-            title={t('sidebar.unlockAgent', 'Unlock agent')}
-          >
-            <LockOpen size={12} />
-          </button>
-        )}
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            setIsEditing(true);
-          }}
-          className={cn('p-1 rounded', isLight ? 'hover:bg-black/5' : 'hover:bg-white/15')}
-          title={t('sidebar.rename', 'Rename')}
-        >
-          <Edit2 size={12} />
-        </button>
-        <button
-          type="button"
-          onClick={handleDeleteClick}
-          className={cn(
-            'p-1 rounded transition-colors',
-            confirmDelete
-              ? isLight
-                ? 'bg-red-500/20 text-red-600'
-                : 'bg-red-500/30 text-red-300'
-              : isLight
-                ? 'hover:bg-red-500/15 text-red-600'
-                : 'hover:bg-red-500/20 text-red-400',
-          )}
-          title={confirmDelete ? t('sidebar.confirmDelete', 'Click again to delete') : t('common.delete', 'Delete')}
-        >
-          <Trash2 size={12} />
-        </button>
-      </div>
-      {isActive && (
-        <div
-          className={cn(
-            'absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-4 rounded-r-full',
-            isLight
-              ? 'bg-emerald-600 shadow-[0_0_8px_rgba(5,150,105,0.5)]'
-              : 'bg-white shadow-[0_0_8px_rgba(255,255,255,0.5)]',
-          )}
-        />
-      )}
-    </div>
-  );
-}
+import { SessionItem } from './sidebar/SessionItem';
+import { useSidebarLogic } from './sidebar/useSidebarLogic';
 
 // ============================================
 // SIDEBAR COMPONENT
@@ -305,41 +76,34 @@ export function Sidebar() {
   const { t } = useTranslation();
   const { resolvedTheme } = useTheme();
 
-  // View store
-  const currentView = useViewStore((s) => s.currentView);
-  const setCurrentView = useViewStore((s) => s.setCurrentView);
-  const chatHistory = useViewStore((s) => s.chatHistory);
-  const sidebarCollapsed = useViewStore((s) => s.sidebarCollapsed);
-  const toggleSidebar = useViewStore((s) => s.toggleSidebar);
-
-  // Session sync (DB + localStorage)
+  // Business logic (sessions, nav, search, keyboard nav)
   const {
+    currentView,
+    chatHistory,
+    sidebarCollapsed,
+    toggleSidebar,
     sessions,
     currentSessionId,
-    selectSession,
-    createSessionWithSync,
-    deleteSessionWithSync,
-    renameSessionWithSync,
-    unlockSessionWithSync,
-  } = useSessionSync();
+    sortedSessions,
+    sessionSearchQuery,
+    focusedSessionIndex,
+    showSessions,
+    setShowSessions,
+    handleSessionSearch,
+    handleSessionListKeyDown,
+    handleSelectSession: selectSession,
+    handleNewChat: newChat,
+    handleDeleteSession,
+    handleRenameSession,
+    handleUnlockSession,
+    handleNavClick: navClick,
+  } = useSidebarLogic();
 
   // Partner sessions (ClaudeHydra)
   const { data: partnerSessions, isLoading: partnerLoading, isError: partnerError } = usePartnerSessions();
   const [showPartnerSessions, setShowPartnerSessions] = useState(true);
   const [partnerModalSessionId, setPartnerModalSessionId] = useState<string | null>(null);
 
-  // Session search/filter (#19)
-  const [sessionSearchQuery, setSessionSearchQuery] = useState('');
-  const handleSessionSearch = useCallback((query: string) => {
-    setSessionSearchQuery(query);
-  }, []);
-
-  // Sessions sorted by creation date (newest first), then filtered by search
-  const sortedSessions = useMemo(() => {
-    const sorted = [...sessions].sort((a, b) => b.createdAt - a.createdAt);
-    if (!sessionSearchQuery) return sorted;
-    return sorted.filter((s) => s.title.toLowerCase().includes(sessionSearchQuery));
-  }, [sessions, sessionSearchQuery]);
   const sortedPartnerSessions = useMemo(
     () =>
       [...(partnerSessions ?? [])].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()),
@@ -456,70 +220,26 @@ export function Sidebar() {
     }
   }, []);
 
-  // Collapsible sessions toggle
-  const [showSessions, setShowSessions] = useState(true);
-
+  // Wrappers — hook handles business logic, component adds mobile drawer close
   const handleNewChat = useCallback(() => {
-    void createSessionWithSync();
-    setCurrentView('chat');
+    newChat();
     setMobileOpen(false);
-  }, [createSessionWithSync, setCurrentView]);
+  }, [newChat]);
 
   const handleSelectSession = useCallback(
     (id: string) => {
       selectSession(id);
-      setCurrentView('chat');
       setMobileOpen(false);
     },
-    [selectSession, setCurrentView],
-  );
-
-  const handleDeleteSession = useCallback(
-    (id: string) => {
-      void deleteSessionWithSync(id);
-    },
-    [deleteSessionWithSync],
-  );
-
-  const handleRenameSession = useCallback(
-    (id: string, newTitle: string) => {
-      void renameSessionWithSync(id, newTitle);
-    },
-    [renameSessionWithSync],
-  );
-
-  const handleUnlockSession = useCallback(
-    (id: string) => {
-      void unlockSessionWithSync(id);
-    },
-    [unlockSessionWithSync],
-  );
-
-  // #42 — Keyboard navigation for session list
-  const [focusedSessionIndex, setFocusedSessionIndex] = useState(-1);
-
-  const handleSessionListKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        setFocusedSessionIndex((i) => (i + 1) % sortedSessions.length);
-      } else if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        setFocusedSessionIndex((i) => (i - 1 + sortedSessions.length) % sortedSessions.length);
-      } else if (e.key === 'Enter' && focusedSessionIndex >= 0 && sortedSessions[focusedSessionIndex]) {
-        e.preventDefault();
-        handleSelectSession(sortedSessions[focusedSessionIndex].id);
-      }
-    },
-    [sortedSessions, focusedSessionIndex, handleSelectSession],
+    [selectSession],
   );
 
   const handleNavClick = useCallback(
     (view: View) => {
-      setCurrentView(view);
+      navClick(view);
       setMobileOpen(false);
     },
-    [setCurrentView],
+    [navClick],
   );
 
   // Navigation groups adapted for GeminiHydra v15 (Tissaia style)
