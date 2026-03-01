@@ -45,6 +45,24 @@ FORMATTING RULES:\n\
 \n\
 Return ONLY the extracted text with markdown formatting, no descriptions or commentary.";
 
+const OCR_HTML_PROMPT: &str = "\
+Extract ALL text from this document/image and return it as semantic HTML.\n\
+\n\
+HTML FORMATTING RULES:\n\
+- Use <table>, <thead>, <tbody>, <tr>, <th>, <td> for ALL tables\n\
+- Use <h1>-<h6> for headers and section titles\n\
+- Use <p> for paragraphs\n\
+- Use <ul>/<ol>/<li> for lists\n\
+- Use <strong> and <em> for emphasis\n\
+- Use <br> for line breaks within blocks\n\
+- Format key:value pairs as <strong>Key:</strong> Value inside <p> tags\n\
+- Preserve reading order (left-to-right, top-to-bottom)\n\
+- Preserve ALL special characters, numbers, currencies, and diacritics exactly\n\
+- If the text is handwritten, transcribe it as accurately as possible\n\
+- For multi-page documents, insert <hr data-page=\"2\">, <hr data-page=\"3\"> etc. between pages (use the actual page number)\n\
+\n\
+Return ONLY the HTML content. Do NOT include <html>, <head>, or <body> wrapper tags. No descriptions or commentary.";
+
 const STRUCTURED_EXTRACTION_PROMPT: &str = "\
 Extract structured data from this OCR text into a JSON object.\n\
 \n\
@@ -93,6 +111,8 @@ pub struct OcrRequest {
     pub filename: Option<String>,
     /// If true, perform a second AI call to extract structured data from the OCR text.
     pub extract_structured: Option<bool>,
+    /// Output format: "text" (default, markdown) or "html" (semantic HTML with tables).
+    pub output_format: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -102,6 +122,8 @@ pub struct OcrResponse {
     pub total_pages: usize,
     pub processing_time_ms: u64,
     pub provider: String,
+    /// Output format used: "text" or "html".
+    pub output_format: String,
     /// Approximate confidence score (0.0–1.0) derived from model logprobs, if available.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub confidence: Option<f64>,
@@ -133,6 +155,7 @@ pub struct OcrBatchItem {
     pub preset: Option<String>,
     pub language: Option<String>,
     pub extract_structured: Option<bool>,
+    pub output_format: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -269,7 +292,9 @@ pub async fn ocr(
     let detected = detect_preset(body.filename.as_deref(), &body.mime_type);
     let effective_preset = body.preset.as_deref().or(detected);
 
-    let base_prompt = body.prompt.as_deref().unwrap_or(OCR_PROMPT);
+    let format = body.output_format.as_deref().unwrap_or("text");
+    let default_prompt = if format == "html" { OCR_HTML_PROMPT } else { OCR_PROMPT };
+    let base_prompt = body.prompt.as_deref().unwrap_or(default_prompt);
     let effective_prompt = build_ocr_prompt(base_prompt, body.language.as_deref(), effective_preset);
 
     let (text, confidence) = ocr_with_gemini(
@@ -287,7 +312,7 @@ pub async fn ocr(
         )
     })?;
 
-    let pages = split_into_pages(&text);
+    let pages = if format == "html" { split_html_into_pages(&text) } else { split_into_pages(&text) };
     let total_pages = pages.len().max(1);
 
     // Structured data extraction (optional second AI call)
@@ -307,6 +332,7 @@ pub async fn ocr(
         total_pages,
         processing_time_ms: started.elapsed().as_millis() as u64,
         provider: "gemini".to_string(),
+        output_format: format.to_string(),
         confidence,
         detected_preset: detected_preset.clone(),
         structured_data: structured_data.clone(),
@@ -351,13 +377,15 @@ pub async fn ocr_stream(
         let detected = detect_preset(body.filename.as_deref(), &body.mime_type);
         let effective_preset = body.preset.as_deref().or(detected);
 
-        let base_prompt = body.prompt.as_deref().unwrap_or(OCR_PROMPT);
+        let format = body.output_format.as_deref().unwrap_or("text");
+        let default_prompt = if format == "html" { OCR_HTML_PROMPT } else { OCR_PROMPT };
+        let base_prompt = body.prompt.as_deref().unwrap_or(default_prompt);
         let effective_prompt = build_ocr_prompt(base_prompt, body.language.as_deref(), effective_preset);
         let result = ocr_with_gemini(&state, &body.data_base64, &body.mime_type, &effective_prompt).await;
 
         match result {
             Ok((text, confidence)) => {
-                let pages = split_into_pages(&text);
+                let pages = if format == "html" { split_html_into_pages(&text) } else { split_into_pages(&text) };
                 let total = pages.len().max(1);
 
                 for (i, page) in pages.iter().enumerate() {
@@ -403,6 +431,7 @@ pub async fn ocr_stream(
                     total_pages: total,
                     processing_time_ms: started.elapsed().as_millis() as u64,
                     provider: "gemini".to_string(),
+                    output_format: format.to_string(),
                     confidence,
                     detected_preset: detected_preset.clone(),
                     structured_data: structured_data.clone(),
@@ -478,12 +507,14 @@ pub async fn ocr_batch_stream(
 
             let detected = detect_preset(item.filename.as_deref(), &item.mime_type);
             let effective_preset = item.preset.as_deref().or(detected);
-            let base_prompt = body.prompt.as_deref().unwrap_or(OCR_PROMPT);
+            let format = item.output_format.as_deref().unwrap_or("text");
+            let default_prompt = if format == "html" { OCR_HTML_PROMPT } else { OCR_PROMPT };
+            let base_prompt = body.prompt.as_deref().unwrap_or(default_prompt);
             let effective_prompt = build_ocr_prompt(base_prompt, item.language.as_deref(), effective_preset);
 
             match ocr_with_gemini(&state, &item.data_base64, &item.mime_type, &effective_prompt).await {
                 Ok((text, confidence)) => {
-                    let pages = split_into_pages(&text);
+                    let pages = if format == "html" { split_html_into_pages(&text) } else { split_into_pages(&text) };
                     let total_pages = pages.len().max(1);
 
                     let structured_data = if item.extract_structured == Some(true)
@@ -500,6 +531,7 @@ pub async fn ocr_batch_stream(
                         total_pages,
                         processing_time_ms: started.elapsed().as_millis() as u64,
                         provider: "gemini".to_string(),
+                        output_format: format.to_string(),
                         confidence,
                         detected_preset: detected.map(|s| s.to_string()),
                         structured_data,
@@ -869,6 +901,49 @@ pub async fn ocr_image_text(
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
+
+/// Split HTML OCR output into pages by `<hr data-page="N">` markers.
+fn split_html_into_pages(html: &str) -> Vec<OcrPage> {
+    let re = regex::Regex::new(r#"<hr\s+data-page="(\d+)"\s*/?>"#)
+        .expect("html page marker regex is valid");
+
+    let mut pages = Vec::new();
+    let mut last_end = 0;
+    let mut page_num = 1;
+
+    for cap in re.captures_iter(html) {
+        let m = cap.get(0).unwrap();
+        let before = html[last_end..m.start()].trim();
+        if !before.is_empty() {
+            pages.push(OcrPage {
+                page_number: page_num,
+                text: before.to_string(),
+            });
+            page_num += 1;
+        }
+        if let Ok(n) = cap[1].parse::<usize>() {
+            page_num = n;
+        }
+        last_end = m.end();
+    }
+
+    let remaining = html[last_end..].trim();
+    if !remaining.is_empty() {
+        pages.push(OcrPage {
+            page_number: page_num,
+            text: remaining.to_string(),
+        });
+    }
+
+    if pages.is_empty() {
+        pages.push(OcrPage {
+            page_number: 1,
+            text: html.to_string(),
+        });
+    }
+
+    pages
+}
 
 /// Split OCR output into pages by `---PAGE N---` markers.
 fn split_into_pages(text: &str) -> Vec<OcrPage> {

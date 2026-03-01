@@ -566,3 +566,67 @@ pre,
   border-top: 1px solid var(--matrix-border);
   margin: 8px 0;
 }
+
+/* ============================================
+   OCR HTML CONTENT (semantic HTML from AI)
+   ============================================ */
+.ocr-html-content {
+  font-family: var(--font-sans, system-ui, sans-serif);
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  color: var(--matrix-text-primary);
+}
+.ocr-html-content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.75rem 0;
+}
+.ocr-html-content th,
+.ocr-html-content td {
+  border: 1px solid var(--matrix-accent, #4ade80);
+  padding: 0.375rem 0.625rem;
+  text-align: left;
+  font-size: 0.75rem;
+}
+.ocr-html-content th {
+  background: color-mix(in srgb, var(--matrix-accent, #4ade80) 10%, transparent);
+  font-weight: 600;
+}
+.ocr-html-content tr:nth-child(even) td {
+  background: color-mix(in srgb, var(--matrix-bg-primary) 50%, var(--matrix-bg-secondary));
+}
+.ocr-html-content h1,
+.ocr-html-content h2,
+.ocr-html-content h3,
+.ocr-html-content h4,
+.ocr-html-content h5,
+.ocr-html-content h6 {
+  margin: 0.75rem 0 0.375rem;
+  font-weight: 600;
+  color: var(--matrix-text-primary);
+}
+.ocr-html-content h1 {
+  font-size: 1rem;
+}
+.ocr-html-content h2 {
+  font-size: 0.875rem;
+}
+.ocr-html-content h3 {
+  font-size: 0.8125rem;
+}
+.ocr-html-content p {
+  margin: 0.375rem 0;
+}
+.ocr-html-content ul,
+.ocr-html-content ol {
+  padding-left: 1.25rem;
+  margin: 0.375rem 0;
+}
+.ocr-html-content li {
+  margin: 2px 0;
+}
+.ocr-html-content hr {
+  border: none;
+  border-top: 1px solid var(--matrix-border);
+  margin: 0.75rem 0;
+}

@@ -383,6 +383,7 @@ export const ocrResponseSchema = z.object({
   total_pages: z.number(),
   processing_time_ms: z.number(),
   provider: z.string(),
+  output_format: z.string().default('text'),
 });
 
 export type OcrResponse = z.infer<typeof ocrResponseSchema>;

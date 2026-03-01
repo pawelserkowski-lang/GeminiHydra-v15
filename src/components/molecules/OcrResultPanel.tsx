@@ -1,6 +1,7 @@
 /** Jaskier Shared Pattern — OcrResultPanel */
 
-import { Check, ChevronLeft, ChevronRight, Code2, Copy, Download, Eye, FileDown } from 'lucide-react';
+import DOMPurify from 'dompurify';
+import { Check, ChevronLeft, ChevronRight, Code2, Copy, Download, Eye, FileDown, Loader2 } from 'lucide-react';
 import { memo, useCallback, useMemo, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -15,7 +16,40 @@ interface OcrResultPanelProps {
   processingTimeMs: number;
   provider: string;
   className?: string;
+  outputFormat?: 'text' | 'html';
+  onFormatChange?: (f: 'text' | 'html') => void;
+  isFormatLoading?: boolean;
 }
+
+const PURIFY_CONFIG = {
+  ALLOWED_TAGS: [
+    'table',
+    'thead',
+    'tbody',
+    'tr',
+    'th',
+    'td',
+    'h1',
+    'h2',
+    'h3',
+    'h4',
+    'h5',
+    'h6',
+    'p',
+    'ul',
+    'ol',
+    'li',
+    'strong',
+    'em',
+    'br',
+    'hr',
+    'span',
+    'div',
+    'pre',
+    'code',
+  ],
+  ALLOWED_ATTR: ['data-page', 'colspan', 'rowspan'],
+};
 
 /** Convert markdown text to a simple HTML string for rich clipboard copy. */
 function markdownToHtml(md: string): string {
@@ -110,6 +144,9 @@ export const OcrResultPanel = memo(function OcrResultPanel({
   processingTimeMs,
   provider,
   className,
+  outputFormat = 'text',
+  onFormatChange,
+  isFormatLoading,
 }: OcrResultPanelProps) {
   const [currentPage, setCurrentPage] = useState(0);
   const [showFullText, setShowFullText] = useState(false);
@@ -124,10 +161,15 @@ export const OcrResultPanel = memo(function OcrResultPanel({
 
   const currentText = showFullText ? fullText : (page?.text ?? '');
 
+  const sanitizedHtml = useMemo(
+    () => (outputFormat === 'html' ? DOMPurify.sanitize(currentText, PURIFY_CONFIG) : ''),
+    [currentText, outputFormat],
+  );
+
   /** Rich copy: text/html (for Word/Excel/Docs) + text/plain (for editors). */
   const handleCopy = useCallback(async () => {
     try {
-      const html = markdownToHtml(currentText);
+      const html = outputFormat === 'html' ? currentText : markdownToHtml(currentText);
       const htmlBlob = new Blob([html], { type: 'text/html' });
       const textBlob = new Blob([currentText], { type: 'text/plain' });
       await navigator.clipboard.write([
@@ -142,7 +184,7 @@ export const OcrResultPanel = memo(function OcrResultPanel({
     }
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
-  }, [currentText]);
+  }, [currentText, outputFormat]);
 
   const handleExportMd = useCallback(() => {
     const blob = new Blob([fullText], { type: 'text/markdown;charset=utf-8' });
@@ -156,7 +198,7 @@ export const OcrResultPanel = memo(function OcrResultPanel({
 
   /** Export as .html (Word-compatible with formatted tables). */
   const handleExportHtml = useCallback(() => {
-    const body = markdownToHtml(fullText);
+    const body = outputFormat === 'html' ? fullText : markdownToHtml(fullText);
     const html = `<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>OCR Result</title>
 <style>body{font-family:Calibri,Arial,sans-serif;font-size:11pt;line-height:1.5;max-width:800px;margin:20px auto}
@@ -170,7 +212,7 @@ th{font-weight:bold;background:#f0f0f0}h1,h2,h3{margin:16px 0 8px}</style>
     a.download = `ocr-result-${Date.now()}.html`;
     a.click();
     URL.revokeObjectURL(url);
-  }, [fullText]);
+  }, [fullText, outputFormat]);
 
   if (!pages.length) return null;
 
@@ -199,11 +241,45 @@ th{font-weight:bold;background:#f0f0f0}h1,h2,h3{margin:16px 0 8px}</style>
               {showFullText ? 'Strony' : 'Pełny tekst'}
             </Button>
           )}
+          {/* Text/HTML format toggle */}
+          {onFormatChange && (
+            <div
+              className="flex items-center rounded-md overflow-hidden border"
+              style={{ borderColor: 'var(--matrix-border)' }}
+            >
+              <button
+                type="button"
+                onClick={() => onFormatChange('text')}
+                disabled={isFormatLoading}
+                className={cn(
+                  'px-2 py-0.5 text-[10px] font-medium transition-colors',
+                  outputFormat === 'text'
+                    ? 'bg-[var(--matrix-accent)]/20 text-[var(--matrix-accent)]'
+                    : 'text-[var(--matrix-text-secondary)] hover:text-[var(--matrix-text-primary)]',
+                )}
+              >
+                Text
+              </button>
+              <button
+                type="button"
+                onClick={() => onFormatChange('html')}
+                disabled={isFormatLoading}
+                className={cn(
+                  'px-2 py-0.5 text-[10px] font-medium transition-colors',
+                  outputFormat === 'html'
+                    ? 'bg-[var(--matrix-accent)]/20 text-[var(--matrix-accent)]'
+                    : 'text-[var(--matrix-text-secondary)] hover:text-[var(--matrix-text-primary)]',
+                )}
+              >
+                {isFormatLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : 'HTML'}
+              </button>
+            </div>
+          )}
           <Button
             variant="ghost"
             size="sm"
             onClick={() => setShowRendered((v) => !v)}
-            title={showRendered ? 'Pokaż markdown' : 'Pokaż sformatowany'}
+            title={showRendered ? 'Pokaż źródło' : 'Pokaż sformatowany'}
           >
             {showRendered ? <Code2 className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
           </Button>
@@ -240,7 +316,33 @@ th{font-weight:bold;background:#f0f0f0}h1,h2,h3{margin:16px 0 8px}</style>
       )}
 
       {/* Content */}
-      {showRendered ? (
+      {outputFormat === 'html' ? (
+        showRendered ? (
+          <div
+            ref={renderedRef}
+            className="ocr-html-content text-xs leading-relaxed max-h-96 overflow-y-auto rounded-md p-3"
+            style={{
+              color: 'var(--matrix-text-primary)',
+              backgroundColor: 'var(--matrix-bg-secondary)',
+              border: '1px solid var(--matrix-border)',
+            }}
+            // biome-ignore lint/security/noDangerouslySetInnerHtml: DOMPurify sanitized
+            dangerouslySetInnerHTML={{ __html: sanitizedHtml }}
+          />
+        ) : (
+          <pre
+            className="whitespace-pre-wrap break-words text-xs leading-relaxed max-h-96 overflow-y-auto rounded-md p-3"
+            style={{
+              fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+              color: 'var(--matrix-text-primary)',
+              backgroundColor: 'var(--matrix-bg-secondary)',
+              border: '1px solid var(--matrix-border)',
+            }}
+          >
+            {currentText}
+          </pre>
+        )
+      ) : showRendered ? (
         <div
           ref={renderedRef}
           className="ocr-rendered text-xs leading-relaxed max-h-96 overflow-y-auto rounded-md p-3"
