@@ -13,6 +13,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '@/contexts/ThemeContext';
+import { useSessionSync } from '@/features/chat/hooks/useSessionSync';
 import { useFocusTrap } from '@/shared/hooks/useFocusTrap';
 import { cn } from '@/shared/utils/cn';
 import { useViewStore } from '@/stores/viewStore';
@@ -35,6 +36,7 @@ export function CommandPalette() {
   const { resolvedTheme, toggleTheme } = useTheme();
   const setCurrentView = useViewStore((s) => s.setCurrentView);
   const toggleSidebar = useViewStore((s) => s.toggleSidebar);
+  const { createSessionWithSync } = useSessionSync();
   const isLight = resolvedTheme === 'light';
 
   useFocusTrap(modalRef, {
@@ -70,9 +72,9 @@ export function CommandPalette() {
         icon: <Plus size={16} />,
         keywords: 'new chat session create',
         handler: () => {
-          useViewStore.getState().createSession();
           setCurrentView('chat');
           setOpen(false);
+          void createSessionWithSync();
         },
       },
       {
@@ -96,7 +98,7 @@ export function CommandPalette() {
         },
       },
     ],
-    [t, setCurrentView, toggleSidebar, isLight, toggleTheme],
+    [t, setCurrentView, toggleSidebar, isLight, toggleTheme, createSessionWithSync],
   );
 
   const filtered = useMemo(() => {

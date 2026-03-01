@@ -13,6 +13,7 @@ import { memo, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { Badge, Button } from '@/components/atoms';
+import { useSessionSync } from '@/features/chat/hooks/useSessionSync';
 import { HealthDashboard } from '@/features/health/components/HealthDashboard';
 import { OAuthBanner } from '@/features/settings/components/OAuthBanner';
 import { useViewTheme } from '@/shared/hooks/useViewTheme';
@@ -152,21 +153,20 @@ export const WelcomeScreen = memo(() => {
   const rawSessions = useViewStore((s) => s.sessions);
   const chatHistory = useViewStore((s) => s.chatHistory);
   const selectSession = useViewStore((s) => s.selectSession);
-  const createSession = useViewStore((s) => s.createSession);
   const setCurrentView = useViewStore((s) => s.setCurrentView);
   const openTab = useViewStore((s) => s.openTab);
+  const { createSessionWithSync } = useSessionSync();
 
   const recentSessions = useMemo(
     () => [...rawSessions].sort((a, b) => b.createdAt - a.createdAt).slice(0, MAX_RECENT_SESSIONS),
     [rawSessions],
   );
 
-  const handleNewChat = useCallback(() => {
-    createSession();
-    const sessionId = useViewStore.getState().currentSessionId;
-    if (sessionId) openTab(sessionId);
+  const handleNewChat = useCallback(async () => {
     setCurrentView('chat');
-  }, [createSession, openTab, setCurrentView]);
+    const sessionId = await createSessionWithSync();
+    if (sessionId) openTab(sessionId);
+  }, [createSessionWithSync, openTab, setCurrentView]);
 
   const handleOpenSession = useCallback(
     (sessionId: string) => {

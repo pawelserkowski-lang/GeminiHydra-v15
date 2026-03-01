@@ -15,6 +15,7 @@ import type { ConnectionHealth, StatusFooterProps } from '@/components/organisms
 import { StatusFooter } from '@/components/organisms/StatusFooter';
 import { TabBar } from '@/components/organisms/TabBar';
 import { useTheme } from '@/contexts/ThemeContext';
+import { useSessionSync } from '@/features/chat/hooks/useSessionSync';
 import { useHealthStatus, useSystemStatsQuery } from '@/features/health/hooks/useHealth';
 import { useSettingsQuery } from '@/features/settings/hooks/useSettings';
 import { cn } from '@/shared/utils/cn';
@@ -85,17 +86,19 @@ function AppShellInner({ children, statusFooterProps }: AppShellProps) {
     [statusFooterProps, connectionHealth, displayModel, stats],
   );
 
+  const { createSessionWithSync } = useSessionSync();
+
   // Global Ctrl+T shortcut — creates a new chat tab when in chat view
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
       if (e.ctrlKey && e.key === 't' && currentView === 'chat') {
         e.preventDefault();
-        useViewStore.getState().createSession();
-        const sid = useViewStore.getState().currentSessionId;
-        if (sid) useViewStore.getState().openTab(sid);
+        void createSessionWithSync().then((newId) => {
+          if (newId) useViewStore.getState().openTab(newId);
+        });
       }
     },
-    [currentView],
+    [currentView, createSessionWithSync],
   );
 
   useEffect(() => {

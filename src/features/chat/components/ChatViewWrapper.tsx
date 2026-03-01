@@ -31,7 +31,7 @@ export function ChatViewWrapper() {
   const addMessageToSession = useViewStore((s) => s.addMessageToSession);
   const updateLastMessageInSession = useViewStore((s) => s.updateLastMessageInSession);
   const currentSessionId = useViewStore((s) => s.currentSessionId);
-  const { generateTitleWithSync } = useSessionSync();
+  const { createSessionWithSync, generateTitleWithSync } = useSessionSync();
   const { addPrompt } = usePromptHistory();
   const [usingFallback, setUsingFallback] = useState(false);
   const fallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -269,12 +269,11 @@ export function ChatViewWrapper() {
     : streamingSessionId === currentSessionId;
 
   const handleSubmit = useCallback(
-    (prompt: string, _image: string | null) => {
-      // Auto-create session if none exists
+    async (prompt: string, _image: string | null) => {
+      // Auto-create session if none exists (persisted to DB)
       if (!useViewStore.getState().currentSessionId) {
-        useViewStore.getState().createSession();
-        const sid = useViewStore.getState().currentSessionId;
-        if (sid) useViewStore.getState().openTab(sid);
+        const newId = await createSessionWithSync();
+        if (newId) useViewStore.getState().openTab(newId);
       }
 
       const sessionId = useViewStore.getState().currentSessionId;
@@ -342,17 +341,17 @@ export function ChatViewWrapper() {
       status,
       sendExecute,
       executeMutation,
+      createSessionWithSync,
       scheduleBackgroundTitleGeneration,
     ],
   );
 
   const handleOrchestrate = useCallback(
-    (prompt: string, pattern: string) => {
-      // Auto-create session if none exists
+    async (prompt: string, pattern: string) => {
+      // Auto-create session if none exists (persisted to DB)
       if (!useViewStore.getState().currentSessionId) {
-        useViewStore.getState().createSession();
-        const sid = useViewStore.getState().currentSessionId;
-        if (sid) useViewStore.getState().openTab(sid);
+        const newId = await createSessionWithSync();
+        if (newId) useViewStore.getState().openTab(newId);
       }
 
       const sessionId = useViewStore.getState().currentSessionId;
@@ -386,7 +385,7 @@ export function ChatViewWrapper() {
         });
       }
     },
-    [addMessageToSession, addPrompt, usingFallback, status, sendOrchestrate, resetOrchestration],
+    [addMessageToSession, addPrompt, usingFallback, status, sendOrchestrate, resetOrchestration, createSessionWithSync],
   );
 
   const handleStop = useCallback(() => {
