@@ -648,18 +648,17 @@ pub async fn delete_session(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    if result.rows_affected() == 0 {
-        return Err(StatusCode::NOT_FOUND);
+    if result.rows_affected() > 0 {
+        crate::audit::log_audit(
+            &state.db,
+            "delete_session",
+            serde_json::json!({ "session_id": id }),
+            Some(&addr.ip().to_string()),
+        )
+        .await;
     }
 
-    crate::audit::log_audit(
-        &state.db,
-        "delete_session",
-        serde_json::json!({ "session_id": id }),
-        Some(&addr.ip().to_string()),
-    )
-    .await;
-
+    // Idempotent: return success even if session was already gone
     Ok(Json(json!({ "status": "deleted", "id": id })))
 }
 

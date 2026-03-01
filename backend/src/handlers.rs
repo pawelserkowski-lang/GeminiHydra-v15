@@ -2278,167 +2278,23 @@ pub async fn browse_directory(Json(body): Json<Value>) -> Json<Value> {
     let initial = body
         .get("initial_path")
         .and_then(|v| v.as_str())
-        .unwrap_or("");
+        .map(|s| s.to_string())
+        .unwrap_or_default();
 
-    // Modern Explorer-style folder picker using Shell.Application COM object.
-    // Falls back to FolderBrowserDialog on older Windows versions.
-    let script = format!(
-        r#"Add-Type -AssemblyName System.Windows.Forms
-[System.Windows.Forms.Application]::EnableVisualStyles()
-try {{
-    # Modern CommonOpenFileDialog (Windows Vista+)
-    [void][System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms')
-    $src = @"
-using System;
-using System.Runtime.InteropServices;
-
-[ComImport, Guid("DC1C5A9C-E88A-4DDE-A5A1-60F82A20AEF7")]
-internal class FileOpenDialogCOM {{ }}
-
-[ComImport, Guid("42F85136-DB7E-439C-85F1-E4075D135FC8"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-internal interface IFileOpenDialog {{
-    [PreserveSig] int Show(IntPtr hwndOwner);
-    void SetFileTypes();
-    void SetFileTypeIndex();
-    void GetFileTypeIndex();
-    void Advise();
-    void Unadvise();
-    void SetOptions(uint fos);
-    void GetOptions(out uint fos);
-    void SetDefaultFolder(IShellItem psi);
-    void SetFolder(IShellItem psi);
-    void GetFolder(out IShellItem ppsi);
-    void GetCurrentSelection(out IShellItem ppsi);
-    void SetFileName([MarshalAs(UnmanagedType.LPWStr)] string pszName);
-    void GetFileName();
-    void SetTitle([MarshalAs(UnmanagedType.LPWStr)] string pszTitle);
-    void SetOkButtonLabel();
-    void SetFileNameLabel();
-    void GetResult(out IShellItem ppsi);
-    void AddPlace();
-    void SetDefaultExtension();
-    void Close();
-    void SetClientGuid();
-    void ClearClientData();
-    void SetFilter();
-    void GetResults();
-    void GetSelectedItems();
-}}
-
-[ComImport, Guid("43826D1E-E718-42EE-BC55-A1E261C37BFE"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-internal interface IShellItem {{
-    void BindToHandler();
-    void GetParent();
-    void GetDisplayName(uint sigdnName, [MarshalAs(UnmanagedType.LPWStr)] out string ppszName);
-    void GetAttributes();
-    void Compare();
-}}
-
-public class FolderPicker {{
-    [DllImport("shell32.dll", CharSet = CharSet.Unicode, PreserveSig = false)]
-    static extern void SHCreateItemFromParsingName(
-        [MarshalAs(UnmanagedType.LPWStr)] string pszPath,
-        IntPtr pbc,
-        [MarshalAs(UnmanagedType.LPStruct)] Guid riid,
-        [MarshalAs(UnmanagedType.Interface)] out IShellItem ppv);
-
-    const uint FOS_PICKFOLDERS = 0x20;
-    const uint FOS_FORCEFILESYSTEM = 0x40;
-    static readonly Guid IShellItemGuid = new Guid("43826D1E-E718-42EE-BC55-A1E261C37BFE");
-
-    public static string Show(string initialPath) {{
-        var dlg = (IFileOpenDialog)new FileOpenDialogCOM();
-        dlg.SetTitle("Select Working Directory");
-        dlg.SetOptions(FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM);
-        if (!string.IsNullOrEmpty(initialPath) && System.IO.Directory.Exists(initialPath)) {{
-            IShellItem folder;
-            SHCreateItemFromParsingName(initialPath, IntPtr.Zero, IShellItemGuid, out folder);
-            dlg.SetFolder(folder);
-        }}
-        // Hidden TopMost owner form — forces dialog above all windows
-        var owner = new System.Windows.Forms.Form();
-        owner.TopMost = true;
-        owner.ShowInTaskbar = false;
-        owner.Size = new System.Drawing.Size(0, 0);
-        owner.StartPosition = System.Windows.Forms.FormStartPosition.Manual;
-        owner.Location = new System.Drawing.Point(-9999, -9999);
-        owner.Show();
-        int hr = dlg.Show(owner.Handle);
-        owner.Dispose();
-        if (hr != 0) return "__CANCELLED__";
-        IShellItem result;
-        dlg.GetResult(out result);
-        string path;
-        result.GetDisplayName(0x80058000, out path);
-        return path;
-    }}
-}}
-"@
-    Add-Type -TypeDefinition $src -Language CSharp -ErrorAction Stop
-    $result = [FolderPicker]::Show("{initial_path}")
-    Write-Host $result
-}} catch {{
-    # Fallback: classic FolderBrowserDialog
-    $f = New-Object System.Windows.Forms.FolderBrowserDialog
-    $f.Description = "Select Working Directory"
-    $f.ShowNewFolderButton = $true
-    {initial_line_fallback}
-    $owner = New-Object System.Windows.Forms.Form
-    $owner.TopMost = $true
-    $owner.ShowInTaskbar = $false
-    $owner.Size = New-Object System.Drawing.Size(0,0)
-    $owner.StartPosition = 'Manual'
-    $owner.Location = New-Object System.Drawing.Point(-9999,-9999)
-    $owner.Show()
-    if ($f.ShowDialog($owner) -eq "OK") {{
-        Write-Host $f.SelectedPath
-    }} else {{
-        Write-Host "__CANCELLED__"
-    }}
-    $owner.Dispose()
-}}
-"#,
-        initial_path = initial.replace('\\', "\\\\").replace('"', "`\""),
-        initial_line_fallback = if initial.is_empty() {
-            String::new()
-        } else {
-            format!(
-                "$f.SelectedPath = \"{}\"",
-                initial.replace('\\', "\\\\").replace('"', "`\"")
-            )
+    // Native Explorer folder picker via rfd — runs in-process on a dedicated STA thread
+    let result = tokio::task::spawn_blocking(move || {
+        let mut dialog = rfd::FileDialog::new().set_title("Select Working Directory");
+        if !initial.is_empty() && std::path::Path::new(&initial).is_dir() {
+            dialog = dialog.set_directory(&initial);
         }
-    );
-
-    let tmp = std::env::temp_dir().join(format!("jaskier_browse_{}.ps1", std::process::id()));
-    if let Err(e) = tokio::fs::write(&tmp, &script).await {
-        return Json(json!({ "error": format!("Cannot write temp script: {}", e) }));
-    }
-
-    let result = tokio::process::Command::new("powershell")
-        .args([
-            "-NoProfile",
-            "-STA",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-File",
-            &tmp.to_string_lossy(),
-        ])
-        .output()
-        .await;
-
-    // Cleanup temp file (best-effort)
-    let _ = tokio::fs::remove_file(&tmp).await;
+        dialog.pick_folder()
+    })
+    .await
+    .unwrap_or(None);
 
     match result {
-        Ok(output) => {
-            let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if stdout == "__CANCELLED__" || stdout.is_empty() {
-                Json(json!({ "cancelled": true }))
-            } else {
-                Json(json!({ "path": stdout }))
-            }
-        }
-        Err(e) => Json(json!({ "error": format!("Failed to open folder dialog: {}", e) })),
+        Some(path) => Json(json!({ "path": path.to_string_lossy() })),
+        None => Json(json!({ "cancelled": true })),
     }
 }
 
