@@ -2272,29 +2272,38 @@ pub async fn list_files(Json(body): Json<FileListRequest>) -> Json<Value> {
 //  Native folder dialog — Jaskier Shared Pattern
 // ═══════════════════════════════════════════════════════════════════════
 
-/// Opens a modern Windows Explorer folder picker via PowerShell COM interop.
+/// Opens a native folder picker dialog (Windows only via `rfd`).
 /// Returns the selected path or `{ "cancelled": true }` if user closed the dialog.
+/// On non-Windows platforms returns an error (headless server — no GUI).
 pub async fn browse_directory(Json(body): Json<Value>) -> Json<Value> {
-    let initial = body
-        .get("initial_path")
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string())
-        .unwrap_or_default();
+    #[cfg(windows)]
+    {
+        let initial = body
+            .get("initial_path")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .unwrap_or_default();
 
-    // Native Explorer folder picker via rfd — runs in-process on a dedicated STA thread
-    let result = tokio::task::spawn_blocking(move || {
-        let mut dialog = rfd::FileDialog::new().set_title("Select Working Directory");
-        if !initial.is_empty() && std::path::Path::new(&initial).is_dir() {
-            dialog = dialog.set_directory(&initial);
+        let result = tokio::task::spawn_blocking(move || {
+            let mut dialog = rfd::FileDialog::new().set_title("Select Working Directory");
+            if !initial.is_empty() && std::path::Path::new(&initial).is_dir() {
+                dialog = dialog.set_directory(&initial);
+            }
+            dialog.pick_folder()
+        })
+        .await
+        .unwrap_or(None);
+
+        match result {
+            Some(path) => Json(json!({ "path": path.to_string_lossy() })),
+            None => Json(json!({ "cancelled": true })),
         }
-        dialog.pick_folder()
-    })
-    .await
-    .unwrap_or(None);
+    }
 
-    match result {
-        Some(path) => Json(json!({ "path": path.to_string_lossy() })),
-        None => Json(json!({ "cancelled": true })),
+    #[cfg(not(windows))]
+    {
+        let _ = body;
+        Json(json!({ "error": "Native folder dialog is only available on Windows" }))
     }
 }
 
