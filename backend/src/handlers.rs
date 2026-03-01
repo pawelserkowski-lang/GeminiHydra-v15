@@ -832,7 +832,7 @@ pub(crate) async fn prepare_execution(
 
     // A/B testing: per-agent model_b with ab_split probability
     let model = if let Some(agent) = matched_agent {
-        if let (Some(ref model_b), Some(split)) = (&agent.model_b, agent.ab_split) {
+        if let (Some(model_b), Some(split)) = (&agent.model_b, agent.ab_split) {
             if rand::random::<f64>() < split {
                 tracing::info!("A/B test: agent {} using model_b={} (split={:.0}%)", agent.id, model_b, split * 100.0);
                 model_b.clone()
@@ -966,7 +966,8 @@ pub(crate) async fn prepare_execution(
         agent_id,
         confidence,
         reasoning,
-        model,
+        model: model.clone(),
+        max_tokens: max_tokens.min(tier_token_budget(&model)),
         api_key,
         is_oauth,
         system_prompt,
@@ -974,7 +975,6 @@ pub(crate) async fn prepare_execution(
         files_loaded,
         steps,
         temperature: effective_temperature,
-        max_tokens: max_tokens.min(tier_token_budget(&model)),
         top_p,
         response_style,
         max_iterations,
