@@ -64,6 +64,10 @@ interface ChatInputProps {
   sessionId?: string;
   workingDirectory?: string;
   onWorkingDirectoryChange?: (wd: string) => void;
+  /** External value to inject into the textarea (e.g. from prompt suggestions). */
+  initialValue?: string;
+  /** Monotonic key — triggers consumption of initialValue on change. */
+  initialValueKey?: number;
 }
 
 // ============================================================================
@@ -102,6 +106,8 @@ export const ChatInput = memo<ChatInputProps>(
     sessionId,
     workingDirectory,
     onWorkingDirectoryChange,
+    initialValue,
+    initialValueKey,
   }) => {
     const { t } = useTranslation();
     const theme = useViewTheme();
@@ -145,6 +151,20 @@ export const ChatInput = memo<ChatInputProps>(
       minRows: MIN_ROWS,
       maxRows: MAX_ROWS,
     });
+
+    // ----- Consume external initialValue (prompt suggestions) -----------
+
+    const prevKeyRef = useRef(0);
+    useEffect(() => {
+      if (initialValueKey !== undefined && initialValueKey !== prevKeyRef.current && initialValue) {
+        prevKeyRef.current = initialValueKey;
+        setValue(initialValue);
+        requestAnimationFrame(() => {
+          adjustHeight();
+          textareaRef.current?.focus();
+        });
+      }
+    }, [initialValue, initialValueKey, adjustHeight]);
 
     const handleChange = useCallback(
       (e: ChangeEvent<HTMLTextAreaElement>) => {

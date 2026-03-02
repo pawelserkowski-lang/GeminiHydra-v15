@@ -111,7 +111,16 @@
     "collapse": "Zwiń",
     "failedLoadSession": "Nie udało się załadować sesji",
     "partnerSession": "Sesja ClaudeHydra ({{count}} wiadomości)",
-    "readOnlyView": "Widok tylko do odczytu z ClaudeHydra"
+    "readOnlyView": "Widok tylko do odczytu z ClaudeHydra",
+    "suggestions": {
+      "label": "Sugerowane prompty",
+      "analyzeCode": "Przeanalizuj strukturę kodu mojego projektu",
+      "readFile": "Przeczytaj i wyjaśnij plik z mojego kodu",
+      "gitStatus": "Pokaż status git i ostatnie commity",
+      "scrapeWebpage": "Pobierz i podsumuj stronę internetową",
+      "analyzeImage": "Przeanalizuj obraz i opisz co widzisz",
+      "exploreDirectory": "Przejrzyj katalog i podsumuj zawartość"
+    }
   },
   "agents": {
     "loading": "Ładowanie agentów...",

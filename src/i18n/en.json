@@ -111,7 +111,16 @@
     "collapse": "Collapse",
     "failedLoadSession": "Failed to load session",
     "partnerSession": "ClaudeHydra Session ({{count}} messages)",
-    "readOnlyView": "Read-only view from ClaudeHydra"
+    "readOnlyView": "Read-only view from ClaudeHydra",
+    "suggestions": {
+      "label": "Suggested prompts",
+      "analyzeCode": "Analyze the code structure of my project",
+      "readFile": "Read and explain a file from my codebase",
+      "gitStatus": "Show git status and recent commits",
+      "scrapeWebpage": "Fetch and summarize a webpage",
+      "analyzeImage": "Analyze an image and describe what you see",
+      "exploreDirectory": "Explore a directory and summarize contents"
+    }
   },
   "agents": {
     "loading": "Loading agents...",

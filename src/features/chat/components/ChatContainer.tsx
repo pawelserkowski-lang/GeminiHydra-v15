@@ -113,6 +113,7 @@ export const ChatContainer = memo<ChatContainerProps>(
     const [pendingImage, setPendingImage] = useState<string | null>(null);
     const [textContext, setTextContext] = useState('');
     const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+    const [suggestion, setSuggestion] = useState({ text: '', key: 0 });
 
     // Search overlay state (#19)
     const [searchOpen, setSearchOpen] = useState(false);
@@ -279,6 +280,11 @@ export const ChatContainer = memo<ChatContainerProps>(
       [currentSessionId, setSessionWorkingDirectory],
     );
 
+    const handleSuggestionSelect = useCallback(
+      (text: string) => setSuggestion((prev) => ({ text, key: prev.key + 1 })),
+      [],
+    );
+
     // ----- Prompt history for arrow-key navigation (global, SQL-backed) --
 
     const { promptHistory } = usePromptHistory();
@@ -396,7 +402,7 @@ export const ChatContainer = memo<ChatContainerProps>(
                     onContextMenu={() => {}}
                   />
                 ) : (
-                  <ChatEmptyState />
+                  <ChatEmptyState onSuggestionSelect={handleSuggestionSelect} />
                 )
               ) : (
                 <>
@@ -528,6 +534,8 @@ export const ChatContainer = memo<ChatContainerProps>(
               sessionId={currentSessionId ?? undefined}
               workingDirectory={currentSession?.workingDirectory}
               onWorkingDirectoryChange={handleWorkingDirectoryChange}
+              initialValue={suggestion.text}
+              initialValueKey={suggestion.key}
             />
           </div>
         </div>
