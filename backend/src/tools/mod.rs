@@ -17,7 +17,12 @@
 //! - `fetch_webpage` — fetch and extract content from a web page
 //! - `crawl_website` — multi-page crawl with robots.txt compliance
 
+pub mod fly_tools;
+pub mod git_tools;
+pub mod github_tools;
+pub mod vercel_tools;
 pub mod web_scraping;
+pub mod zip_tools;
 
 use base64::Engine;
 use regex::Regex;
@@ -150,6 +155,24 @@ pub fn list_available_tools() -> Vec<ToolInfo> {
         ToolInfo { name: "git_diff", category: "git" },
         ToolInfo { name: "git_branch", category: "git" },
         ToolInfo { name: "git_commit", category: "git" },
+        // GitHub tools
+        ToolInfo { name: "github_list_repos", category: "github" },
+        ToolInfo { name: "github_get_repo", category: "github" },
+        ToolInfo { name: "github_list_issues", category: "github" },
+        ToolInfo { name: "github_get_issue", category: "github" },
+        ToolInfo { name: "github_create_issue", category: "github" },
+        ToolInfo { name: "github_create_pr", category: "github" },
+        // Vercel tools
+        ToolInfo { name: "vercel_list_projects", category: "vercel" },
+        ToolInfo { name: "vercel_get_deployment", category: "vercel" },
+        ToolInfo { name: "vercel_deploy", category: "vercel" },
+        // Fly.io tools
+        ToolInfo { name: "fly_list_apps", category: "fly" },
+        ToolInfo { name: "fly_get_status", category: "fly" },
+        ToolInfo { name: "fly_get_logs", category: "fly" },
+        // ZIP tools
+        ToolInfo { name: "list_zip", category: "document" },
+        ToolInfo { name: "extract_zip_file", category: "document" },
         // A2A delegation
         ToolInfo { name: "call_agent", category: "a2a" },
         // MCP proxy
@@ -161,7 +184,10 @@ pub fn list_available_tools() -> Vec<ToolInfo> {
 /// Central dispatcher — routes tool call to the appropriate handler.
 /// Returns `ToolOutput` supporting text + optional multimodal data (Gemini 3).
 pub async fn execute_tool(name: &str, args: &Value, state: &AppState, working_directory: &str) -> Result<ToolOutput, String> {
-    match name {
+    let tool_start = std::time::Instant::now();
+    tracing::debug!("Tool '{}' started", name);
+
+    let result = match name {
         "execute_command" => {
             let command = args["command"]
                 .as_str()
@@ -297,6 +323,80 @@ pub async fn execute_tool(name: &str, args: &Value, state: &AppState, working_di
         "crawl_website" => {
             web_scraping::tool_crawl_website(args, &state.client).await
         }
+        // ── Git tools ──
+        "git_status" => {
+            let repo = args["repo_path"]
+                .as_str()
+                .ok_or("Missing required argument: repo_path")?;
+            let resolved = resolve_path(repo, working_directory);
+            git_tools::tool_git_status(&resolved).await.map(ToolOutput::text)
+        }
+        "git_log" => {
+            let repo = args["repo_path"]
+                .as_str()
+                .ok_or("Missing required argument: repo_path")?;
+            let resolved = resolve_path(repo, working_directory);
+            let count = args["count"].as_u64().map(|n| n as u32);
+            git_tools::tool_git_log(&resolved, count).await.map(ToolOutput::text)
+        }
+        "git_diff" => {
+            let repo = args["repo_path"]
+                .as_str()
+                .ok_or("Missing required argument: repo_path")?;
+            let resolved = resolve_path(repo, working_directory);
+            let target = args["target"].as_str();
+            git_tools::tool_git_diff(&resolved, target).await.map(ToolOutput::text)
+        }
+        "git_branch" => {
+            let repo = args["repo_path"]
+                .as_str()
+                .ok_or("Missing required argument: repo_path")?;
+            let resolved = resolve_path(repo, working_directory);
+            let action = args["action"].as_str();
+            git_tools::tool_git_branch(&resolved, action).await.map(ToolOutput::text)
+        }
+        "git_commit" => {
+            let repo = args["repo_path"]
+                .as_str()
+                .ok_or("Missing required argument: repo_path")?;
+            let resolved = resolve_path(repo, working_directory);
+            let message = args["message"]
+                .as_str()
+                .ok_or("Missing required argument: message")?;
+            let files = args["files"].as_str();
+            git_tools::tool_git_commit(&resolved, message, files).await.map(ToolOutput::text)
+        }
+        // ── GitHub tools ──
+        "github_list_repos" | "github_get_repo" | "github_list_issues"
+        | "github_get_issue" | "github_create_issue" | "github_create_pr" => {
+            github_tools::execute(name, args, state).await.map(ToolOutput::text)
+        }
+        // ── Vercel tools ──
+        "vercel_list_projects" | "vercel_get_deployment" | "vercel_deploy" => {
+            vercel_tools::execute(name, args, state).await.map(ToolOutput::text)
+        }
+        // ── Fly.io tools ──
+        "fly_list_apps" | "fly_get_status" | "fly_get_logs" => {
+            fly_tools::execute(name, args, state).await.map(ToolOutput::text)
+        }
+        // ── ZIP tools ──
+        "list_zip" => {
+            let path = args["path"]
+                .as_str()
+                .ok_or("Missing required argument: path")?;
+            let resolved = resolve_path(path, working_directory);
+            zip_tools::tool_list_zip(&resolved).await.map(ToolOutput::text)
+        }
+        "extract_zip_file" => {
+            let path = args["path"]
+                .as_str()
+                .ok_or("Missing required argument: path")?;
+            let resolved = resolve_path(path, working_directory);
+            let file_path = args["file_path"]
+                .as_str()
+                .ok_or("Missing required argument: file_path")?;
+            zip_tools::tool_extract_zip_file(&resolved, file_path).await.map(ToolOutput::text)
+        }
         // ── MCP proxy tools (mcp_{server}_{tool}) ──
         _ if name.starts_with("mcp_") => {
             state.mcp_client.call_tool(name, args)
@@ -323,7 +423,14 @@ pub async fn execute_tool(name: &str, args: &Value, state: &AppState, working_di
                 .map_err(|e| format!("MCP tool error: {}", e))
         }
         _ => Err(format!("Unknown tool: {}", name)),
+    };
+
+    let elapsed = tool_start.elapsed();
+    match &result {
+        Ok(_) => tracing::debug!("Tool '{}' completed in {:.2}s", name, elapsed.as_secs_f64()),
+        Err(e) => tracing::warn!("Tool '{}' failed in {:.2}s: {}", name, elapsed.as_secs_f64(), e),
     }
+    result
 }
 
 // ---------------------------------------------------------------------------
@@ -549,20 +656,31 @@ async fn tool_list_directory(path: &str, show_hidden: bool) -> Result<String, St
         return Ok("(empty directory)".to_string());
     }
 
+    // Parallel line counting via JoinSet
+    let mut line_count_set = tokio::task::JoinSet::new();
+    for entry in &entries {
+        if !entry.is_dir && entry.size_bytes < 1024 * 1024
+            && crate::files::is_text_file(std::path::Path::new(&entry.path))
+        {
+            let path_owned = entry.path.clone();
+            line_count_set.spawn(async move {
+                let count = count_lines(&path_owned).await;
+                (path_owned, count)
+            });
+        }
+    }
+    let mut line_counts = std::collections::HashMap::new();
+    while let Some(Ok((path_key, count))) = line_count_set.join_next().await {
+        line_counts.insert(path_key, count);
+    }
+
     let mut lines = Vec::with_capacity(entries.len());
     for entry in &entries {
         if entry.is_dir {
             lines.push(format!("  [DIR]  {}/", entry.name));
         } else {
             let size = format_size(entry.size_bytes);
-            // Count lines for text files under 1MB (#16)
-            let line_count = if entry.size_bytes < 1024 * 1024
-                && crate::files::is_text_file(std::path::Path::new(&entry.path))
-            {
-                count_lines(&entry.path).await
-            } else {
-                None
-            };
+            let line_count = line_counts.get(&entry.path).copied().flatten();
             if let Some(count) = line_count {
                 lines.push(format!("  {:>8} ({:>4} lines)  {}", size, count, entry.name));
             } else {
@@ -574,14 +692,20 @@ async fn tool_list_directory(path: &str, show_hidden: bool) -> Result<String, St
     Ok(format!("Directory: {}\n{}", path, lines.join("\n")))
 }
 
-/// Count lines in a file. Returns None on any error.
+/// Count lines in a file. Returns None on any error (with debug logging).
 async fn count_lines(path: &str) -> Option<usize> {
     use tokio::io::{AsyncBufReadExt, BufReader};
-    let file = tokio::fs::File::open(path).await.ok()?;
+    let file = match tokio::fs::File::open(path).await {
+        Ok(f) => f,
+        Err(e) => {
+            tracing::debug!("Failed to count lines in {}: {}", path, e);
+            return None;
+        }
+    };
     let reader = BufReader::new(file);
     let mut lines = reader.lines();
     let mut count = 0usize;
-    while lines.next_line().await.ok()?.is_some() {
+    while let Ok(Some(_)) = lines.next_line().await {
         count += 1;
     }
     Some(count)
@@ -641,11 +765,16 @@ async fn tool_search_files(
     });
 
     let mut all_results = Vec::new();
+    let mut cumulative_result_bytes: usize = 0;
+    const MAX_RESULT_BYTES: usize = 5 * 1024 * 1024; // 5MB
+    const MAX_STACK_SIZE: usize = 10000;
     let mut files_searched: usize = 0;
     let mut stack: Vec<(std::path::PathBuf, usize)> = vec![(dir.to_path_buf(), 0)];
 
     while let Some((current_dir, depth)) = stack.pop() {
-        if depth > MAX_SEARCH_DEPTH || all_results.len() >= MAX_SEARCH_RESULTS {
+        if depth > MAX_SEARCH_DEPTH || all_results.len() >= MAX_SEARCH_RESULTS
+            || cumulative_result_bytes > MAX_RESULT_BYTES
+        {
             break;
         }
 
@@ -671,7 +800,9 @@ async fn tool_search_files(
             }
 
             if entry_path.is_dir() {
-                stack.push((entry_path, depth + 1));
+                if stack.len() < MAX_STACK_SIZE {
+                    stack.push((entry_path, depth + 1));
+                }
             } else if entry_path.is_file() {
                 let ext = entry_path
                     .extension()
@@ -694,6 +825,7 @@ async fn tool_search_files(
                 // Read and search
                 if let Ok(content) = tokio::fs::read_to_string(&entry_path).await {
                     files_searched += 1;
+                    let mut size_limit_hit = false;
 
                     if multiline {
                         // Multiline mode: search entire file content, return match with ±2 lines context
@@ -710,13 +842,20 @@ async fn tool_search_files(
                             for i in ctx_start..ctx_end {
                                 snippet.push_str(&format!("  {:>4} | {}\n", i + 1, lines[i]));
                             }
-                            all_results.push(format!(
+                            let result_str = format!(
                                 "{}:{}-{}:\n{}",
                                 entry_path.display(),
                                 ctx_start + 1,
                                 ctx_end,
                                 snippet.trim_end()
-                            ));
+                            );
+                            cumulative_result_bytes += result_str.len();
+                            if cumulative_result_bytes > MAX_RESULT_BYTES {
+                                all_results.push("... [results truncated due to size limit]".to_string());
+                                size_limit_hit = true;
+                                break;
+                            }
+                            all_results.push(result_str);
                         }
                     } else {
                         // Line-by-line mode (default, faster)
@@ -738,14 +877,25 @@ async fn tool_search_files(
                                 } else {
                                     trimmed.to_string()
                                 };
-                                all_results.push(format!(
+                                let result_str = format!(
                                     "{}:{}:  {}",
                                     entry_path.display(),
                                     line_num + 1,
                                     display
-                                ));
+                                );
+                                cumulative_result_bytes += result_str.len();
+                                if cumulative_result_bytes > MAX_RESULT_BYTES {
+                                    all_results.push("... [results truncated due to size limit]".to_string());
+                                    size_limit_hit = true;
+                                    break;
+                                }
+                                all_results.push(result_str);
                             }
                         }
+                    }
+
+                    if size_limit_hit {
+                        break; // break out of the entries loop
                     }
                 }
             }
@@ -795,7 +945,7 @@ async fn tool_get_code_structure(path: &str) -> Result<String, String> {
         .map_err(|e| format!("Cannot read file '{}': {}", e.path, e.reason))?;
 
     // Analyze (tree-sitter first, regex fallback)
-    if let Some(structure) = crate::analysis::analyze_file(&ctx.path, &ctx.content) {
+    if let Some(structure) = crate::analysis::analyze_file_async(ctx.path.clone(), ctx.content.clone()).await {
         let mut out = format!("### Code Structure: {}\n", ctx.path);
         if structure.symbols.is_empty() {
             out.push_str("(No symbols detected or language not supported)");
@@ -1112,13 +1262,18 @@ async fn tool_read_pdf(
         .and_then(|n| n.to_str())
         .unwrap_or("unknown.pdf");
 
-    // Extract text (blocking — pdf-extract is synchronous)
-    let bytes_clone = bytes.clone();
-    let text = tokio::task::spawn_blocking(move || {
-        pdf_extract::extract_text_from_mem(&bytes_clone)
-            .map_err(|e| format!("PDF extraction failed: {}", e))
-    })
+    // Extract text (blocking — pdf-extract is synchronous, with 60s timeout)
+    let bytes_arc = std::sync::Arc::new(bytes);
+    let bytes_ref = std::sync::Arc::clone(&bytes_arc);
+    let text = tokio::time::timeout(
+        std::time::Duration::from_secs(60),
+        tokio::task::spawn_blocking(move || {
+            pdf_extract::extract_text_from_mem(&bytes_ref)
+                .map_err(|e| format!("PDF extraction failed: {}", e))
+        })
+    )
     .await
+    .map_err(|_| "PDF extraction timed out after 60s".to_string())?
     .map_err(|e| format!("Task join error: {}", e))??;
 
     // Check if extraction yielded meaningful text
@@ -1130,7 +1285,7 @@ async fn tool_read_pdf(
             "read_pdf: text extraction yielded {} alphanumeric chars, falling back to Vision OCR",
             alpha_count
         );
-        let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+        let b64 = base64::engine::general_purpose::STANDARD.encode(&*bytes_arc);
         let ocr_text = crate::ocr::ocr_pdf_text(state, &b64, page_range).await?;
 
         let mut output = format!("### PDF (OCR): {} (Vision API)\n\n", filename);

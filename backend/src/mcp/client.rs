@@ -61,7 +61,6 @@ enum McpTransport {
 /// An active connection to an MCP server.
 #[derive(Debug)]
 struct McpConnection {
-    server_id: String,
     server_name: String,
     transport: McpTransport,
     timeout: Duration,
@@ -97,10 +96,77 @@ impl McpClientManager {
         self.request_id.fetch_add(1, Ordering::Relaxed)
     }
 
-    // ── Startup: connect to all enabled servers ─────────────────────────
+    // ── Startup: auto-register + connect to all enabled servers ────────
 
-    /// Called once at backend startup -- connects to all enabled MCP servers.
+    /// Auto-register default MCP servers from `MCP_DEFAULT_SERVERS` env var.
+    /// Idempotent — skips servers whose name already exists in DB.
+    ///
+    /// Env var format (JSON array):
+    /// ```json
+    /// [{"name":"brave","transport":"http","url":"https://...","auth_token":"..."}]
+    /// ```
+    /// On fly.io: `fly secrets set MCP_DEFAULT_SERVERS='[...]'`
+    async fn ensure_default_servers(&self) {
+        let env_val = match std::env::var("MCP_DEFAULT_SERVERS") {
+            Ok(v) if !v.is_empty() => v,
+            _ => return,
+        };
+
+        let defaults: Vec<serde_json::Value> = match serde_json::from_str(&env_val) {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::debug!("MCP: skipping MCP_DEFAULT_SERVERS (parse error: {e})");
+                return;
+            }
+        };
+
+        let existing = match config::list_mcp_servers(&self.db).await {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::warn!("MCP: failed to load servers for default check: {e}");
+                return;
+            }
+        };
+        let existing_names: std::collections::HashSet<String> =
+            existing.iter().map(|s| s.name.clone()).collect();
+
+        for server in &defaults {
+            let name = match server["name"].as_str() {
+                Some(n) if !n.is_empty() => n,
+                _ => continue,
+            };
+
+            if existing_names.contains(name) {
+                tracing::debug!("MCP: default server '{}' already registered, skipping", name);
+                continue;
+            }
+
+            let req = config::CreateMcpServer {
+                name: name.to_string(),
+                transport: server["transport"].as_str().unwrap_or("http").to_string(),
+                command: server["command"].as_str().map(String::from),
+                args: server["args"].as_array().map(|a| {
+                    a.iter().filter_map(|v| v.as_str().map(String::from)).collect()
+                }),
+                env_vars: server.get("env_vars").cloned(),
+                url: server["url"].as_str().map(String::from),
+                enabled: Some(server["enabled"].as_bool().unwrap_or(true)),
+                auth_token: server["auth_token"].as_str().map(String::from),
+                timeout_secs: server["timeout_secs"].as_i64().map(|v| v as i32),
+            };
+
+            match config::create_mcp_server_db(&self.db, &req).await {
+                Ok(cfg) => tracing::info!("MCP: auto-registered default server '{}' (id={})", name, cfg.id),
+                Err(e) => tracing::warn!("MCP: failed to auto-register '{}': {e}", name),
+            }
+        }
+    }
+
+    /// Called once at backend startup -- auto-registers defaults, then connects to all enabled MCP servers.
     pub async fn startup_connect(&self) -> Result<(), String> {
+        // Auto-register default servers from env (idempotent)
+        self.ensure_default_servers().await;
+
         let servers = config::list_mcp_servers(&self.db)
             .await
             .map_err(|e| format!("Failed to load MCP servers: {e}"))?;
@@ -111,22 +177,26 @@ impl McpClientManager {
             return Ok(());
         }
 
-        tracing::info!("MCP: connecting to {} enabled server(s)", enabled.len());
+        tracing::info!("MCP: connecting to {} enabled server(s) in parallel", enabled.len());
 
-        for server in &enabled {
+        // Connect concurrently — all connections are I/O-bound so this is safe
+        // Uses join_all (concurrent on same task) rather than tokio::spawn (requires 'static)
+        let results = futures_util::future::join_all(enabled.iter().map(|server| async move {
+            let name = server.name.clone();
+            let id = server.id.clone();
             match self.connect_server(server).await {
                 Ok(()) => {
-                    tracing::info!(
-                        "MCP: connected to '{}' ({} tools)",
-                        server.name,
-                        self.get_server_tools(&server.id).await.len()
-                    );
+                    let tool_count = self.get_server_tools(&id).await.len();
+                    tracing::info!("MCP: connected to '{}' ({} tools)", name, tool_count);
                 }
                 Err(e) => {
-                    tracing::warn!("MCP: failed to connect to '{}': {}", server.name, e);
+                    tracing::warn!("MCP: failed to connect to '{}': {}", name, e);
                 }
             }
-        }
+        }))
+        .await;
+
+        drop(results);
 
         let total_tools = self.list_all_tools().await.len();
         tracing::info!("MCP: startup complete -- {} external tool(s) available", total_tools);
@@ -205,12 +275,11 @@ impl McpClientManager {
             .map(|t| (t.name.clone(), t.description.clone(), t.input_schema.to_string()))
             .collect();
         if let Err(e) = config::save_discovered_tools(&self.db, &cfg.id, &db_tools).await {
-            tracing::warn!("MCP: failed to persist tools for '{}': {}", cfg.name, e);
+            tracing::error!("MCP: failed to persist tools for '{}': {} — connection will still be usable but tools may not survive restart", cfg.name, e);
         }
 
         // Store connection
         let conn = Arc::new(McpConnection {
-            server_id: cfg.id.clone(),
             server_name: cfg.name.clone(),
             transport,
             timeout,
@@ -329,6 +398,8 @@ impl McpClientManager {
             .client
             .post(url)
             .header("Content-Type", "application/json")
+            // Streamable HTTP (MCP 2025-03-26): request JSON response, not SSE stream
+            .header("Accept", "application/json")
             .timeout(timeout)
             .json(&body);
 
@@ -442,8 +513,8 @@ impl McpClientManager {
         let stdin_mutex = tokio::sync::Mutex::new(stdin);
         let stdout_mutex = tokio::sync::Mutex::new(BufReader::new(stdout));
 
-        // Initialize
-        let _init_result = self
+        // Initialize — kill child on failure to prevent zombie processes
+        let init_result = self
             .stdio_request(
                 &stdin_mutex,
                 &stdout_mutex,
@@ -460,7 +531,13 @@ impl McpClientManager {
                 }),
                 timeout,
             )
-            .await?;
+            .await;
+
+        if let Err(e) = init_result {
+            tracing::error!("MCP stdio init failed for '{}', killing child process: {}", command, e);
+            let _ = child.kill().await;
+            return Err(e);
+        }
 
         // Send initialized notification
         {
@@ -472,18 +549,31 @@ impl McpClientManager {
             let mut line = serde_json::to_string(&notif).unwrap_or_default();
             line.push('\n');
             let mut guard = stdin_mutex.lock().await;
-            guard.write_all(line.as_bytes()).await.map_err(|e| {
-                format!("Failed to send initialized notification: {}", e)
-            })?;
-            guard.flush().await.map_err(|e| {
-                format!("Failed to flush stdin: {}", e)
-            })?;
+            if let Err(e) = guard.write_all(line.as_bytes()).await {
+                tracing::error!("MCP stdio notification failed for '{}', killing child process: {}", command, e);
+                let _ = child.kill().await;
+                return Err(format!("Failed to send initialized notification: {}", e));
+            }
+            if let Err(e) = guard.flush().await {
+                tracing::error!("MCP stdio flush failed for '{}', killing child process: {}", command, e);
+                let _ = child.kill().await;
+                return Err(format!("Failed to flush stdin: {}", e));
+            }
         }
 
-        // List tools
+        // List tools — kill child on failure
         let tools_result = self
             .stdio_request(&stdin_mutex, &stdout_mutex, "tools/list", json!({}), timeout)
-            .await?;
+            .await;
+
+        let tools_result = match tools_result {
+            Ok(result) => result,
+            Err(e) => {
+                tracing::error!("MCP stdio tools/list failed for '{}', killing child process: {}", command, e);
+                let _ = child.kill().await;
+                return Err(e);
+            }
+        };
 
         let tools = parse_tools_list(&tools_result);
 
@@ -604,7 +694,7 @@ impl McpClientManager {
             .iter()
             .map(|t| {
                 let desc = t.description.as_deref().unwrap_or("External MCP tool");
-                let full_desc = format!("[MCP: {}] {}", t.server_name, desc);
+                let full_desc = format!("[PREFERRED — MCP: {}] {}", t.server_name, desc);
                 json!({
                     "name": t.prefixed_name,
                     "description": full_desc,

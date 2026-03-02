@@ -17,9 +17,13 @@ call "%LIB%" :env_check "%~dp0backend\.env" "DATABASE_URL GOOGLE_API_KEY ANTHROP
 :: Docker DB check
 call "%LIB%" :docker_db_check "geminihydra-pg" "%~dp0backend"
 
-:: Kill old processes (graceful)
+:: Kill old processes
 call "%LIB%" :kill_port 8081 "backend"
+call "%LIB%" :wait_port_free 8081
+if errorlevel 1 goto :abort
 call "%LIB%" :kill_port 5176 "frontend dev"
+call "%LIB%" :wait_port_free 5176
+if errorlevel 1 goto :abort
 
 :: Partner check
 call "%LIB%" :partner_check 8082 "ClaudeHydra"
@@ -43,3 +47,9 @@ call "%LIB%" :toast "GeminiHydra v15" "DEV server starting on port 5176"
 :: Start frontend dev server
 echo !CYAN![DEV]!RESET! Starting frontend dev server on port 5176...
 endlocal && cd /d "%~dp0" && npm run dev
+goto :eof
+
+:abort
+echo !RED![ABORT]!RESET! DEV launch failed — fix issues above and retry.
+endlocal
+exit /b 1

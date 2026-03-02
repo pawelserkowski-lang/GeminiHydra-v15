@@ -32,6 +32,19 @@ pub struct FileStructure {
 // Public API
 // ---------------------------------------------------------------------------
 
+/// Async wrapper around [`analyze_file`] that runs tree-sitter parsing on a
+/// blocking thread via [`tokio::task::spawn_blocking`].
+///
+/// Tree-sitter is a CPU-bound parser that should not run on the tokio
+/// async runtime. Use this from any `async` context instead of calling
+/// `analyze_file` directly.
+pub async fn analyze_file_async(path: String, content: String) -> Option<FileStructure> {
+    tokio::task::spawn_blocking(move || analyze_file(&path, &content))
+        .await
+        .ok()
+        .flatten()
+}
+
 /// Analyze a source file and extract its code structure (functions, classes, etc.).
 ///
 /// Uses tree-sitter AST analysis first; falls back to regex-based extraction

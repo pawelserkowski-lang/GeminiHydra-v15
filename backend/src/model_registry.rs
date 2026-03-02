@@ -212,9 +212,34 @@ pub async fn refresh_cache(state: &AppState) -> (HashMap<String, Vec<ModelInfo>>
     let mut all_models: HashMap<String, Vec<ModelInfo>> = HashMap::new();
     let mut errors: Vec<String> = Vec::new();
 
-    // Google — use OAuth or API key credential, with automatic fallback
-    if let Some((cred, is_oauth)) = crate::oauth::get_google_credential(state).await {
-        match fetch_google_models(&state.client, &cred, is_oauth).await {
+    // Prepare credentials for both providers before parallel fetch
+    let google_cred = crate::oauth::get_google_credential(state).await;
+    let anthropic_key = {
+        let rt = state.runtime.read().await;
+        rt.api_keys.get("anthropic").cloned()
+    };
+
+    // Fetch both providers in parallel
+    let (google_result, anthropic_result) = tokio::join!(
+        async {
+            if let Some((cred, is_oauth)) = google_cred {
+                Some((fetch_google_models(&state.client, &cred, is_oauth).await, is_oauth))
+            } else {
+                None
+            }
+        },
+        async {
+            if let Some(ref key) = anthropic_key {
+                Some(fetch_anthropic_models(&state.client, key).await)
+            } else {
+                None
+            }
+        }
+    );
+
+    // Process Google result — preserve OAuth → API key fallback logic
+    if let Some((result, is_oauth)) = google_result {
+        match result {
             Ok(models) => {
                 tracing::info!("model_registry: fetched {} Google models", models.len());
                 all_models.insert("google".to_string(), models);
@@ -258,19 +283,16 @@ pub async fn refresh_cache(state: &AppState) -> (HashMap<String, Vec<ModelInfo>>
         }
     }
 
-    // Anthropic
-    {
-        let rt = state.runtime.read().await;
-        if let Some(key) = rt.api_keys.get("anthropic") {
-            match fetch_anthropic_models(&state.client, key).await {
-                Ok(models) => {
-                    tracing::info!("model_registry: fetched {} Anthropic models", models.len());
-                    all_models.insert("anthropic".to_string(), models);
-                }
-                Err(e) => {
-                    tracing::warn!("model_registry: Anthropic fetch failed: {}", e);
-                    errors.push(format!("anthropic: {}", e));
-                }
+    // Process Anthropic result
+    if let Some(result) = anthropic_result {
+        match result {
+            Ok(models) => {
+                tracing::info!("model_registry: fetched {} Anthropic models", models.len());
+                all_models.insert("anthropic".to_string(), models);
+            }
+            Err(e) => {
+                tracing::warn!("model_registry: Anthropic fetch failed: {}", e);
+                errors.push(format!("anthropic: {}", e));
             }
         }
     }

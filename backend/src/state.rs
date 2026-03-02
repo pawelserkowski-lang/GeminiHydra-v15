@@ -263,6 +263,14 @@ pub struct AppState {
     pub tool_defs_cache: Arc<OnceLock<serde_json::Value>>,
     /// MCP client manager — connects to external MCP servers, discovers tools.
     pub mcp_client: Arc<McpClientManager>,
+    /// GitHub OAuth state (CSRF protection).
+    pub github_oauth_state: Arc<RwLock<Option<String>>>,
+    /// Vercel OAuth state (CSRF protection).
+    pub vercel_oauth_state: Arc<RwLock<Option<String>>>,
+    /// Optional Jaskier Knowledge API URL (e.g. http://jaskier-knowledge.internal:8083).
+    pub knowledge_api_url: Option<String>,
+    /// Optional auth secret for the Knowledge API.
+    pub knowledge_auth_secret: Option<String>,
 }
 
 // ── Shared: readiness helpers ───────────────────────────────────────────────
@@ -292,14 +300,37 @@ impl AppState {
             api_keys.insert("anthropic".to_string(), key);
         }
 
-        // ── Load stored API key from DB (encrypted) ─────────────────────
-        // Priority: DB key overrides env var (user explicitly saved it)
-        if let Ok(Some(row)) = sqlx::query_as::<_, (String, String)>(
-            "SELECT auth_method, api_key_encrypted FROM gh_google_auth WHERE id = 1",
-        )
-        .fetch_optional(&db)
-        .await
-        {
+        // ── Parallel: DB queries + HTTP client build ─────────────────
+        // These three operations are independent — run them concurrently.
+        let (api_key_result, agents_result, client) = tokio::join!(
+            // Load stored API key from DB (encrypted)
+            // Priority: DB key overrides env var (user explicitly saved it)
+            async {
+                sqlx::query_as::<_, (String, String)>(
+                    "SELECT auth_method, api_key_encrypted FROM gh_google_auth WHERE id = 1",
+                )
+                .fetch_optional(&db)
+                .await
+            },
+            // Load agents from DB
+            async {
+                sqlx::query_as::<_, WitcherAgent>("SELECT * FROM gh_agents ORDER BY created_at ASC")
+                    .fetch_all(&db)
+                    .await
+            },
+            // Build HTTP client
+            async {
+                Client::builder()
+                    .pool_max_idle_per_host(10)
+                    .timeout(std::time::Duration::from_secs(120))
+                    .connect_timeout(std::time::Duration::from_secs(5))
+                    .build()
+                    .expect("Failed to build HTTP client")
+            }
+        );
+
+        // Process API key result
+        if let Ok(Some(row)) = api_key_result {
             let (method, encrypted_key) = row;
             if method == "api_key" && !encrypted_key.is_empty() {
                 match crate::oauth::decrypt_token(&encrypted_key) {
@@ -313,14 +344,15 @@ impl AppState {
             }
         }
 
-        // ── Load agents from DB ────────────────────────────────────────
-        let agents_vec = sqlx::query_as::<_, WitcherAgent>("SELECT * FROM gh_agents ORDER BY created_at ASC")
-            .fetch_all(&db)
-            .await
-            .unwrap_or_else(|e| {
-                tracing::error!("Failed to load agents from DB: {}", e);
-                vec![]
-            });
+        // Process agents result
+        let agents_vec = agents_result.unwrap_or_else(|e| {
+            tracing::error!("Failed to load agents from DB: {}", e);
+            vec![]
+        });
+
+        if agents_vec.is_empty() {
+            tracing::warn!("No agents loaded from DB — agent routing will fail. Check gh_agents table.");
+        }
 
         let auth_secret = std::env::var("AUTH_SECRET").ok().filter(|s| !s.is_empty());
         if auth_secret.is_some() {
@@ -329,18 +361,17 @@ impl AppState {
             tracing::info!("AUTH_SECRET not set — authentication disabled (dev mode)");
         }
 
+        let knowledge_api_url = std::env::var("KNOWLEDGE_API_URL").ok().filter(|s| !s.is_empty());
+        let knowledge_auth_secret = std::env::var("KNOWLEDGE_AUTH_SECRET").ok().filter(|s| !s.is_empty());
+        if knowledge_api_url.is_some() {
+            tracing::info!("Knowledge API configured: {}", knowledge_api_url.as_deref().unwrap_or(""));
+        }
+
         tracing::info!(
             "AppState initialised — {} agents loaded, keys: {:?}",
             agents_vec.len(),
             api_keys.keys().collect::<Vec<_>>()
         );
-
-        let client = Client::builder()
-            .pool_max_idle_per_host(10)
-            .timeout(std::time::Duration::from_secs(120))
-            .connect_timeout(std::time::Duration::from_secs(5))
-            .build()
-            .expect("Failed to build HTTP client");
 
         let mcp_client = Arc::new(McpClientManager::new(db.clone(), client.clone()));
 
@@ -362,6 +393,10 @@ impl AppState {
             log_buffer,
             tool_defs_cache: Arc::new(OnceLock::new()),
             mcp_client,
+            github_oauth_state: Arc::new(RwLock::new(None)),
+            vercel_oauth_state: Arc::new(RwLock::new(None)),
+            knowledge_api_url,
+            knowledge_auth_secret,
         }
     }
 
@@ -375,6 +410,8 @@ impl AppState {
             *lock = new_list;
         }
         // Invalidate system prompt cache — agent roster changed
-        self.prompt_cache.write().await.clear();
+        // Use std::mem::take to release the write lock before dropping the old data
+        let old_cache = std::mem::take(&mut *self.prompt_cache.write().await);
+        drop(old_cache);
     }
 }

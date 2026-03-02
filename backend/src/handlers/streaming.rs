@@ -500,7 +500,7 @@ async fn execute_streaming(
     let agent_id = ctx.agent_id.clone();
     let model = used_model;
     tokio::spawn(async move {
-        let _ = sqlx::query(
+        if let Err(e) = sqlx::query(
             "INSERT INTO gh_agent_usage (agent_id, model, input_tokens, output_tokens, total_tokens, latency_ms, success, tier) \
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
         )
@@ -513,7 +513,10 @@ async fn execute_streaming(
         .bind(success)
         .bind(if model.contains("flash") { "flash" } else if model.contains("thinking") { "thinking" } else { "chat" })
         .execute(&db)
-        .await;
+        .await
+        {
+            tracing::error!("Failed to insert agent usage metrics: {}", e);
+        }
     });
 
     let _ = ws_send(sender, &WsServerMessage::Complete { duration_ms: start.elapsed().as_millis() as u64 }).await;
@@ -638,23 +641,27 @@ async fn execute_streaming_gemini(
     let mut contents = if let Some(s) = &sid { load_session_history(&state.db, s).await } else { Vec::new() };
     contents.push(json!({ "role": "user", "parts": [{ "text": ctx.final_user_prompt }] }));
 
-    // #36 — Dynamic max iterations based on prompt complexity, capped by #49 user setting
-    // NOTE: Short prompt ≠ simple task. "refaktoruj cały kod" is 20 chars but extremely complex.
-    // We use generous minimums and let the user setting be the real cap.
+    // #36 — Dynamic max iterations based on prompt complexity
+    // The dynamic floor ensures complex multi-step tasks get enough iterations even if the
+    // user's DB setting is low (default 10). User setting can raise it above the floor.
     let prompt_len = ctx.final_user_prompt.len();
     let file_count = ctx.files_loaded.len();
-    let dynamic_max: usize = if prompt_len < 200 && file_count <= 1 {
+    let dynamic_floor: usize = if prompt_len < 200 && file_count <= 1 {
         15 // Short prompt — still may be complex (e.g. "refactor all code")
     } else if prompt_len < 1000 && file_count <= 3 {
         20 // Medium complexity
     } else {
         25 // Complex multi-file analysis
     };
-    let max_iterations: usize = dynamic_max.min(ctx.max_iterations.max(1) as usize);
+    let max_iterations: usize = dynamic_floor.max(ctx.max_iterations.max(1) as usize);
 
     let mut full_text = String::new();
     let mut has_written_file = false;
     let mut agent_text_len: usize = 0;
+    let mut loop_ended_naturally = true; // true if we exhausted max_iterations without break
+    let mut approx_context_bytes: usize = contents.iter()
+        .map(|c| serde_json::to_string(c).map(|s| s.len()).unwrap_or(0))
+        .sum();
 
     // #39 — Global execution timeout: 5 minutes (relaxed for complex multi-step tasks)
     let execution_start = Instant::now();
@@ -668,6 +675,7 @@ async fn execute_streaming_gemini(
                 message: "Execution timed out after 3 minutes".to_string(),
                 code: Some("TIMEOUT".to_string()),
             }).await;
+            loop_ended_naturally = false;
             break;
         }
 
@@ -741,9 +749,10 @@ async fn execute_streaming_gemini(
                 let (retry_text, _, _, _) = consume_gemini_stream(retry_resp, sender, &cancel).await;
                 full_text.push_str(&retry_text);
             }
+            loop_ended_naturally = false;
             break;
         }
-        if aborted || fcs.is_empty() { break; }
+        if aborted || fcs.is_empty() { loop_ended_naturally = false; break; }
 
         // #37 — Early termination if agent text (excluding tool output) is too small after many iterations
         if iter >= 8 && text.trim().is_empty() {
@@ -756,6 +765,7 @@ async fn execute_streaming_gemini(
                 let _ = ws_send(sender, &WsServerMessage::Token {
                     content: "\n\n[Agent produced no meaningful response after multiple tool calls. Please rephrase your question.]".to_string()
                 }).await;
+                loop_ended_naturally = false;
                 break;
             }
         }
@@ -763,6 +773,7 @@ async fn execute_streaming_gemini(
         let mut model_parts: Vec<Value> = if !text.is_empty() { vec![json!({ "text": text })] } else { vec![] };
         for (_, _, raw) in &fcs { model_parts.push(raw.clone()); }
         contents.push(json!({ "role": "model", "parts": model_parts }));
+        approx_context_bytes += serde_json::to_string(contents.last().unwrap()).map(|s| s.len()).unwrap_or(0);
 
         // Announce all tool calls first (so the frontend can show them as "in progress")
         let tool_count = fcs.len();
@@ -841,9 +852,11 @@ async fn execute_streaming_gemini(
             })
             .collect();
 
-        // Track file-modifying tool usage (write_file or edit_file)
-        for (name, _) in &tool_results {
-            if name == "write_file" || name == "edit_file" { has_written_file = true; }
+        // Track file-modifying tool usage (write_file or edit_file) — only on success
+        for (name, output) in &tool_results {
+            if (name == "write_file" || name == "edit_file") && !output.text.starts_with("TOOL_ERROR:") {
+                has_written_file = true;
+            }
         }
 
         // Stream results to frontend + build Gemini context
@@ -878,102 +891,115 @@ async fn execute_streaming_gemini(
             res_parts.push(fn_response);
         }
 
-        // #27 — Approximate context usage metadata
-        let approx_context_bytes: usize = contents.iter()
-            .map(|c| serde_json::to_string(c).map(|s| s.len()).unwrap_or(0))
-            .sum();
+        // #27 — Approximate context usage metadata (incremental — no re-serialization)
         let context_hint = format!("[CONTEXT: ~{}KB used across {} messages, iteration {}/{}]",
             approx_context_bytes / 1024, contents.len(), iter + 1, max_iterations);
 
-        // #34 — Iteration reminders (relaxed: let agent work autonomously for longer)
+        // #34 — Iteration reminders (analysis-aware: different nudges for analysis vs editing)
         if iter >= 3 {
-            let write_nudge = if has_written_file {
+            let is_analysis = {
+                let lower = ctx.final_user_prompt.to_lowercase();
+                lower.contains("analiz") || lower.contains("audyt") || lower.contains("review")
+                    || lower.contains("sprawdź") || lower.contains("describe") || lower.contains("explain")
+                    || lower.contains("raport") || lower.contains("report") || lower.contains("check")
+                    || lower.contains("przegląd") || lower.contains("summarize") || lower.contains("list")
+            };
+            let write_nudge = if is_analysis {
+                "This is an analytical task. Focus on writing your report/summary with the data gathered so far."
+            } else if has_written_file {
                 "You have applied edits. Continue with remaining tasks or summarize when done."
             } else {
                 "Reminder: if you found issues, use edit_file/write_file to apply fixes."
             };
             let urgency = if iter >= 12 {
-                format!("[SYSTEM: Approaching iteration limit ({}/{}). {} {} Wrap up your remaining work.]", iter + 1, max_iterations, context_hint, write_nudge)
+                format!("[SYSTEM: Approaching iteration limit ({}/{}). {} {} STOP gathering data and write your final response NOW.]", iter + 1, max_iterations, context_hint, write_nudge)
             } else if iter >= 8 {
-                format!("[SYSTEM: {} {} Consider applying edits if you have enough information.]", context_hint, write_nudge)
+                format!("[SYSTEM: {} {} You are past iteration 8 — start synthesizing your findings into a response.]", context_hint, write_nudge)
             } else {
                 format!("[SYSTEM: {} Continue working. {} iterations remaining.]", context_hint, max_iterations - iter - 1)
             };
             res_parts.push(json!({ "text": urgency }));
         }
         contents.push(json!({ "role": "user", "parts": res_parts }));
+        approx_context_bytes += serde_json::to_string(contents.last().unwrap()).map(|s| s.len()).unwrap_or(0);
     }
 
     // #34a — Write-phase enforcement: if agent described a fix but never called edit_file/write_file,
     // give it ONE more Gemini call with ONLY edit/write tools.
-    if !has_written_file && !full_text.is_empty() && agent_text_len > 50 {
-        let fix_keywords = ["fix", "napraw", "zmian", "popraw", "zastosow", "write_file", "edit_file", "key={`", "prefix"];
-        let lower_text = full_text.to_lowercase();
-        let looks_like_fix = fix_keywords.iter().any(|kw| lower_text.contains(kw));
-        if looks_like_fix {
-            tracing::info!("execute_streaming_gemini: agent described a fix but never applied it — forcing edit phase");
-            contents.push(json!({
-                "role": "user",
-                "parts": [{
-                    "text": "[SYSTEM: CRITICAL — You described a fix above but you did NOT actually apply it. The file on disk is UNCHANGED. You MUST call edit_file RIGHT NOW to apply your fix. Use the file path, the exact old_text to find, and the new_text replacement. This is your LAST chance to apply the fix.]"
-                }]
-            }));
-            let mut gen_config = json!({
-                "temperature": ctx.temperature,
-                "topP": ctx.top_p,
-                "maxOutputTokens": ctx.max_tokens
-            });
-            if let Some(tc) = build_thinking_config(&ctx.model, &ctx.thinking_level) {
-                gen_config["thinkingConfig"] = tc;
-            }
-            let edit_only_tools = json!([{
-                "function_declarations": [{
-                    "name": "edit_file",
-                    "description": "Edit an existing file by replacing a specific text section.",
-                    "parameters": { "type": "object", "properties": {
-                        "path": { "type": "string", "description": "Absolute path to the file to edit" },
-                        "old_text": { "type": "string", "description": "Exact text to find and replace" },
-                        "new_text": { "type": "string", "description": "Replacement text" }
-                    }, "required": ["path", "old_text", "new_text"] }
-                }, {
-                    "name": "write_file",
-                    "description": "Write full file content. Use only if edit_file is not suitable.",
-                    "parameters": { "type": "object", "properties": {
-                        "path": { "type": "string", "description": "Absolute path to the file to write" },
-                        "content": { "type": "string", "description": "Full file content to write" }
-                    }, "required": ["path", "content"] }
-                }]
-            }]);
-            let body = json!({
-                "systemInstruction": { "parts": [{ "text": &ctx.system_prompt }] },
-                "contents": contents,
-                "tools": edit_only_tools,
-                "generationConfig": gen_config
-            });
-            if let Ok(resp) = gemini_request_with_retry(&state.client, &parsed_url, &ctx.api_key, ctx.is_oauth, &body).await {
-                state.gemini_circuit.record_success().await;
-                let (write_text, write_fcs, _, _) = consume_gemini_stream(resp, sender, &cancel).await;
-                full_text.push_str(&write_text);
-                agent_text_len += write_text.trim().len();
-                for (name, args, _) in &write_fcs {
-                    if name == "write_file" || name == "edit_file" {
-                        tracing::info!("execute_streaming_gemini: edit-phase enforcement — executing {}", name);
-                        match tokio::time::timeout(TOOL_TIMEOUT, crate::tools::execute_tool(name, args, &state, &ctx.working_directory)).await {
-                            Ok(Ok(output)) => {
-                                has_written_file = true;
-                                let header = format!("\n\n---\n**Tool:** `{}`\n", name);
-                                full_text.push_str(&header);
-                                let _ = ws_send(sender, &WsServerMessage::Token { content: header }).await;
-                                let res_md = format!("```\n{}\n```\n---\n\n", output.text);
-                                full_text.push_str(&res_md);
-                                let _ = ws_send(sender, &WsServerMessage::Token { content: res_md }).await;
-                            }
-                            Ok(Err(e)) => {
-                                tracing::warn!("edit-phase {} failed: {}", name, e);
-                            }
-                            Err(_) => {
-                                tracing::warn!("edit-phase {} timed out", name);
-                            }
+    // Only trigger when the agent's text actually describes code modifications (not simple Q&A).
+    let describes_fix = {
+        let lower = full_text.to_lowercase();
+        lower.contains("edit_file") || lower.contains("write_file") ||
+         lower.contains("zmienił") || lower.contains("zmodyfikował") ||
+         lower.contains("naprawił") || lower.contains("poprawił") ||
+         (lower.contains("fix") && (lower.contains("file") || lower.contains("code") || lower.contains("bug"))) ||
+         (lower.contains("changed") && lower.contains("line")) ||
+         (lower.contains("modified") && lower.contains("file")) ||
+         (lower.contains("applied") && lower.contains("fix")) ||
+         (lower.contains("updated") && lower.contains("code"))
+    };
+    if !has_written_file && !full_text.is_empty() && agent_text_len > 50 && describes_fix {
+        tracing::info!("execute_streaming_gemini: agent described a fix but never applied it — forcing edit phase");
+        contents.push(json!({
+            "role": "user",
+            "parts": [{
+                "text": "[SYSTEM: CRITICAL — You described a fix above but you did NOT actually apply it. The file on disk is UNCHANGED. You MUST call edit_file RIGHT NOW to apply your fix. Use the file path, the exact old_text to find, and the new_text replacement. This is your LAST chance to apply the fix.]"
+            }]
+        }));
+        let mut gen_config = json!({
+            "temperature": ctx.temperature,
+            "topP": ctx.top_p,
+            "maxOutputTokens": ctx.max_tokens
+        });
+        if let Some(tc) = build_thinking_config(&ctx.model, &ctx.thinking_level) {
+            gen_config["thinkingConfig"] = tc;
+        }
+        let edit_only_tools = json!([{
+            "function_declarations": [{
+                "name": "edit_file",
+                "description": "Edit an existing file by replacing a specific text section.",
+                "parameters": { "type": "object", "properties": {
+                    "path": { "type": "string", "description": "Absolute path to the file to edit" },
+                    "old_text": { "type": "string", "description": "Exact text to find and replace" },
+                    "new_text": { "type": "string", "description": "Replacement text" }
+                }, "required": ["path", "old_text", "new_text"] }
+            }, {
+                "name": "write_file",
+                "description": "Write full file content. Use only if edit_file is not suitable.",
+                "parameters": { "type": "object", "properties": {
+                    "path": { "type": "string", "description": "Absolute path to the file to write" },
+                    "content": { "type": "string", "description": "Full file content to write" }
+                }, "required": ["path", "content"] }
+            }]
+        }]);
+        let body = json!({
+            "systemInstruction": { "parts": [{ "text": &ctx.system_prompt }] },
+            "contents": contents,
+            "tools": edit_only_tools,
+            "generationConfig": gen_config
+        });
+        if let Ok(resp) = gemini_request_with_retry(&state.client, &parsed_url, &ctx.api_key, ctx.is_oauth, &body).await {
+            state.gemini_circuit.record_success().await;
+            let (write_text, write_fcs, _, _) = consume_gemini_stream(resp, sender, &cancel).await;
+            full_text.push_str(&write_text);
+            agent_text_len += write_text.trim().len();
+            for (name, args, _) in &write_fcs {
+                if name == "write_file" || name == "edit_file" {
+                    tracing::info!("execute_streaming_gemini: edit-phase enforcement — executing {}", name);
+                    match tokio::time::timeout(TOOL_TIMEOUT, crate::tools::execute_tool(name, args, &state, &ctx.working_directory)).await {
+                        Ok(Ok(output)) => {
+                            let header = format!("\n\n---\n**Tool:** `{}`\n", name);
+                            full_text.push_str(&header);
+                            let _ = ws_send(sender, &WsServerMessage::Token { content: header }).await;
+                            let res_md = format!("```\n{}\n```\n---\n\n", output.text);
+                            full_text.push_str(&res_md);
+                            let _ = ws_send(sender, &WsServerMessage::Token { content: res_md }).await;
+                        }
+                        Ok(Err(e)) => {
+                            tracing::warn!("edit-phase {} failed: {}", name, e);
+                        }
+                        Err(_) => {
+                            tracing::warn!("edit-phase {} timed out", name);
                         }
                     }
                 }
@@ -981,10 +1007,31 @@ async fn execute_streaming_gemini(
         }
     }
 
-    // #34b — Forced synthesis: if agent produced only tool output and no text analysis,
-    // do one final Gemini call WITHOUT tools to force a text response.
-    if agent_text_len < 100 && !full_text.is_empty() {
-        tracing::info!("execute_streaming_gemini: no synthesis text detected (agent_text_len={}) — forcing final synthesis call", agent_text_len);
+    // #34b — Forced synthesis: if the agent hit the iteration limit while still calling tools
+    // (loop_ended_naturally=true), it never got to write a synthesis. Force one final Gemini call
+    // WITHOUT tools so it summarizes all gathered data into a proper report.
+    // Also trigger if agent produced minimal meaningful text (fallback for edge cases).
+    let needs_synthesis = if loop_ended_naturally && !full_text.is_empty() {
+        tracing::info!("execute_streaming_gemini: loop exhausted max_iterations ({}) — agent was still calling tools, forcing synthesis", max_iterations);
+        true
+    } else {
+        let meaningful_len: usize = full_text.lines()
+            .filter(|l| {
+                let t = l.trim();
+                !t.is_empty() && !t.starts_with("---") && !t.starts_with("```")
+                    && !t.starts_with("**🔧") && !t.starts_with("[SYSTEM")
+                    && t.len() > 20
+            })
+            .map(|l| l.trim().len())
+            .sum();
+        if meaningful_len < 200 && !full_text.is_empty() {
+            tracing::info!("execute_streaming_gemini: no synthesis text detected (meaningful_len={}, agent_text_len={}) — forcing synthesis", meaningful_len, agent_text_len);
+            true
+        } else {
+            false
+        }
+    };
+    if needs_synthesis {
         contents.push(json!({
             "role": "user",
             "parts": [{
@@ -1031,6 +1078,7 @@ async fn consume_gemini_stream(
     let mut full_text = String::new();
     let mut fcs = Vec::new();
     let mut malformed = false;
+    let mut stream_error = false;
 
     loop {
         tokio::select! {
@@ -1049,7 +1097,22 @@ async fn consume_gemini_stream(
                             }
                         }
                     }
-                    _ => {
+                    Some(Err(e)) => {
+                        tracing::error!("Stream chunk error: {}", e);
+                        stream_error = true;
+                        for ev in parser.flush() {
+                            match ev {
+                                SseParsedEvent::TextToken(t) => {
+                                    full_text.push_str(&t);
+                                    let _ = ws_send(sender, &WsServerMessage::Token { content: t }).await;
+                                }
+                                SseParsedEvent::FunctionCall { name, args, raw_part } => fcs.push((name, args, raw_part)),
+                                SseParsedEvent::MalformedFunctionCall => malformed = true,
+                            }
+                        }
+                        break;
+                    }
+                    None => {
                         for ev in parser.flush() {
                             match ev {
                                 SseParsedEvent::TextToken(t) => {
@@ -1066,7 +1129,7 @@ async fn consume_gemini_stream(
             }
         }
     }
-    (full_text, fcs, false, malformed)
+    (full_text, fcs, stream_error, malformed)
 }
 
 // ---------------------------------------------------------------------------
@@ -1078,6 +1141,7 @@ async fn resolve_session_agent(state: &AppState, sid: &Uuid, prompt: &str) -> (S
         .bind(sid)
         .fetch_optional(&state.db)
         .await
+        .map_err(|e| tracing::error!("Failed to resolve session agent: {}", e))
         .ok()
         .flatten()
         .and_then(|(a,)| a)
@@ -1089,7 +1153,14 @@ async fn resolve_session_agent(state: &AppState, sid: &Uuid, prompt: &str) -> (S
     let agents = state.agents.read().await;
     let (aid, conf, reas) = super::classify_prompt(prompt, &agents);
 
-    let _ = sqlx::query("UPDATE gh_sessions SET agent_id = $1 WHERE id = $2").bind(&aid).bind(sid).execute(&state.db).await;
+    if let Err(e) = sqlx::query("UPDATE gh_sessions SET agent_id = $1 WHERE id = $2")
+        .bind(&aid)
+        .bind(sid)
+        .execute(&state.db)
+        .await
+    {
+        tracing::error!("Failed to lock session agent: {}", e);
+    }
     (aid, conf, reas)
 }
 
@@ -1098,7 +1169,10 @@ async fn load_session_history(db: &sqlx::PgPool, sid: &Uuid) -> Vec<Value> {
     let mut messages: Vec<Value> = sqlx::query_as::<_, (String, String)>(
         "SELECT role, content FROM gh_chat_messages WHERE session_id = $1 ORDER BY created_at DESC LIMIT 20"
     )
-        .bind(sid).fetch_all(db).await.unwrap_or_default().into_iter().rev()
+        .bind(sid).fetch_all(db).await.unwrap_or_else(|e| {
+            tracing::error!("Failed to load session history: {}", e);
+            vec![]
+        }).into_iter().rev()
         .map(|(r, c)| json!({ "role": if r == "assistant" { "model" } else { "user" }, "parts": [{ "text": c }] }))
         .collect();
 
@@ -1127,10 +1201,16 @@ async fn load_session_history(db: &sqlx::PgPool, sid: &Uuid) -> Vec<Value> {
 }
 
 async fn store_messages(db: &sqlx::PgPool, sid: Option<Uuid>, rid: Uuid, prompt: &str, result: &str, ctx: &ExecuteContext) {
-    let _ = sqlx::query("INSERT INTO gh_chat_messages (id, role, content, model, agent, session_id) VALUES ($1, 'user', $2, $3, $4, $5)")
-        .bind(rid).bind(prompt).bind(Some(&ctx.model)).bind(Some(&ctx.agent_id)).bind(sid).execute(db).await;
+    if let Err(e) = sqlx::query("INSERT INTO gh_chat_messages (id, role, content, model, agent, session_id) VALUES ($1, 'user', $2, $3, $4, $5)")
+        .bind(rid).bind(prompt).bind(Some(&ctx.model)).bind(Some(&ctx.agent_id)).bind(sid).execute(db).await
+    {
+        tracing::error!("Failed to store chat message: {}", e);
+    }
     if !result.is_empty() {
-        let _ = sqlx::query("INSERT INTO gh_chat_messages (id, role, content, model, agent, session_id) VALUES ($1, 'assistant', $2, $3, $4, $5)")
-            .bind(Uuid::new_v4()).bind(result).bind(Some(&ctx.model)).bind(Some(&ctx.reasoning)).bind(sid).execute(db).await;
+        if let Err(e) = sqlx::query("INSERT INTO gh_chat_messages (id, role, content, model, agent, session_id) VALUES ($1, 'assistant', $2, $3, $4, $5)")
+            .bind(Uuid::new_v4()).bind(result).bind(Some(&ctx.model)).bind(Some(&ctx.reasoning)).bind(sid).execute(db).await
+        {
+            tracing::error!("Failed to store chat message: {}", e);
+        }
     }
 }

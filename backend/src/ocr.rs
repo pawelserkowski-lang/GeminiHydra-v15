@@ -10,6 +10,7 @@
 //   DELETE /api/ocr/history/{id} — delete history entry
 
 use std::convert::Infallible;
+use std::sync::Arc;
 use std::time::Instant;
 
 use axum::extract::{Path, Query, State};
@@ -20,7 +21,7 @@ use axum::Json;
 use futures_util::Stream;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, Semaphore};
 use tokio_stream::wrappers::ReceiverStream;
 
 use crate::oauth;
@@ -494,82 +495,132 @@ pub async fn ocr_batch_stream(
 
     tokio::spawn(async move {
         let started = Instant::now();
-        let mut results: Vec<OcrBatchItemResult> = Vec::new();
+
+        // Spawn all OCR tasks in parallel with concurrency cap
+        let semaphore = Arc::new(Semaphore::new(3));
+        let mut handles = Vec::with_capacity(body.items.len());
 
         for (idx, item) in body.items.iter().enumerate() {
+            let state = state.clone();
+            let data_base64 = item.data_base64.clone();
+            let mime_type = item.mime_type.clone();
             let filename = item.filename.clone();
+            let preset = item.preset.clone();
+            let language = item.language.clone();
+            let extract_structured = item.extract_structured;
+            let output_format = item.output_format.clone();
+            let batch_prompt = body.prompt.clone();
+            let sem = semaphore.clone();
 
-            // batch/file_start
-            let start_event = Event::default()
-                .event("batch_file_start")
-                .data(json!({"file_index": idx, "filename": &filename, "files_total": files_total}).to_string());
-            let _ = tx.send(Ok(start_event)).await;
+            handles.push(tokio::spawn(async move {
+                let _permit = sem.acquire().await.expect("semaphore closed unexpectedly");
 
-            let detected = detect_preset(item.filename.as_deref(), &item.mime_type);
-            let effective_preset = item.preset.as_deref().or(detected);
-            let format = item.output_format.as_deref().unwrap_or("text");
-            let default_prompt = if format == "html" { OCR_HTML_PROMPT } else { OCR_PROMPT };
-            let base_prompt = body.prompt.as_deref().unwrap_or(default_prompt);
-            let effective_prompt = build_ocr_prompt(base_prompt, item.language.as_deref(), effective_preset);
+                let detected = detect_preset(filename.as_deref(), &mime_type);
+                let effective_preset = preset.as_deref().or(detected);
+                let format = output_format.as_deref().unwrap_or("text");
+                let default_prompt = if format == "html" { OCR_HTML_PROMPT } else { OCR_PROMPT };
+                let base_prompt_str = batch_prompt.as_deref().unwrap_or(default_prompt);
+                let effective_prompt = build_ocr_prompt(base_prompt_str, language.as_deref(), effective_preset);
 
-            match ocr_with_gemini(&state, &item.data_base64, &item.mime_type, &effective_prompt).await {
-                Ok((text, confidence)) => {
-                    let pages = if format == "html" { split_html_into_pages(&text) } else { split_into_pages(&text) };
-                    let total_pages = pages.len().max(1);
+                let ocr_result = ocr_with_gemini(&state, &data_base64, &mime_type, &effective_prompt).await;
 
-                    let structured_data = if item.extract_structured == Some(true)
-                        && matches!(effective_preset, Some("invoice" | "receipt"))
-                    {
-                        extract_structured_data(&state, &text).await.ok()
-                    } else {
-                        None
-                    };
+                // Post-process OCR result
+                match ocr_result {
+                    Ok((text, confidence)) => {
+                        let pages = if format == "html" { split_html_into_pages(&text) } else { split_into_pages(&text) };
+                        let total_pages = pages.len().max(1);
 
-                    let response = OcrResponse {
-                        text,
-                        pages,
-                        total_pages,
-                        processing_time_ms: started.elapsed().as_millis() as u64,
-                        provider: "gemini".to_string(),
-                        output_format: format.to_string(),
-                        confidence,
-                        detected_preset: detected.map(|s| s.to_string()),
-                        structured_data,
-                    };
+                        let structured_data = if extract_structured == Some(true)
+                            && matches!(effective_preset, Some("invoice" | "receipt"))
+                        {
+                            extract_structured_data(&state, &text).await.ok()
+                        } else {
+                            None
+                        };
 
-                    // Save to history
-                    let db = state.db.clone();
-                    let resp_clone = response.clone();
-                    let fn_clone = filename.clone();
-                    let mime = item.mime_type.clone();
-                    let preset_str = item.preset.clone().or_else(|| detected.map(|s| s.to_string()));
-                    tokio::spawn(async move {
-                        let _ = save_ocr_result(&db, fn_clone.as_deref(), &mime, preset_str.as_deref(), &resp_clone).await;
-                    });
+                        let response = OcrResponse {
+                            text,
+                            pages,
+                            total_pages,
+                            processing_time_ms: 0, // will be set when sending
+                            provider: "gemini".to_string(),
+                            output_format: format.to_string(),
+                            confidence,
+                            detected_preset: detected.map(|s| s.to_string()),
+                            structured_data,
+                        };
 
-                    let result = OcrBatchItemResult {
-                        filename: filename.clone(),
-                        response: Some(response),
-                        error: None,
-                    };
-                    let done_event = Event::default()
-                        .event("batch_file_done")
-                        .data(serde_json::to_string(&json!({"file_index": idx, "result": &result})).unwrap_or_default());
-                    let _ = tx.send(Ok(done_event)).await;
-                    results.push(result);
+                        // Save to history
+                        let db = state.db.clone();
+                        let resp_clone = response.clone();
+                        let fn_clone = filename.clone();
+                        let mime_clone = mime_type.clone();
+                        let preset_str = preset.clone().or_else(|| detected.map(|s| s.to_string()));
+                        tokio::spawn(async move {
+                            if let Err(e) = save_ocr_result(&db, fn_clone.as_deref(), &mime_clone, preset_str.as_deref(), &resp_clone).await {
+                                tracing::error!("Failed to save OCR result: {e}");
+                            }
+                        });
+
+                        (idx, filename, Ok(response))
+                    }
+                    Err(e) => {
+                        tracing::error!("Batch OCR file {idx} failed: {e}");
+                        (idx, filename, Err(e))
+                    }
+                }
+            }));
+        }
+
+        // Await all handles in order and send SSE events sequentially
+        let mut results: Vec<OcrBatchItemResult> = Vec::new();
+
+        for handle in handles {
+            match handle.await {
+                Ok((idx, filename, ocr_result)) => {
+                    // batch/file_start
+                    let start_event = Event::default()
+                        .event("batch_file_start")
+                        .data(json!({"file_index": idx, "filename": &filename, "files_total": files_total}).to_string());
+                    let _ = tx.send(Ok(start_event)).await;
+
+                    match ocr_result {
+                        Ok(mut response) => {
+                            // Set actual elapsed time
+                            response.processing_time_ms = started.elapsed().as_millis() as u64;
+
+                            let result = OcrBatchItemResult {
+                                filename: filename.clone(),
+                                response: Some(response),
+                                error: None,
+                            };
+                            let done_event = Event::default()
+                                .event("batch_file_done")
+                                .data(serde_json::to_string(&json!({"file_index": idx, "result": &result})).unwrap_or_default());
+                            let _ = tx.send(Ok(done_event)).await;
+                            results.push(result);
+                        }
+                        Err(e) => {
+                            let result = OcrBatchItemResult {
+                                filename: filename.clone(),
+                                response: None,
+                                error: Some(e.clone()),
+                            };
+                            let err_event = Event::default()
+                                .event("batch_file_error")
+                                .data(json!({"file_index": idx, "filename": &filename, "error": e}).to_string());
+                            let _ = tx.send(Ok(err_event)).await;
+                            results.push(result);
+                        }
+                    }
                 }
                 Err(e) => {
-                    tracing::error!("Batch OCR file {idx} failed: {e}");
-                    let result = OcrBatchItemResult {
-                        filename: filename.clone(),
+                    tracing::error!("Batch OCR task panicked: {e}");
+                    results.push(OcrBatchItemResult {
+                        filename: None,
                         response: None,
-                        error: Some(e.clone()),
-                    };
-                    let err_event = Event::default()
-                        .event("batch_file_error")
-                        .data(json!({"file_index": idx, "filename": &filename, "error": e}).to_string());
-                    let _ = tx.send(Ok(err_event)).await;
-                    results.push(result);
+                        error: Some(format!("Task panicked: {e}")),
+                    });
                 }
             }
         }
@@ -734,6 +785,7 @@ async fn ocr_with_gemini(
     let builder = oauth::apply_google_auth(builder, &credential, is_oauth);
 
     let response = builder
+        .timeout(std::time::Duration::from_secs(120))
         .send()
         .await
         .map_err(|e| format!("Gemini API request failed: {e}"))?;

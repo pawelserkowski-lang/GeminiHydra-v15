@@ -357,6 +357,10 @@ async fn execute_a2a_task(
     let mut contents = vec![json!({ "parts": [{ "text": ctx.final_user_prompt }] })];
     let max_iter = 5.min(ctx.max_iterations as usize);
 
+    let mut cumulative_tool_errors = 0usize;
+    const MAX_CUMULATIVE_ERRORS: usize = 10;
+    const MAX_TOOL_ERRORS: usize = 5;
+
     for _iter in 0..max_iter {
         let body = json!({
             "systemInstruction": { "parts": [{ "text": ctx.system_prompt }] },
@@ -422,6 +426,7 @@ async fn execute_a2a_task(
 
         // Execute tools
         let mut result_parts = Vec::new();
+        let mut tool_error_count = 0usize;
         for fc in &function_calls {
             let name = fc["name"].as_str().unwrap_or("");
             let args = &fc["args"];
@@ -429,7 +434,10 @@ async fn execute_a2a_task(
             let output = if name == "call_agent" {
                 match Box::pin(execute_agent_call(state, args, ctx.call_depth)).await {
                     Ok(text) => text,
-                    Err(e) => format!("AGENT_CALL_ERROR: {}", e),
+                    Err(e) => {
+                        tracing::error!("A2A agent call '{}' failed: {}", name, e);
+                        format!("AGENT_CALL_ERROR: {}", e)
+                    }
                 }
             } else {
                 match tokio::time::timeout(
@@ -453,6 +461,22 @@ async fn execute_a2a_task(
                 }
             };
 
+            // Track tool errors and abort if too many consecutive failures
+            if output.starts_with("TOOL_ERROR:") || output.starts_with("AGENT_CALL_ERROR:") {
+                tool_error_count += 1;
+                tracing::warn!("A2A tool error ({}/{}): {} — {}", tool_error_count, MAX_TOOL_ERRORS, name, &output[..output.len().min(200)]);
+                if tool_error_count >= MAX_TOOL_ERRORS {
+                    tracing::error!("A2A: too many tool errors ({}) — aborting task", tool_error_count);
+                    result_parts.push(json!({
+                        "functionResponse": {
+                            "name": name,
+                            "response": { "result": format!("FATAL: Too many tool errors ({}). Stopping execution. Last error: {}", tool_error_count, output) }
+                        }
+                    }));
+                    break;
+                }
+            }
+
             result_parts.push(json!({
                 "functionResponse": {
                     "name": name,
@@ -460,6 +484,14 @@ async fn execute_a2a_task(
                 }
             }));
         }
+
+        // Track cumulative errors across turns
+        cumulative_tool_errors += tool_error_count;
+        if cumulative_tool_errors >= MAX_CUMULATIVE_ERRORS {
+            tracing::error!("A2A: cumulative tool errors ({}) exceeded limit — terminating", cumulative_tool_errors);
+            break;
+        }
+
         contents.push(json!({ "role": "user", "parts": result_parts }));
     }
 

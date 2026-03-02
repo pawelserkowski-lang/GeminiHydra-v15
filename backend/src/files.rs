@@ -484,16 +484,27 @@ async fn build_directory_context(
 
     *total_size += listing.len();
 
-    // Auto-read key project files found in this directory
-    let mut key_files: Vec<FileContext> = Vec::new();
-    for key_name in KEY_PROJECT_FILES {
+    // Auto-read key project files found in this directory (parallel)
+    let mut set = tokio::task::JoinSet::new();
+    for (idx, key_name) in KEY_PROJECT_FILES.iter().enumerate() {
         let full_path = format!("{}\\{}", dir_path.trim_end_matches('\\'), key_name);
-        // Removed redundant p.is_file() check as read_file_for_context handles it
-        if let Some(fc) = read_file_for_context(&full_path)
-            .await
-            .ok()
-            .filter(|fc| *total_size + fc.content.len() <= MAX_TOTAL_SIZE)
-        {
+        set.spawn(async move {
+            let result = read_file_for_context(&full_path).await.ok();
+            (idx, result)
+        });
+    }
+
+    // Collect results and sort by original KEY_PROJECT_FILES order (priority)
+    let mut file_results = Vec::new();
+    while let Some(Ok(result)) = set.join_next().await {
+        file_results.push(result);
+    }
+    file_results.sort_by_key(|(idx, _)| *idx);
+
+    // Apply budget filter sequentially (preserves priority ordering)
+    let mut key_files: Vec<FileContext> = Vec::new();
+    for (_idx, result) in file_results {
+        if let Some(fc) = result.filter(|fc| *total_size + fc.content.len() <= MAX_TOTAL_SIZE) {
             *total_size += fc.content.len();
             key_files.push(fc);
         }
@@ -630,7 +641,22 @@ pub struct FileEntry {
 }
 
 /// List contents of a directory, sorted: directories first, then files alphabetically.
+///
+/// The entire read is wrapped in a 30-second timeout to guard against
+/// slow or unresponsive filesystems (e.g., network mounts).
 pub async fn list_directory(path: &str, show_hidden: bool) -> Result<Vec<FileEntry>, FileError> {
+    tokio::time::timeout(
+        std::time::Duration::from_secs(30),
+        list_directory_inner(path, show_hidden),
+    )
+    .await
+    .map_err(|_| FileError {
+        path: path.to_string(),
+        reason: "Directory listing timed out after 30s".to_string(),
+    })?
+}
+
+async fn list_directory_inner(path: &str, show_hidden: bool) -> Result<Vec<FileEntry>, FileError> {
     // Canonicalize path to prevent traversal attacks
     let dir = validate_and_canonicalize(path, BLOCKED_READ_PREFIXES)?;
 

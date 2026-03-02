@@ -433,6 +433,86 @@ pub(crate) async fn classify_with_gemini(
 }
 
 // ---------------------------------------------------------------------------
+// Jaskier Knowledge API — optional project context enrichment
+// ---------------------------------------------------------------------------
+
+/// Fetch project knowledge from the Jaskier Knowledge API.
+/// Returns a formatted section to append to the system prompt, or an empty
+/// string if the API is unavailable, not configured, or returns an error.
+pub(crate) async fn fetch_knowledge_context(state: &AppState, project_id: &str) -> String {
+    let base_url = match &state.knowledge_api_url {
+        Some(url) => url,
+        None => return String::new(),
+    };
+
+    if project_id.is_empty() {
+        return String::new();
+    }
+
+    let url = format!("{}/api/knowledge/projects/{}", base_url.trim_end_matches('/'), project_id);
+
+    let mut req = state.client.get(&url).timeout(std::time::Duration::from_secs(3));
+    if let Some(secret) = &state.knowledge_auth_secret {
+        req = req.header("Authorization", format!("Bearer {}", secret));
+    }
+
+    let resp = match req.send().await {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::warn!("Knowledge API request failed: {}", e);
+            return String::new();
+        }
+    };
+
+    if !resp.status().is_success() {
+        tracing::warn!("Knowledge API returned status {}", resp.status());
+        return String::new();
+    }
+
+    let body: serde_json::Value = match resp.json().await {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::warn!("Knowledge API response parse failed: {}", e);
+            return String::new();
+        }
+    };
+
+    // Build a concise summary from the response
+    let mut parts = Vec::new();
+
+    if let Some(name) = body.get("name").and_then(|v| v.as_str()) {
+        parts.push(format!("**Project**: {}", name));
+    }
+    if let Some(count) = body.get("components_count").and_then(|v| v.as_u64()) {
+        parts.push(format!("**Components**: {}", count));
+    }
+    if let Some(count) = body.get("dependencies_count").and_then(|v| v.as_u64()) {
+        parts.push(format!("**Dependencies**: {}", count));
+    }
+    if let Some(views) = body.get("views").and_then(|v| v.as_array()) {
+        let names: Vec<&str> = views.iter().filter_map(|v| v.as_str()).collect();
+        if !names.is_empty() {
+            parts.push(format!("**Views**: {}", names.join(", ")));
+        }
+    }
+    if let Some(hooks) = body.get("hooks").and_then(|v| v.as_array()) {
+        let names: Vec<&str> = hooks.iter().filter_map(|v| v.as_str()).collect();
+        if !names.is_empty() {
+            parts.push(format!("**Hooks**: {}", names.join(", ")));
+        }
+    }
+
+    if parts.is_empty() {
+        return String::new();
+    }
+
+    format!(
+        "\n\n## Project Knowledge (from Jaskier Knowledge Base)\n{}",
+        parts.join("\n")
+    )
+}
+
+// ---------------------------------------------------------------------------
 // System Prompt Factory
 // ---------------------------------------------------------------------------
 
@@ -458,11 +538,13 @@ pub(crate) fn build_system_prompt(agent_id: &str, agents: &[WitcherAgent], langu
 - Write ALL text in **{language}** (except code/paths/identifiers).
 - You run on a LOCAL Windows machine with FULL filesystem access. NEVER say you can't access files.
 - **ACT IMMEDIATELY — NEVER DESCRIBE, NEVER ASK.** When a task requires reading files, listing directories, or searching code, call the tools RIGHT NOW. Do NOT write sentences like "I would read the file..." or "Let me check..." or "First, I'll..." — just call the tool. Never output a numbered plan of steps — execute them.
-- **FIX IT, DON'T JUST PROPOSE.** When you find a bug, error, or problem — USE `edit_file` TO APPLY THE FIX IMMEDIATELY. For small changes prefer `edit_file` (replaces targeted section), for new files or full rewrites use `write_file`. Do NOT just show code snippets and say "you should change X to Y". Actually edit the file. The workflow is: read → diagnose → FIX (edit_file) → report what you changed. Only propose without applying if the fix would be destructive (deleting data, dropping tables) or if you're genuinely unsure which of multiple approaches is correct.
+- **FIX IT, DON'T JUST PROPOSE.** When the user EXPLICITLY asks you to fix, change, refactor, or improve code — USE `edit_file` TO APPLY THE FIX IMMEDIATELY. For small changes prefer `edit_file` (replaces targeted section), for new files or full rewrites use `write_file`. Do NOT just show code snippets and say "you should change X to Y". Actually edit the file. The workflow is: read → diagnose → FIX (edit_file) → report what you changed. Only propose without applying if the fix would be destructive (deleting data, dropping tables) or if you're genuinely unsure which of multiple approaches is correct.
+- **ANALYSIS vs EDITING.** If the user asks to "analyze", "describe", "explain", "check", "review", "list", "show", or "summarize" — DO NOT use `edit_file` or `write_file`. Only read and report. Use editing tools ONLY when the user's intent is clearly to CHANGE code (keywords: "fix", "change", "update", "refactor", "add", "remove", "implement", "napraw", "zmień", "popraw", "dodaj", "usuń", "zaimplementuj").
 - **NEVER ASK THE USER FOR CONFIRMATION OR CLARIFICATION.** Do NOT ask "Do you want me to...?", "Should I...?", "Which file should I...?". Instead, use your tools to gather the information you need, make decisions, and deliver results.
 - Use dedicated tools (list_directory, read_file, search_files, get_code_structure) — NEVER execute_command for file ops.
 - Call `get_code_structure` BEFORE `read_file` on source files to identify what to read.
 - Request MULTIPLE tool calls in PARALLEL when independent.
+- **BUDGET YOUR ITERATIONS.** You have a limited number of tool calls (~15-25). For multi-step tasks, DO NOT spend all iterations on data gathering. Plan ahead: gather essential data in the first 60-70% of iterations, then STOP calling tools and write your report. If the system tells you iteration 8+, start writing your analysis with what you have. An incomplete report is better than no report.
 - **ALWAYS ANSWER WITH TEXT.** After calling tools and applying a fix with edit_file, you MUST write a structured report explaining: what the bug was, what you changed (before/after snippets), and why. Include file paths and line numbers. If you only analyzed (no fix needed), write conclusions with headers, tables, and code refs. NEVER end with only tool outputs — always write at least a paragraph of explanation.
 - **PROPOSE NEXT TASKS.** At the END of every completed task, add a markdown heading **Co dalej?** with exactly 5 numbered follow-up tasks the user could ask you to do next. Make them specific, actionable, and relevant to the work just completed. Example: if you fixed a bug, suggest writing tests, checking similar patterns, refactoring related code, updating docs, or running a full audit. Format each as a one-line imperative sentence.
 - Use `call_agent` to delegate subtasks to specialized agents (e.g., code analysis → Eskel, debugging → Lambert).
@@ -707,6 +789,47 @@ pub(crate) async fn prepare_execution(
         });
         prompt
     });
+
+    // Jaskier Knowledge API — enrich system prompt with project context (optional, non-blocking)
+    let system_prompt = if state.knowledge_api_url.is_some() {
+        let project_id = if !working_directory.is_empty() {
+            std::path::Path::new(&working_directory)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("")
+                .to_lowercase()
+        } else {
+            "geminihydra-v15".to_string()
+        };
+        let knowledge_ctx = fetch_knowledge_context(state, &project_id).await;
+        if knowledge_ctx.is_empty() {
+            system_prompt
+        } else {
+            format!("{}{}", system_prompt, knowledge_ctx)
+        }
+    } else {
+        system_prompt
+    };
+
+    // MCP tool awareness — inform agent about available MCP tools (PRIORITY)
+    let system_prompt = {
+        let mcp_tools = state.mcp_client.list_all_tools().await;
+        if mcp_tools.is_empty() {
+            system_prompt
+        } else {
+            let tool_list: Vec<&str> = mcp_tools.iter()
+                .map(|t| t.prefixed_name.as_str())
+                .collect();
+            format!("{}\n\n## MCP Tools (PRIORITY)\n\
+                You have access to **{} external MCP tools** from connected servers.\n\
+                **ALWAYS prefer MCP tools over native equivalents when available.** \
+                MCP tools provide richer functionality and are maintained by their respective servers.\n\
+                Available: `{}`\n\
+                MCP tools are prefixed with `mcp_` followed by server and tool name.\n\
+                Use `list_mcp_tools` to see full descriptions, or call them directly by name.",
+                system_prompt, mcp_tools.len(), tool_list.join("`, `"))
+        }
+    };
 
     let detected_paths = crate::files::extract_file_paths(&prompt_clean);
 
@@ -968,6 +1091,101 @@ pub(crate) fn build_tools(state: &crate::state::AppState) -> Value {
                 }, "required": ["url"] }
             },
             {
+                "name": "git_status",
+                "description": "Show working tree status (current branch, staged/unstaged changes, untracked files) for a git repository.",
+                "parameters": { "type": "object", "properties": { "repo_path": { "type": "string", "description": "Absolute path to the git repository" } }, "required": ["repo_path"] }
+            },
+            {
+                "name": "git_log",
+                "description": "Show commit history as a graph with branch decorations. Returns up to 50 most recent commits.",
+                "parameters": { "type": "object", "properties": { "repo_path": { "type": "string", "description": "Absolute path to the git repository" }, "count": { "type": "integer", "description": "Number of commits to show (default: 20, max: 50)" } }, "required": ["repo_path"] }
+            },
+            {
+                "name": "git_diff",
+                "description": "Show changes (diff) in a git repository. Use target='staged' for staged changes, or a commit/branch reference.",
+                "parameters": { "type": "object", "properties": { "repo_path": { "type": "string", "description": "Absolute path to the git repository" }, "target": { "type": "string", "description": "What to diff: 'staged', '--stat', or a commit/branch reference (default: working tree --stat)" } }, "required": ["repo_path"] }
+            },
+            {
+                "name": "git_branch",
+                "description": "List, create, or switch git branches. Actions: 'list' (default), 'create:branch-name', 'switch:branch-name'.",
+                "parameters": { "type": "object", "properties": { "repo_path": { "type": "string", "description": "Absolute path to the git repository" }, "action": { "type": "string", "description": "Branch action: 'list', 'create:name', or 'switch:name' (default: list)" } }, "required": ["repo_path"] }
+            },
+            {
+                "name": "git_commit",
+                "description": "Stage files and create a git commit. Does NOT push — only local commit. Use files='all' to stage everything, or comma-separated file list.",
+                "parameters": { "type": "object", "properties": { "repo_path": { "type": "string", "description": "Absolute path to the git repository" }, "message": { "type": "string", "description": "Commit message" }, "files": { "type": "string", "description": "Files to stage: 'all' or comma-separated paths (e.g. 'src/main.rs,Cargo.toml'). If omitted, commits already-staged files." } }, "required": ["repo_path", "message"] }
+            },
+            {
+                "name": "github_list_repos",
+                "description": "List GitHub repositories for the authenticated user. Returns name, description, language, stars, and visibility. Requires GitHub OAuth.",
+                "parameters": { "type": "object", "properties": { "sort": { "type": "string", "description": "Sort by: created, updated, pushed, full_name (default: updated)" }, "per_page": { "type": "integer", "description": "Results per page, max 100 (default: 30)" } }, "required": [] }
+            },
+            {
+                "name": "github_get_repo",
+                "description": "Get detailed information about a specific GitHub repository. Requires GitHub OAuth.",
+                "parameters": { "type": "object", "properties": { "owner": { "type": "string", "description": "Repository owner (user or org)" }, "repo": { "type": "string", "description": "Repository name" } }, "required": ["owner", "repo"] }
+            },
+            {
+                "name": "github_list_issues",
+                "description": "List issues for a GitHub repository. Supports filtering by state (open/closed/all). Requires GitHub OAuth.",
+                "parameters": { "type": "object", "properties": { "owner": { "type": "string", "description": "Repository owner" }, "repo": { "type": "string", "description": "Repository name" }, "state": { "type": "string", "description": "Filter by state: open, closed, all (default: open)" } }, "required": ["owner", "repo"] }
+            },
+            {
+                "name": "github_get_issue",
+                "description": "Get a specific GitHub issue with its comments. Requires GitHub OAuth.",
+                "parameters": { "type": "object", "properties": { "owner": { "type": "string", "description": "Repository owner" }, "repo": { "type": "string", "description": "Repository name" }, "number": { "type": "integer", "description": "Issue number" } }, "required": ["owner", "repo", "number"] }
+            },
+            {
+                "name": "github_create_issue",
+                "description": "Create a new issue in a GitHub repository. Requires GitHub OAuth.",
+                "parameters": { "type": "object", "properties": { "owner": { "type": "string", "description": "Repository owner" }, "repo": { "type": "string", "description": "Repository name" }, "title": { "type": "string", "description": "Issue title" }, "body": { "type": "string", "description": "Issue body (markdown)" } }, "required": ["owner", "repo", "title"] }
+            },
+            {
+                "name": "github_create_pr",
+                "description": "Create a pull request in a GitHub repository. Requires GitHub OAuth.",
+                "parameters": { "type": "object", "properties": { "owner": { "type": "string", "description": "Repository owner" }, "repo": { "type": "string", "description": "Repository name" }, "title": { "type": "string", "description": "PR title" }, "body": { "type": "string", "description": "PR body (markdown)" }, "head": { "type": "string", "description": "Branch containing changes" }, "base": { "type": "string", "description": "Branch to merge into (default: main)" } }, "required": ["owner", "repo", "title", "head"] }
+            },
+            {
+                "name": "vercel_list_projects",
+                "description": "List Vercel projects for the authenticated user/team. Returns project names, frameworks, and latest deployments. Requires Vercel OAuth.",
+                "parameters": { "type": "object", "properties": { "limit": { "type": "integer", "description": "Max results (default: 20, max: 100)" } }, "required": [] }
+            },
+            {
+                "name": "vercel_get_deployment",
+                "description": "Get details about a specific Vercel deployment by ID or URL. Requires Vercel OAuth.",
+                "parameters": { "type": "object", "properties": { "deployment_id": { "type": "string", "description": "Deployment ID or URL" } }, "required": ["deployment_id"] }
+            },
+            {
+                "name": "vercel_deploy",
+                "description": "Trigger a new deployment for a Vercel project. Creates a deployment from the latest git commit. Requires Vercel OAuth.",
+                "parameters": { "type": "object", "properties": { "project": { "type": "string", "description": "Project name or ID" }, "target": { "type": "string", "description": "Deployment target: production or preview (default: preview)" } }, "required": ["project"] }
+            },
+            {
+                "name": "fly_list_apps",
+                "description": "List Fly.io applications for the authenticated user. Returns app names, status, and organization. Requires Fly.io PAT (service token).",
+                "parameters": { "type": "object", "properties": { "org_slug": { "type": "string", "description": "Organization slug to filter by (default: personal)" } }, "required": [] }
+            },
+            {
+                "name": "fly_get_status",
+                "description": "Get the status of a specific Fly.io application, including machine states, regions, and health checks. Requires Fly.io PAT.",
+                "parameters": { "type": "object", "properties": { "app_name": { "type": "string", "description": "Name of the Fly.io application" } }, "required": ["app_name"] }
+            },
+            {
+                "name": "fly_get_logs",
+                "description": "Get recent logs for a Fly.io application with allocation details and release info. Requires Fly.io PAT.",
+                "parameters": { "type": "object", "properties": { "app_name": { "type": "string", "description": "Name of the Fly.io application" } }, "required": ["app_name"] }
+            },
+            {
+                "name": "list_zip",
+                "description": "List contents of a ZIP archive (file names, sizes, compressed sizes). Max 100 MB archive.",
+                "parameters": { "type": "object", "properties": { "path": { "type": "string", "description": "Absolute path to the ZIP file" } }, "required": ["path"] }
+            },
+            {
+                "name": "extract_zip_file",
+                "description": "Extract and preview a single file from a ZIP archive. Returns text content or hex preview for binary files. Max 10 MB per file.",
+                "parameters": { "type": "object", "properties": { "path": { "type": "string", "description": "Absolute path to the ZIP archive" }, "file_path": { "type": "string", "description": "Path of the file inside the ZIP to extract" } }, "required": ["path", "file_path"] }
+            },
+            {
                 "name": "call_agent",
                 "description": "Delegate a subtask to another Witcher agent via A2A protocol. The target agent has full tool access and can read files, search code, etc. Use when the task requires specialized expertise (e.g., code analysis → Eskel, debugging → Lambert, data → Triss). Returns the agent's complete response. Max 3 delegation levels.",
                 "parameters": { "type": "object", "properties": { "agent_id": { "type": "string", "description": "Target agent ID (e.g., 'eskel', 'lambert', 'triss', 'yennefer')" }, "task": { "type": "string", "description": "The subtask to delegate. Be specific about what you need and provide context." } }, "required": ["agent_id", "task"] }
@@ -993,6 +1211,7 @@ pub(crate) fn build_tools(state: &crate::state::AppState) -> Value {
 
 /// Build tools including dynamically discovered MCP tools.
 /// Native tools are cached (OnceLock), MCP tools merged at request time.
+/// MCP tools are placed FIRST — they are preferred over native equivalents.
 pub(crate) async fn build_tools_with_mcp(state: &crate::state::AppState) -> serde_json::Value {
     let native = build_tools(state);
     let mcp_decls = state.mcp_client.build_gemini_tool_declarations().await;
@@ -1001,13 +1220,15 @@ pub(crate) async fn build_tools_with_mcp(state: &crate::state::AppState) -> serd
         return native;
     }
 
-    // Clone native and merge MCP declarations into the function_declarations array
+    // MCP tools go FIRST — position advantage for model tool selection
     let mut result = native.clone();
     if let Some(arr) = result.get_mut(0)
         .and_then(|v| v.get_mut("function_declarations"))
         .and_then(|v| v.as_array_mut())
     {
+        let native_tools: Vec<serde_json::Value> = arr.drain(..).collect();
         arr.extend(mcp_decls);
+        arr.extend(native_tools);
     }
     result
 }

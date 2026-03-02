@@ -1,3 +1,5 @@
+#![recursion_limit = "512"]
+
 pub mod a2a;
 pub mod analysis;
 pub mod audit;
@@ -9,7 +11,10 @@ pub mod mcp;
 pub mod model_registry;
 pub mod models;
 pub mod oauth;
+pub mod oauth_github;
+pub mod oauth_vercel;
 pub mod ocr;
+pub mod service_tokens;
 pub mod sessions;
 pub mod state;
 pub mod system_monitor;
@@ -222,6 +227,16 @@ pub fn create_router(state: AppState) -> Router {
         .route("/.well-known/agent-card.json", get(a2a::agent_card))
         // ADK sidecar internal tool bridge (localhost only, no auth)
         .route("/api/internal/tool", post(handlers::internal_tool_execute))
+        // GitHub OAuth (public — must be accessible to complete the auth flow)
+        .route("/api/auth/github/status", get(oauth_github::github_auth_status))
+        .route("/api/auth/github/login", post(oauth_github::github_auth_login))
+        .route("/api/auth/github/callback", post(oauth_github::github_auth_callback))
+        .route("/api/auth/github/logout", post(oauth_github::github_auth_logout))
+        // Vercel OAuth (public — must be accessible to complete the auth flow)
+        .route("/api/auth/vercel/status", get(oauth_vercel::vercel_auth_status))
+        .route("/api/auth/vercel/login", post(oauth_vercel::vercel_auth_login))
+        .route("/api/auth/vercel/callback", post(oauth_vercel::vercel_auth_callback))
+        .route("/api/auth/vercel/logout", post(oauth_vercel::vercel_auth_logout))
         // MCP server endpoint (public — MCP spec requires open access for tool discovery)
         .route("/mcp", post(mcp::server::mcp_handler));
 
@@ -266,6 +281,9 @@ pub fn create_router(state: AppState) -> Router {
         .route("/a2a/message/stream", post(a2a::message_stream))
         .route("/a2a/tasks/{id}", get(a2a::tasks_get))
         .route("/a2a/tasks/{id}/cancel", post(a2a::tasks_cancel))
+        // Service tokens (encrypted PAT storage for Fly.io etc.)
+        .route("/api/tokens", get(service_tokens::list_tokens).post(service_tokens::store_token))
+        .route("/api/tokens/{service}", delete(service_tokens::delete_token))
         // ── MCP routes ────────────────────────────────────────────
         .route("/api/mcp/servers", get(mcp::config::mcp_server_list).post(mcp::config::mcp_server_create))
         .route("/api/mcp/servers/{id}", patch(mcp::config::mcp_server_update).delete(mcp::config::mcp_server_delete))
