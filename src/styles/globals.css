@@ -4,85 +4,7 @@
 @import "tailwindcss";
 @import "./base.css";
 
-/* ============================================
-   MARKDOWN STYLES
-   ============================================ */
-.markdown-body p {
-  margin-bottom: 0.5em;
-}
-.markdown-body p:last-child {
-  margin-bottom: 0;
-}
-.markdown-body pre {
-  background: var(--matrix-code-bg);
-  padding: 0.75rem;
-  border-radius: 0.75rem;
-  overflow-x: auto;
-  border: none;
-  margin: 0.5rem 0;
-}
-.markdown-body code {
-  background: rgba(0, 0, 0, 0.08);
-  padding: 0.1em 0.3em;
-  border-radius: 0.25rem;
-  font-family: var(--font-mono);
-  font-size: 0.9em;
-  color: inherit;
-}
-.markdown-body pre code {
-  background: transparent;
-  padding: 0;
-  color: #e5e7eb;
-}
-
-[data-theme="light"] .markdown-body pre code {
-  color: var(--matrix-text);
-}
-.markdown-body ul,
-.markdown-body ol {
-  margin-left: 1.5em;
-  margin-bottom: 0.5em;
-}
-.markdown-body li {
-  margin-bottom: 0.2em;
-}
-.markdown-body strong {
-  color: inherit;
-  font-weight: bold;
-}
-.markdown-body a {
-  color: #3b82f6;
-  text-decoration: underline;
-}
-.markdown-body h1,
-.markdown-body h2,
-.markdown-body h3,
-.markdown-body h4,
-.markdown-body h5,
-.markdown-body h6 {
-  color: inherit;
-  margin-top: 0.5em;
-  margin-bottom: 0.2em;
-  font-weight: bold;
-}
-.markdown-body blockquote {
-  border-left: 2px solid var(--matrix-accent);
-  padding-left: 0.5em;
-  margin-left: 0;
-  font-style: italic;
-  opacity: 0.8;
-  color: var(--matrix-text-dim);
-}
-
-[data-theme="light"] .markdown-body code {
-  background: rgba(0, 0, 0, 0.07);
-  color: var(--matrix-text);
-}
-
-[data-theme="light"] .markdown-body pre {
-  background: rgba(0, 0, 0, 0.06);
-  color: var(--matrix-text);
-}
+/* .markdown-body styles removed — chat now uses .chat-markdown (base.css) */
 
 /* ============================================
    FOCUS VISIBLE — Keyboard Navigation
@@ -100,9 +22,4 @@ header,
 footer {
   user-select: none;
   -webkit-user-select: none;
-}
-
-.markdown-body {
-  user-select: text;
-  cursor: text;
 }

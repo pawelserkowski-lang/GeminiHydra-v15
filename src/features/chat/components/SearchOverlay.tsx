@@ -137,7 +137,7 @@ function highlightTextInElement(
 }
 
 /**
- * Applies highlight marks in the scroll container's `.markdown-body` elements.
+ * Applies highlight marks in the scroll container's `.chat-markdown` elements.
  * First clears old marks, then injects new <mark> tags for each query occurrence.
  */
 function applyHighlights(container: HTMLElement | null, query: string, activeMatchIndex: number): void {
@@ -147,7 +147,7 @@ function applyHighlights(container: HTMLElement | null, query: string, activeMat
 
   if (!query.trim()) return;
 
-  const messageBodies = container.querySelectorAll('.markdown-body');
+  const messageBodies = container.querySelectorAll('.chat-markdown');
   const lowerQuery = query.toLowerCase();
   let globalMatchIndex = 0;
 

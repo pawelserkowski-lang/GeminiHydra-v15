@@ -191,7 +191,7 @@ export const MessageBubble = memo<MessageBubbleProps>(({ message, isLast, isStre
 
   const bubbleClass = cn(
     'relative max-w-[85%] rounded-2xl px-5 py-4',
-    'text-[15px] leading-relaxed font-mono',
+    'leading-relaxed',
     isUser && [
       theme.isLight
         ? 'bg-emerald-500/15 border border-emerald-500/20 text-black'
@@ -287,7 +287,7 @@ export const MessageBubble = memo<MessageBubbleProps>(({ message, isLast, isStre
         )}
 
         {/* Markdown content with tool output separation (#41) */}
-        <div className="markdown-body prose prose-sm max-w-none break-words">
+        <div className="chat-markdown max-w-none break-words">
           {(() => {
             const cleaned = stripParallelHeader(message.content);
             const segments = splitToolOutput(cleaned);
