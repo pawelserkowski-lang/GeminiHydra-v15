@@ -16,14 +16,13 @@ use sqlx::PgPool;
 /// * `details` — Arbitrary JSON payload with context (IDs, old/new values, etc.).
 /// * `ip` — Client IP address if available.
 pub async fn log_audit(pool: &PgPool, action: &str, details: Value, ip: Option<&str>) {
-    if let Err(e) = sqlx::query(
-        "INSERT INTO gh_audit_log (action, details, ip_address) VALUES ($1, $2, $3)",
-    )
-    .bind(action)
-    .bind(&details)
-    .bind(ip)
-    .execute(pool)
-    .await
+    if let Err(e) =
+        sqlx::query("INSERT INTO gh_audit_log (action, details, ip_address) VALUES ($1, $2, $3)")
+            .bind(action)
+            .bind(&details)
+            .bind(ip)
+            .execute(pool)
+            .await
     {
         tracing::warn!(action = %action, "audit log insert failed: {}", e);
     }

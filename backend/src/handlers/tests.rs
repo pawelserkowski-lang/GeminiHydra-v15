@@ -124,7 +124,8 @@ fn test_unknown_prompt_falls_back_to_eskel() {
 #[test]
 fn test_backend_routes_to_eskel() {
     let agents = test_agents();
-    let (agent, confidence, _) = classify_prompt("add a new api endpoint for user registration", &agents);
+    let (agent, confidence, _) =
+        classify_prompt("add a new api endpoint for user registration", &agents);
     assert_eq!(agent, "eskel");
     assert!(confidence >= 0.7);
 }

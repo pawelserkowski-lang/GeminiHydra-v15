@@ -51,7 +51,10 @@ async fn check_db(state: &AppState) -> bool {
             false
         }
         Err(_) => {
-            tracing::error!("watchdog: DB ping timed out after {}s", DB_PING_TIMEOUT.as_secs());
+            tracing::error!(
+                "watchdog: DB ping timed out after {}s",
+                DB_PING_TIMEOUT.as_secs()
+            );
             false
         }
     }
@@ -59,11 +62,8 @@ async fn check_db(state: &AppState) -> bool {
 
 async fn check_and_refresh_cache(state: &AppState) -> bool {
     let is_stale = {
-        let lock_result = tokio::time::timeout(
-            Duration::from_secs(5),
-            state.model_cache.read(),
-        )
-        .await;
+        let lock_result =
+            tokio::time::timeout(Duration::from_secs(5), state.model_cache.read()).await;
 
         match lock_result {
             Ok(cache) => cache.is_stale(),
@@ -85,7 +85,11 @@ async fn check_and_refresh_cache(state: &AppState) -> bool {
         match refresh_result {
             Ok((models, errors)) => {
                 let total: usize = models.values().map(|v| v.len()).sum();
-                tracing::info!("watchdog: cache refreshed — {} models from {} providers", total, models.len());
+                tracing::info!(
+                    "watchdog: cache refreshed — {} models from {} providers",
+                    total,
+                    models.len()
+                );
                 for err in &errors {
                     tracing::warn!("watchdog: provider fetch error: {}", err);
                 }

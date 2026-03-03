@@ -159,10 +159,12 @@ pub async fn read_file_for_context(path: &str) -> Result<FileContext, FileError>
     }
 
     // Check file exists and size
-    let metadata = tokio::fs::metadata(&canonical).await.map_err(|e| FileError {
-        path: path.to_string(),
-        reason: format!("Cannot access file: {}", e),
-    })?;
+    let metadata = tokio::fs::metadata(&canonical)
+        .await
+        .map_err(|e| FileError {
+            path: path.to_string(),
+            reason: format!("Cannot access file: {}", e),
+        })?;
 
     if !metadata.is_file() {
         return Err(FileError {
@@ -219,11 +221,7 @@ pub async fn read_file_for_context(path: &str) -> Result<FileContext, FileError>
             0
         };
 
-        let middle_size = if tail_start > head_end {
-            tail_start - head_end
-        } else {
-            0
-        };
+        let middle_size = tail_start.saturating_sub(head_end);
 
         if middle_size > 0 && tail_start < raw.len() {
             format!(
@@ -567,21 +565,28 @@ pub async fn write_file(path: &str, content: &str) -> Result<String, FileError> 
     }
 
     // Ensure parent directory exists BEFORE canonicalization (so parent can be resolved)
-    if let Some(parent) = Path::new(path).parent().filter(|p| !p.as_os_str().is_empty() && !p.exists()) {
-        tokio::fs::create_dir_all(parent).await.map_err(|e| FileError {
-            path: path.to_string(),
-            reason: format!("Cannot create parent directory: {}", e),
-        })?;
+    if let Some(parent) = Path::new(path)
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty() && !p.exists())
+    {
+        tokio::fs::create_dir_all(parent)
+            .await
+            .map_err(|e| FileError {
+                path: path.to_string(),
+                reason: format!("Cannot create parent directory: {}", e),
+            })?;
     }
 
     // Canonicalize BEFORE blocklist check — prevents ../ traversal bypass
     // For new files: canonicalize parent + rejoin filename
     let canonical = validate_and_canonicalize(path, BLOCKED_WRITE_PREFIXES)?;
 
-    tokio::fs::write(&canonical, content).await.map_err(|e| FileError {
-        path: path.to_string(),
-        reason: format!("Cannot write file: {}", e),
-    })?;
+    tokio::fs::write(&canonical, content)
+        .await
+        .map_err(|e| FileError {
+            path: path.to_string(),
+            reason: format!("Cannot write file: {}", e),
+        })?;
 
     Ok(format!(
         "Successfully wrote {} bytes to {}",
@@ -602,7 +607,9 @@ mod tests {
     fn test_extract_windows_path() {
         let prompt = r"Odczytaj plik C:\Users\BIURODOM\Desktop\GeminiHydra-v15\package.json";
         let paths = extract_file_paths(prompt);
-        assert!(paths.contains(&r"C:\Users\BIURODOM\Desktop\GeminiHydra-v15\package.json".to_string()));
+        assert!(
+            paths.contains(&r"C:\Users\BIURODOM\Desktop\GeminiHydra-v15\package.json".to_string())
+        );
     }
 
     #[test]
@@ -682,7 +689,8 @@ mod tests {
 
     #[test]
     fn test_block_alternate_data_stream() {
-        let result = validate_and_canonicalize("C:\\Users\\test\\file.txt:hidden", BLOCKED_READ_PREFIXES);
+        let result =
+            validate_and_canonicalize("C:\\Users\\test\\file.txt:hidden", BLOCKED_READ_PREFIXES);
         assert!(result.is_err());
         assert!(result.unwrap_err().reason.contains("alternate data stream"));
     }

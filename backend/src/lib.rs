@@ -7,8 +7,6 @@ pub mod auth;
 pub mod classify;
 pub mod context;
 pub mod error;
-pub mod prompt;
-pub mod tool_defs;
 pub mod files;
 pub mod handlers;
 pub mod logs;
@@ -19,19 +17,21 @@ pub mod oauth;
 pub mod oauth_github;
 pub mod oauth_vercel;
 pub mod ocr;
+pub mod prompt;
 pub mod service_tokens;
 pub mod sessions;
 pub mod state;
 pub mod system_monitor;
+pub mod tool_defs;
 pub mod tools;
 pub mod watchdog;
 
+use axum::Router;
 use axum::extract::State;
 use axum::http::HeaderValue;
 use axum::middleware;
 use axum::routing::{delete, get, post};
-use axum::Router;
-use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
+use tower_governor::{GovernorLayer, governor::GovernorConfigBuilder};
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
@@ -51,7 +51,7 @@ pub async fn request_id_middleware(
     let request_id = uuid::Uuid::new_v4().to_string();
 
     // Record in the current tracing span so all log lines include it.
-    tracing::Span::current().record("request_id", &tracing::field::display(&request_id));
+    tracing::Span::current().record("request_id", tracing::field::display(&request_id));
     tracing::debug!(request_id = %request_id, "assigned correlation ID");
 
     let mut response = next.run(request).await;
@@ -208,22 +208,49 @@ fn create_router_inner(state: AppState, rate_limit: bool) -> Router {
         .route("/api/auth/login", post(oauth::auth_login))
         .route("/api/auth/google/redirect", get(oauth::google_redirect))
         .route("/api/auth/logout", post(oauth::auth_logout))
-        .route("/api/auth/apikey", post(oauth::save_api_key).delete(oauth::delete_api_key))
+        .route(
+            "/api/auth/apikey",
+            post(oauth::save_api_key).delete(oauth::delete_api_key),
+        )
         .route("/api/auth/mode", get(handlers::auth_mode))
         // A2A v0.3 — Agent Card discovery (public, no auth)
         .route("/.well-known/agent-card.json", get(a2a::agent_card))
         // ADK sidecar internal tool bridge (localhost only, no auth)
         .route("/api/internal/tool", post(handlers::internal_tool_execute))
         // GitHub OAuth (public — must be accessible to complete the auth flow)
-        .route("/api/auth/github/status", get(oauth_github::github_auth_status))
-        .route("/api/auth/github/login", post(oauth_github::github_auth_login))
-        .route("/api/auth/github/callback", post(oauth_github::github_auth_callback))
-        .route("/api/auth/github/logout", post(oauth_github::github_auth_logout))
+        .route(
+            "/api/auth/github/status",
+            get(oauth_github::github_auth_status),
+        )
+        .route(
+            "/api/auth/github/login",
+            post(oauth_github::github_auth_login),
+        )
+        .route(
+            "/api/auth/github/callback",
+            post(oauth_github::github_auth_callback),
+        )
+        .route(
+            "/api/auth/github/logout",
+            post(oauth_github::github_auth_logout),
+        )
         // Vercel OAuth (public — must be accessible to complete the auth flow)
-        .route("/api/auth/vercel/status", get(oauth_vercel::vercel_auth_status))
-        .route("/api/auth/vercel/login", post(oauth_vercel::vercel_auth_login))
-        .route("/api/auth/vercel/callback", post(oauth_vercel::vercel_auth_callback))
-        .route("/api/auth/vercel/logout", post(oauth_vercel::vercel_auth_logout))
+        .route(
+            "/api/auth/vercel/status",
+            get(oauth_vercel::vercel_auth_status),
+        )
+        .route(
+            "/api/auth/vercel/login",
+            post(oauth_vercel::vercel_auth_login),
+        )
+        .route(
+            "/api/auth/vercel/callback",
+            post(oauth_vercel::vercel_auth_callback),
+        )
+        .route(
+            "/api/auth/vercel/logout",
+            post(oauth_vercel::vercel_auth_logout),
+        )
         // MCP server endpoint (public — MCP spec requires open access for tool discovery)
         .route("/mcp", post(mcp::server::mcp_handler));
 
@@ -252,12 +279,18 @@ fn create_router_inner(state: AppState, rate_limit: bool) -> Router {
             .expect("Execute rate-limit config is valid");
         Router::new()
             .route("/api/execute", post(handlers::execute))
-            .route_layer(middleware::from_fn_with_state(state.clone(), auth::require_auth))
+            .route_layer(middleware::from_fn_with_state(
+                state.clone(),
+                auth::require_auth,
+            ))
             .layer(GovernorLayer::new(execute_governor))
     } else {
         Router::new()
             .route("/api/execute", post(handlers::execute))
-            .route_layer(middleware::from_fn_with_state(state.clone(), auth::require_auth))
+            .route_layer(middleware::from_fn_with_state(
+                state.clone(),
+                auth::require_auth,
+            ))
     };
 
     // ── Protected routes (require auth when AUTH_SECRET is set) ──────
@@ -266,25 +299,43 @@ fn create_router_inner(state: AppState, rate_limit: bool) -> Router {
         .route("/api/models", get(model_registry::list_models))
         .route("/api/models/refresh", post(model_registry::refresh_models))
         .route("/api/models/pin", post(model_registry::pin_model))
-        .route("/api/models/pin/{use_case}", delete(model_registry::unpin_model))
+        .route(
+            "/api/models/pin/{use_case}",
+            delete(model_registry::unpin_model),
+        )
         .route("/api/models/pins", get(model_registry::list_pins))
         // Logs — backend log ring buffer
-        .route("/api/logs/backend", get(logs::backend_logs).delete(logs::clear_backend_logs))
+        .route(
+            "/api/logs/backend",
+            get(logs::backend_logs).delete(logs::clear_backend_logs),
+        )
         // OCR — text extraction from images and PDFs
         .route("/api/ocr", post(ocr::ocr))
         .route("/api/ocr/stream", post(ocr::ocr_stream))
         .route("/api/ocr/batch/stream", post(ocr::ocr_batch_stream))
         .route("/api/ocr/history", get(ocr::ocr_history))
-        .route("/api/ocr/history/{id}", get(ocr::ocr_history_item).delete(ocr::ocr_history_delete))
+        .route(
+            "/api/ocr/history/{id}",
+            get(ocr::ocr_history_item).delete(ocr::ocr_history_delete),
+        )
         // A2A v0.3 — Agent-to-Agent protocol endpoints
         .route("/a2a/message/send", post(a2a::message_send))
         .route("/a2a/message/stream", post(a2a::message_stream))
         .route("/a2a/tasks/{id}", get(a2a::tasks_get))
         .route("/a2a/tasks/{id}/cancel", post(a2a::tasks_cancel))
         // Service tokens (encrypted PAT storage for Fly.io etc.)
-        .route("/api/tokens", get(service_tokens::list_tokens).post(service_tokens::store_token))
-        .route("/api/tokens/{service}", delete(service_tokens::delete_token))
-        .route_layer(middleware::from_fn_with_state(state.clone(), auth::require_auth));
+        .route(
+            "/api/tokens",
+            get(service_tokens::list_tokens).post(service_tokens::store_token),
+        )
+        .route(
+            "/api/tokens/{service}",
+            delete(service_tokens::delete_token),
+        )
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            auth::require_auth,
+        ));
 
     // ── Metrics endpoint (public, no auth) ─────────────────────────
     let metrics = Router::new().route("/api/metrics", get(metrics_handler));
@@ -308,8 +359,10 @@ fn create_router_inner(state: AppState, rate_limit: bool) -> Router {
         .merge(v1_public)
         // Sessions routes merged separately — they need auth too
         .merge(
-            sessions::session_routes()
-                .route_layer(middleware::from_fn_with_state(state.clone(), auth::require_auth)),
+            sessions::session_routes().route_layer(middleware::from_fn_with_state(
+                state.clone(),
+                auth::require_auth,
+            )),
         )
         // Swagger UI — no auth required
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()));

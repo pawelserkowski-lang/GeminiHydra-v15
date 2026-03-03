@@ -2,11 +2,11 @@
 // Generic encrypted token storage for services like Fly.io.
 // Reuses encrypt_token/decrypt_token from oauth.rs.
 
+use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use axum::Json;
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::oauth::{decrypt_token, encrypt_token};
 use crate::state::AppState;

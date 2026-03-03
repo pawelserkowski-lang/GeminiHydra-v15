@@ -1,7 +1,7 @@
 import { cva, type VariantProps } from 'class-variance-authority';
 import { Loader2 } from 'lucide-react';
 import { type HTMLMotionProps, motion } from 'motion/react';
-import { type ButtonHTMLAttributes, forwardRef, memo, type ReactNode } from 'react';
+import { type ButtonHTMLAttributes, memo, type ReactNode } from 'react';
 import { cn } from '@/shared/utils/cn';
 
 // ============================================
@@ -62,6 +62,7 @@ export interface ButtonProps
   extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, keyof MotionButtonProps>,
     MotionButtonProps,
     VariantProps<typeof buttonVariants> {
+  ref?: React.Ref<HTMLButtonElement>;
   /** Show loading spinner and disable interactions */
   isLoading?: boolean;
   /** Text to show while loading (defaults to children) */
@@ -77,37 +78,44 @@ export interface ButtonProps
 // ============================================
 
 export const Button = memo(
-  forwardRef<HTMLButtonElement, ButtonProps>(
-    (
-      { className, variant, size, isLoading = false, loadingText, leftIcon, rightIcon, children, disabled, ...props },
-      ref,
-    ) => {
-      return (
-        <motion.button
-          ref={ref}
-          className={cn(buttonVariants({ variant, size }), className)}
-          disabled={disabled || isLoading}
-          whileHover={disabled || isLoading ? undefined : { scale: 1.02 }}
-          whileTap={disabled || isLoading ? undefined : { scale: 0.97 }}
-          transition={{ type: 'spring', stiffness: 400, damping: 25 }}
-          {...props}
-        >
-          {isLoading ? (
-            <>
-              <Loader2 className="h-4 w-4 animate-spin" />
-              {loadingText ?? children}
-            </>
-          ) : (
-            <>
-              {leftIcon && <span className="flex-shrink-0">{leftIcon}</span>}
-              {children}
-              {rightIcon && <span className="flex-shrink-0">{rightIcon}</span>}
-            </>
-          )}
-        </motion.button>
-      );
-    },
-  ),
+  ({
+    className,
+    variant,
+    size,
+    isLoading = false,
+    loadingText,
+    leftIcon,
+    rightIcon,
+    children,
+    disabled,
+    ref,
+    ...props
+  }: ButtonProps) => {
+    return (
+      <motion.button
+        ref={ref}
+        className={cn(buttonVariants({ variant, size }), className)}
+        disabled={disabled || isLoading}
+        whileHover={disabled || isLoading ? undefined : { scale: 1.02 }}
+        whileTap={disabled || isLoading ? undefined : { scale: 0.97 }}
+        transition={{ type: 'spring', stiffness: 400, damping: 25 }}
+        {...props}
+      >
+        {isLoading ? (
+          <>
+            <Loader2 className="h-4 w-4 animate-spin" />
+            {loadingText ?? children}
+          </>
+        ) : (
+          <>
+            {leftIcon && <span className="flex-shrink-0">{leftIcon}</span>}
+            {children}
+            {rightIcon && <span className="flex-shrink-0">{rightIcon}</span>}
+          </>
+        )}
+      </motion.button>
+    );
+  },
 );
 
 Button.displayName = 'Button';

@@ -12,6 +12,15 @@ describe('Badge', () => {
     expect(screen.getByText('Active')).toBeInTheDocument();
   });
 
+  it('matches snapshot', () => {
+    const { container } = render(
+      <Badge variant="accent" dot>
+        Snapshot Badge
+      </Badge>,
+    );
+    expect(container).toMatchSnapshot();
+  });
+
   it('renders as a span element', () => {
     const { container } = render(<Badge>Tag</Badge>);
     const span = container.querySelector('span');

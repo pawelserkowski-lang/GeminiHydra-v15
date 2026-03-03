@@ -1,8 +1,8 @@
 //! Settings endpoints: get, update (partial PATCH), and reset to defaults.
 
+use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
-use axum::Json;
 
 use crate::models::{AppSettings, SettingsRow};
 use crate::state::AppState;
@@ -17,9 +17,7 @@ use super::PartialSettings;
 #[utoipa::path(get, path = "/api/settings", tag = "settings",
     responses((status = 200, description = "Current application settings", body = AppSettings))
 )]
-pub async fn get_settings(
-    State(state): State<AppState>,
-) -> Result<Json<AppSettings>, StatusCode> {
+pub async fn get_settings(State(state): State<AppState>) -> Result<Json<AppSettings>, StatusCode> {
     let row = sqlx::query_as::<_, SettingsRow>(
         "SELECT temperature, max_tokens, default_model, language, theme, welcome_message, \
          use_docker_sandbox, top_p, response_style, max_iterations, thinking_level, working_directory, force_model \
@@ -46,16 +44,14 @@ pub async fn update_settings(
         .welcome_message
         .as_ref()
         .is_some_and(|s| s.len() > 10_000)
-        || patch
-            .default_model
-            .as_ref()
-            .is_some_and(|s| s.len() > 200)
+        || patch.default_model.as_ref().is_some_and(|s| s.len() > 200)
         || patch.response_style.as_ref().is_some_and(|s| {
             !["concise", "balanced", "detailed", "technical"].contains(&s.as_str())
         })
-        || patch.thinking_level.as_ref().is_some_and(|s| {
-            !["none", "minimal", "low", "medium", "high"].contains(&s.as_str())
-        })
+        || patch
+            .thinking_level
+            .as_ref()
+            .is_some_and(|s| !["none", "minimal", "low", "medium", "high"].contains(&s.as_str()))
     {
         return Err(StatusCode::PAYLOAD_TOO_LARGE);
     }
@@ -85,9 +81,7 @@ pub async fn update_settings(
     let response_style = patch.response_style.unwrap_or(current.response_style);
     let max_iterations = patch.max_iterations.unwrap_or(current.max_iterations);
     let thinking_level = patch.thinking_level.unwrap_or(current.thinking_level);
-    let working_directory = patch
-        .working_directory
-        .unwrap_or(current.working_directory);
+    let working_directory = patch.working_directory.unwrap_or(current.working_directory);
     // Empty string = clear force_model (set to NULL); absent = keep current; model ID = force
     let force_model = match patch.force_model {
         None => current.force_model,

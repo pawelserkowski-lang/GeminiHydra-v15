@@ -2,7 +2,7 @@
 // prompt.rs — System prompt building & knowledge context (extracted from handlers/mod.rs)
 // ---------------------------------------------------------------------------
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::models::WitcherAgent;
 use crate::state::AppState;
@@ -24,9 +24,16 @@ pub async fn fetch_knowledge_context(state: &AppState, project_id: &str) -> Stri
         return String::new();
     }
 
-    let url = format!("{}/api/knowledge/projects/{}", base_url.trim_end_matches('/'), project_id);
+    let url = format!(
+        "{}/api/knowledge/projects/{}",
+        base_url.trim_end_matches('/'),
+        project_id
+    );
 
-    let mut req = state.client.get(&url).timeout(std::time::Duration::from_secs(3));
+    let mut req = state
+        .client
+        .get(&url)
+        .timeout(std::time::Duration::from_secs(3));
     if let Some(secret) = &state.knowledge_auth_secret {
         req = req.header("Authorization", format!("Bearer {}", secret));
     }
@@ -91,14 +98,34 @@ pub async fn fetch_knowledge_context(state: &AppState, project_id: &str) -> Stri
 // System Prompt Factory
 // ---------------------------------------------------------------------------
 
-pub fn build_system_prompt(agent_id: &str, agents: &[WitcherAgent], language: &str, model: &str, working_directory: &str) -> String {
-    let agent = agents.iter().find(|a| a.id == agent_id).unwrap_or(&agents[0]);
+pub fn build_system_prompt(
+    agent_id: &str,
+    agents: &[WitcherAgent],
+    language: &str,
+    model: &str,
+    working_directory: &str,
+) -> String {
+    let agent = agents
+        .iter()
+        .find(|a| a.id == agent_id)
+        .unwrap_or(&agents[0]);
 
     let roster: String = agents
         .iter()
         .map(|a| {
-            let kw = if a.keywords.is_empty() { String::new() }
-                else { format!(" [{}]", a.keywords.iter().take(5).cloned().collect::<Vec<_>>().join(", ")) };
+            let kw = if a.keywords.is_empty() {
+                String::new()
+            } else {
+                format!(
+                    " [{}]",
+                    a.keywords
+                        .iter()
+                        .take(5)
+                        .cloned()
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+            };
             format!("  - {} ({}) — {}{}", a.name, a.role, a.description, kw)
         })
         .collect::<Vec<_>>()

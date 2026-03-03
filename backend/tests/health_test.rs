@@ -5,10 +5,10 @@
 // connection to load agents. These tests use a minimal router to avoid
 // that dependency.
 
-use axum::http::StatusCode;
-use axum::routing::get;
 use axum::body::Body;
 use axum::http::Request;
+use axum::http::StatusCode;
+use axum::routing::get;
 use http_body_util::BodyExt;
 use serde_json::Value;
 use tower::ServiceExt;
@@ -17,15 +17,24 @@ use tower::ServiceExt;
 /// without requiring AppState (which needs a DB connection).
 fn test_app() -> axum::Router {
     axum::Router::new()
-        .route("/api/health", get(|| async {
-            axum::Json(serde_json::json!({
-                "status": "ok",
-                "version": env!("CARGO_PKG_VERSION"),
-            }))
-        }))
-        .route("/api/health/ready", get(|| async {
-            (StatusCode::OK, axum::Json(serde_json::json!({"ready": true})))
-        }))
+        .route(
+            "/api/health",
+            get(|| async {
+                axum::Json(serde_json::json!({
+                    "status": "ok",
+                    "version": env!("CARGO_PKG_VERSION"),
+                }))
+            }),
+        )
+        .route(
+            "/api/health/ready",
+            get(|| async {
+                (
+                    StatusCode::OK,
+                    axum::Json(serde_json::json!({"ready": true})),
+                )
+            }),
+        )
 }
 
 /// Collect a response body into a `serde_json::Value`.

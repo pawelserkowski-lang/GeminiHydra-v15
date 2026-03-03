@@ -1,9 +1,9 @@
 //! Prompt history handlers: list, add (dedup + cap), and clear.
 
+use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
-use axum::Json;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::models::{AddPromptRequest, PromptHistoryRow};
 use crate::state::AppState;
@@ -18,9 +18,7 @@ const MAX_PROMPT_HISTORY: i64 = 200;
 #[utoipa::path(get, path = "/api/prompt-history", tag = "prompt-history",
     responses((status = 200, description = "List of prompt strings", body = Vec<String>))
 )]
-pub async fn list_prompt_history(
-    State(state): State<AppState>,
-) -> Result<Json<Value>, StatusCode> {
+pub async fn list_prompt_history(State(state): State<AppState>) -> Result<Json<Value>, StatusCode> {
     let rows = sqlx::query_as::<_, PromptHistoryRow>(
         "SELECT id, content, created_at FROM gh_prompt_history ORDER BY created_at ASC LIMIT 500",
     )
@@ -60,10 +58,10 @@ pub async fn add_prompt_history(
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
-    if let Some(ref last_content) = last {
-        if last_content == trimmed {
-            return Ok(StatusCode::OK);
-        }
+    if let Some(ref last_content) = last
+        && last_content == trimmed
+    {
+        return Ok(StatusCode::OK);
     }
 
     // Insert new prompt

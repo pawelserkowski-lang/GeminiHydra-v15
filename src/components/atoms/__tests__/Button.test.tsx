@@ -12,6 +12,15 @@ describe('Button', () => {
     expect(screen.getByRole('button', { name: 'Click me' })).toBeInTheDocument();
   });
 
+  it('matches snapshot', () => {
+    const { container } = render(
+      <Button variant="secondary" size="lg">
+        Snapshot Button
+      </Button>,
+    );
+    expect(container).toMatchSnapshot();
+  });
+
   it('renders as a button element', () => {
     render(<Button>Test</Button>);
     expect(screen.getByRole('button')).toBeInTheDocument();

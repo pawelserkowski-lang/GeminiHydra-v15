@@ -43,8 +43,9 @@ macro_rules! require_db {
 /// Uses `create_test_router` (no GovernorLayer) + `MockConnectInfo` for handler extractors.
 fn app(state: AppState) -> axum::Router {
     use axum::extract::connect_info::MockConnectInfo;
-    geminihydra_backend::create_test_router(state)
-        .layer(MockConnectInfo(std::net::SocketAddr::from(([127, 0, 0, 1], 3000))))
+    geminihydra_backend::create_test_router(state).layer(MockConnectInfo(
+        std::net::SocketAddr::from(([127, 0, 0, 1], 3000)),
+    ))
 }
 
 /// Helper: collect a response body into a serde_json::Value.

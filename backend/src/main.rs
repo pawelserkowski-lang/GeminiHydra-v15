@@ -1,9 +1,9 @@
-use axum::http::{header, HeaderValue, Method};
+use axum::http::{HeaderValue, Method, header};
 use sqlx::postgres::PgPoolOptions;
+use tower_http::compression::CompressionLayer;
 use tower_http::cors::CorsLayer;
 use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::set_header::SetResponseHeaderLayer;
-use tower_http::compression::CompressionLayer;
 use tower_http::trace::TraceLayer;
 
 use geminihydra_backend::model_registry;
@@ -80,10 +80,11 @@ async fn build_app(log_buffer: std::sync::Arc<LogRingBuffer>) -> (axum::Router, 
         header::HeaderName::from_static("x-xss-protection"),
         HeaderValue::from_static("1; mode=block"),
     );
-    let permissions_policy: SetResponseHeaderLayer<HeaderValue> = SetResponseHeaderLayer::overriding(
-        header::HeaderName::from_static("permissions-policy"),
-        HeaderValue::from_static("camera=(), microphone=(), geolocation=()"),
-    );
+    let permissions_policy: SetResponseHeaderLayer<HeaderValue> =
+        SetResponseHeaderLayer::overriding(
+            header::HeaderName::from_static("permissions-policy"),
+            HeaderValue::from_static("camera=(), microphone=(), geolocation=()"),
+        );
 
     // Rate limiting is now per-endpoint inside create_router() — see lib.rs
     // WS: 10/min, /api/execute: 30/min, other: 120/min
@@ -99,18 +100,19 @@ async fn build_app(log_buffer: std::sync::Arc<LogRingBuffer>) -> (axum::Router, 
         .layer(xss_protection)
         .layer(permissions_policy)
         .layer(
-            TraceLayer::new_for_http()
-                .make_span_with(|request: &axum::http::Request<_>| {
-                    tracing::info_span!(
-                        "http_request",
-                        method = %request.method(),
-                        uri = %request.uri(),
-                        request_id = tracing::field::Empty,
-                    )
-                })
+            TraceLayer::new_for_http().make_span_with(|request: &axum::http::Request<_>| {
+                tracing::info_span!(
+                    "http_request",
+                    method = %request.method(),
+                    uri = %request.uri(),
+                    request_id = tracing::field::Empty,
+                )
+            }),
         )
         // Correlation ID middleware — assigns UUID and returns X-Request-Id header
-        .layer(axum::middleware::from_fn(geminihydra_backend::request_id_middleware))
+        .layer(axum::middleware::from_fn(
+            geminihydra_backend::request_id_middleware,
+        ))
         .layer(CompressionLayer::new());
 
     (app, state)
@@ -175,14 +177,16 @@ async fn main() -> shuttle_axum::ShuttleAxum {
 #[cfg(not(feature = "shuttle"))]
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    use tracing_subscriber::prelude::*;
     use tracing_subscriber::EnvFilter;
+    use tracing_subscriber::prelude::*;
 
     enable_ansi();
 
     // Create log ring buffer BEFORE subscriber so the Layer can capture events
     let log_buffer = std::sync::Arc::new(LogRingBuffer::new(1000));
-    let buffer_layer = LogBufferLayer { buffer: log_buffer.clone() };
+    let buffer_layer = LogBufferLayer {
+        buffer: log_buffer.clone(),
+    };
 
     let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into());
     if std::env::var("RUST_LOG_FORMAT").as_deref() == Ok("json") {
@@ -289,8 +293,8 @@ async fn main() -> anyhow::Result<()> {
 #[cfg(windows)]
 fn enable_ansi() {
     use windows::Win32::System::Console::{
-        GetConsoleMode, GetStdHandle, SetConsoleMode, ENABLE_VIRTUAL_TERMINAL_PROCESSING,
-        STD_ERROR_HANDLE, STD_OUTPUT_HANDLE,
+        ENABLE_VIRTUAL_TERMINAL_PROCESSING, GetConsoleMode, GetStdHandle, STD_ERROR_HANDLE,
+        STD_OUTPUT_HANDLE, SetConsoleMode,
     };
     for std_handle in [STD_OUTPUT_HANDLE, STD_ERROR_HANDLE] {
         unsafe {

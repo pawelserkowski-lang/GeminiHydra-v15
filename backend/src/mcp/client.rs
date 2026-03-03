@@ -6,13 +6,13 @@
 //! `tools/call` requests so Gemini agents can use them.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use sqlx::PgPool;
 use tokio::sync::RwLock;
 
@@ -50,7 +50,7 @@ enum McpTransport {
         auth_token: Option<String>,
     },
     Stdio {
-        _child: tokio::sync::Mutex<tokio::process::Child>,
+        _child: Box<tokio::sync::Mutex<tokio::process::Child>>,
         stdin: tokio::sync::Mutex<tokio::process::ChildStdin>,
         stdout: tokio::sync::Mutex<tokio::io::BufReader<tokio::process::ChildStdout>>,
     },
@@ -137,7 +137,10 @@ impl McpClientManager {
             };
 
             if existing_names.contains(name) {
-                tracing::debug!("MCP: default server '{}' already registered, skipping", name);
+                tracing::debug!(
+                    "MCP: default server '{}' already registered, skipping",
+                    name
+                );
                 continue;
             }
 
@@ -146,7 +149,9 @@ impl McpClientManager {
                 transport: server["transport"].as_str().unwrap_or("http").to_string(),
                 command: server["command"].as_str().map(String::from),
                 args: server["args"].as_array().map(|a| {
-                    a.iter().filter_map(|v| v.as_str().map(String::from)).collect()
+                    a.iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect()
                 }),
                 env_vars: server.get("env_vars").cloned(),
                 url: server["url"].as_str().map(String::from),
@@ -156,7 +161,11 @@ impl McpClientManager {
             };
 
             match config::create_mcp_server_db(&self.db, &req).await {
-                Ok(cfg) => tracing::info!("MCP: auto-registered default server '{}' (id={})", name, cfg.id),
+                Ok(cfg) => tracing::info!(
+                    "MCP: auto-registered default server '{}' (id={})",
+                    name,
+                    cfg.id
+                ),
                 Err(e) => tracing::warn!("MCP: failed to auto-register '{}': {e}", name),
             }
         }
@@ -177,7 +186,10 @@ impl McpClientManager {
             return Ok(());
         }
 
-        tracing::info!("MCP: connecting to {} enabled server(s) in parallel", enabled.len());
+        tracing::info!(
+            "MCP: connecting to {} enabled server(s) in parallel",
+            enabled.len()
+        );
 
         // Connect concurrently — all connections are I/O-bound so this is safe
         // Uses join_all (concurrent on same task) rather than tokio::spawn (requires 'static)
@@ -199,7 +211,10 @@ impl McpClientManager {
         drop(results);
 
         let total_tools = self.list_all_tools().await.len();
-        tracing::info!("MCP: startup complete -- {} external tool(s) available", total_tools);
+        tracing::info!(
+            "MCP: startup complete -- {} external tool(s) available",
+            total_tools
+        );
         Ok(())
     }
 
@@ -212,32 +227,43 @@ impl McpClientManager {
 
         let (transport, tools) = match cfg.transport.as_str() {
             "http" => {
-                let url = cfg
-                    .url
-                    .as_deref()
-                    .ok_or("HTTP transport requires a URL")?;
+                let url = cfg.url.as_deref().ok_or("HTTP transport requires a URL")?;
 
                 // Step 1: Initialize
                 let _init_result = self
-                    .http_jsonrpc(url, cfg.auth_token.as_deref(), timeout, "initialize", json!({
-                        "protocolVersion": "2025-03-26",
-                        "capabilities": {
-                            "tools": { "listChanged": true }
-                        },
-                        "clientInfo": {
-                            "name": "GeminiHydra",
-                            "version": "15.0.0"
-                        }
-                    }))
+                    .http_jsonrpc(
+                        url,
+                        cfg.auth_token.as_deref(),
+                        timeout,
+                        "initialize",
+                        json!({
+                            "protocolVersion": "2025-03-26",
+                            "capabilities": {
+                                "tools": { "listChanged": true }
+                            },
+                            "clientInfo": {
+                                "name": "GeminiHydra",
+                                "version": "15.0.0"
+                            }
+                        }),
+                    )
                     .await?;
 
                 // Step 2: Send initialized notification
                 let _ = self
-                    .http_jsonrpc_notify(url, cfg.auth_token.as_deref(), timeout, "notifications/initialized", json!({}))
+                    .http_jsonrpc_notify(
+                        url,
+                        cfg.auth_token.as_deref(),
+                        timeout,
+                        "notifications/initialized",
+                        json!({}),
+                    )
                     .await;
 
                 // Step 3: List tools
-                let raw_tools = self.http_list_tools(url, cfg.auth_token.as_deref(), timeout).await?;
+                let raw_tools = self
+                    .http_list_tools(url, cfg.auth_token.as_deref(), timeout)
+                    .await?;
 
                 let transport = McpTransport::Http {
                     url: url.to_string(),
@@ -265,17 +291,30 @@ impl McpClientManager {
                 (transport, tools)
             }
             other => {
-                return Err(format!("Unsupported transport '{}' — use 'http' or 'stdio'", other));
+                return Err(format!(
+                    "Unsupported transport '{}' — use 'http' or 'stdio'",
+                    other
+                ));
             }
         };
 
         // Persist discovered tools to DB
         let db_tools: Vec<(String, Option<String>, String)> = tools
             .iter()
-            .map(|t| (t.name.clone(), t.description.clone(), t.input_schema.to_string()))
+            .map(|t| {
+                (
+                    t.name.clone(),
+                    t.description.clone(),
+                    t.input_schema.to_string(),
+                )
+            })
             .collect();
         if let Err(e) = config::save_discovered_tools(&self.db, &cfg.id, &db_tools).await {
-            tracing::error!("MCP: failed to persist tools for '{}': {} — connection will still be usable but tools may not survive restart", cfg.name, e);
+            tracing::error!(
+                "MCP: failed to persist tools for '{}': {} — connection will still be usable but tools may not survive restart",
+                cfg.name,
+                e
+            );
         }
 
         // Store connection
@@ -339,14 +378,16 @@ impl McpClientManager {
         prefixed_name: &str,
         arguments: &Value,
     ) -> Result<String, String> {
-        let (conn, original_name) = self
-            .resolve_tool(prefixed_name)
-            .await
-            .ok_or_else(|| format!("MCP tool '{}' not found in any connected server", prefixed_name))?;
+        let (conn, original_name) = self.resolve_tool(prefixed_name).await.ok_or_else(|| {
+            format!(
+                "MCP tool '{}' not found in any connected server",
+                prefixed_name
+            )
+        })?;
 
         let call_timeout = conn.timeout.max(TOOL_CALL_TIMEOUT);
 
-        let result = tokio::time::timeout(call_timeout, async {
+        tokio::time::timeout(call_timeout, async {
             match &conn.transport {
                 McpTransport::Http { url, auth_token } => {
                     let response = self
@@ -371,9 +412,13 @@ impl McpClientManager {
             }
         })
         .await
-        .map_err(|_| format!("MCP tool '{}' timed out after {}s", prefixed_name, call_timeout.as_secs()))?;
-
-        result
+        .map_err(|_| {
+            format!(
+                "MCP tool '{}' timed out after {}s",
+                prefixed_name,
+                call_timeout.as_secs()
+            )
+        })?
     }
 
     // ── HTTP JSON-RPC helpers ────────────────────────────────────────────
@@ -407,9 +452,10 @@ impl McpClientManager {
             req = req.header("Authorization", format!("Bearer {}", token));
         }
 
-        let response = req.send().await.map_err(|e| {
-            format!("MCP HTTP request to '{}' failed: {}", url, e)
-        })?;
+        let response = req
+            .send()
+            .await
+            .map_err(|e| format!("MCP HTTP request to '{}' failed: {}", url, e))?;
 
         let status = response.status();
         if !status.is_success() {
@@ -421,9 +467,10 @@ impl McpClientManager {
             ));
         }
 
-        let json: Value = response.json().await.map_err(|e| {
-            format!("MCP response is not valid JSON: {}", e)
-        })?;
+        let json: Value = response
+            .json()
+            .await
+            .map_err(|e| format!("MCP response is not valid JSON: {}", e))?;
 
         if let Some(error) = json.get("error") {
             return Err(format!("MCP JSON-RPC error: {}", error));
@@ -458,9 +505,10 @@ impl McpClientManager {
             req = req.header("Authorization", format!("Bearer {}", token));
         }
 
-        let _ = req.send().await.map_err(|e| {
-            format!("MCP notification to '{}' failed: {}", url, e)
-        })?;
+        let _ = req
+            .send()
+            .await
+            .map_err(|e| format!("MCP notification to '{}' failed: {}", url, e))?;
 
         Ok(())
     }
@@ -497,9 +545,9 @@ impl McpClientManager {
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped());
 
-        let mut child = cmd.spawn().map_err(|e| {
-            format!("Failed to spawn MCP stdio server '{}': {}", command, e)
-        })?;
+        let mut child = cmd
+            .spawn()
+            .map_err(|e| format!("Failed to spawn MCP stdio server '{}': {}", command, e))?;
 
         let stdin = child
             .stdin
@@ -534,7 +582,11 @@ impl McpClientManager {
             .await;
 
         if let Err(e) = init_result {
-            tracing::error!("MCP stdio init failed for '{}', killing child process: {}", command, e);
+            tracing::error!(
+                "MCP stdio init failed for '{}', killing child process: {}",
+                command,
+                e
+            );
             let _ = child.kill().await;
             return Err(e);
         }
@@ -550,12 +602,20 @@ impl McpClientManager {
             line.push('\n');
             let mut guard = stdin_mutex.lock().await;
             if let Err(e) = guard.write_all(line.as_bytes()).await {
-                tracing::error!("MCP stdio notification failed for '{}', killing child process: {}", command, e);
+                tracing::error!(
+                    "MCP stdio notification failed for '{}', killing child process: {}",
+                    command,
+                    e
+                );
                 let _ = child.kill().await;
                 return Err(format!("Failed to send initialized notification: {}", e));
             }
             if let Err(e) = guard.flush().await {
-                tracing::error!("MCP stdio flush failed for '{}', killing child process: {}", command, e);
+                tracing::error!(
+                    "MCP stdio flush failed for '{}', killing child process: {}",
+                    command,
+                    e
+                );
                 let _ = child.kill().await;
                 return Err(format!("Failed to flush stdin: {}", e));
             }
@@ -563,13 +623,23 @@ impl McpClientManager {
 
         // List tools — kill child on failure
         let tools_result = self
-            .stdio_request(&stdin_mutex, &stdout_mutex, "tools/list", json!({}), timeout)
+            .stdio_request(
+                &stdin_mutex,
+                &stdout_mutex,
+                "tools/list",
+                json!({}),
+                timeout,
+            )
             .await;
 
         let tools_result = match tools_result {
             Ok(result) => result,
             Err(e) => {
-                tracing::error!("MCP stdio tools/list failed for '{}', killing child process: {}", command, e);
+                tracing::error!(
+                    "MCP stdio tools/list failed for '{}', killing child process: {}",
+                    command,
+                    e
+                );
                 let _ = child.kill().await;
                 return Err(e);
             }
@@ -578,7 +648,7 @@ impl McpClientManager {
         let tools = parse_tools_list(&tools_result);
 
         let transport = McpTransport::Stdio {
-            _child: tokio::sync::Mutex::new(child),
+            _child: Box::new(tokio::sync::Mutex::new(child)),
             stdin: stdin_mutex,
             stdout: stdout_mutex,
         };
@@ -612,12 +682,14 @@ impl McpClientManager {
         // Write request
         {
             let mut guard = stdin.lock().await;
-            guard.write_all(line.as_bytes()).await.map_err(|e| {
-                format!("Failed to write to MCP stdio stdin: {}", e)
-            })?;
-            guard.flush().await.map_err(|e| {
-                format!("Failed to flush MCP stdio stdin: {}", e)
-            })?;
+            guard
+                .write_all(line.as_bytes())
+                .await
+                .map_err(|e| format!("Failed to write to MCP stdio stdin: {}", e))?;
+            guard
+                .flush()
+                .await
+                .map_err(|e| format!("Failed to flush MCP stdio stdin: {}", e))?;
         }
 
         // Read response (line-delimited JSON-RPC)
@@ -625,9 +697,10 @@ impl McpClientManager {
             let mut guard = stdout.lock().await;
             loop {
                 let mut buf = String::new();
-                let n = guard.read_line(&mut buf).await.map_err(|e| {
-                    format!("MCP stdio read error: {}", e)
-                })?;
+                let n = guard
+                    .read_line(&mut buf)
+                    .await
+                    .map_err(|e| format!("MCP stdio read error: {}", e))?;
                 if n == 0 {
                     return Err("MCP stdio: EOF while reading response".to_string());
                 }
@@ -635,15 +708,12 @@ impl McpClientManager {
                 if buf.is_empty() {
                     continue;
                 }
-                let parsed: Value = serde_json::from_str(buf).map_err(|e| {
-                    format!("MCP stdio: invalid JSON response: {}", e)
-                })?;
+                let parsed: Value = serde_json::from_str(buf)
+                    .map_err(|e| format!("MCP stdio: invalid JSON response: {}", e))?;
                 // Match by id (skip notifications)
                 let resp_id = parsed.get("id");
                 let matches = resp_id
-                    .map(|v| {
-                        v.as_u64() == Some(id) || v.as_str() == Some(&id_str)
-                    })
+                    .map(|v| v.as_u64() == Some(id) || v.as_str() == Some(&id_str))
                     .unwrap_or(false);
 
                 if matches {
@@ -730,7 +800,10 @@ fn parse_tools_list(result: &Value) -> Vec<RawMcpTool> {
             if name.is_empty() {
                 return None;
             }
-            let description = t.get("description").and_then(|d| d.as_str()).map(String::from);
+            let description = t
+                .get("description")
+                .and_then(|d| d.as_str())
+                .map(String::from);
             let input_schema = t
                 .get("inputSchema")
                 .cloned()
@@ -776,34 +849,46 @@ fn extract_tool_result(result: &Value) -> Result<String, String> {
         .unwrap_or(false);
 
     // MCP tools/call result is { content: [{ type: "text", text: "..." }] }
-    if let Some(content) = result.get("content") {
-        if let Some(arr) = content.as_array() {
-            let mut text_parts: Vec<String> = Vec::new();
-            for part in arr {
-                let part_type = part.get("type").and_then(|v| v.as_str()).unwrap_or("");
-                match part_type {
-                    "text" => {
-                        if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
-                            text_parts.push(text.to_string());
-                        }
+    if let Some(content) = result.get("content")
+        && let Some(arr) = content.as_array()
+    {
+        let mut text_parts: Vec<String> = Vec::new();
+        for part in arr {
+            let part_type = part.get("type").and_then(|v| v.as_str()).unwrap_or("");
+            match part_type {
+                "text" => {
+                    if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
+                        text_parts.push(text.to_string());
                     }
-                    "image" | "resource" => {
-                        text_parts.push(format!("[{} content]", part_type));
-                    }
-                    _ => {}
                 }
+                "image" | "resource" => {
+                    text_parts.push(format!("[{} content]", part_type));
+                }
+                _ => {}
             }
-            if !text_parts.is_empty() {
-                let combined = text_parts.join("\n");
-                return if is_error { Err(combined) } else { Ok(combined) };
-            }
-            let serialized = content.to_string();
-            return if is_error { Err(serialized) } else { Ok(serialized) };
         }
+        if !text_parts.is_empty() {
+            let combined = text_parts.join("\n");
+            return if is_error {
+                Err(combined)
+            } else {
+                Ok(combined)
+            };
+        }
+        let serialized = content.to_string();
+        return if is_error {
+            Err(serialized)
+        } else {
+            Ok(serialized)
+        };
     }
 
     let fallback = result.to_string();
-    if is_error { Err(fallback) } else { Ok(fallback) }
+    if is_error {
+        Err(fallback)
+    } else {
+        Ok(fallback)
+    }
 }
 
 fn sanitize_server_name(name: &str) -> String {
@@ -869,6 +954,9 @@ mod tests {
             ],
             "isError": true
         });
-        assert_eq!(extract_tool_result(&result), Err("Something failed".to_string()));
+        assert_eq!(
+            extract_tool_result(&result),
+            Err("Something failed".to_string())
+        );
     }
 }

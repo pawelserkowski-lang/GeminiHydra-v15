@@ -24,12 +24,12 @@ pub mod vercel_tools;
 pub mod web_scraping;
 pub mod zip_tools;
 
+use crate::state::AppState;
 use base64::Engine;
 use regex::Regex;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::time::Duration;
 use tokio::process::Command;
-use crate::state::AppState;
 
 /// Max output bytes from a single command (50 KB).
 const MAX_COMMAND_OUTPUT: usize = 50 * 1024;
@@ -60,7 +60,10 @@ pub struct InlineData {
 impl ToolOutput {
     /// Create a text-only output (most common case)
     pub fn text(s: String) -> Self {
-        Self { text: s, inline_data: None }
+        Self {
+            text: s,
+            inline_data: None,
+        }
     }
 }
 
@@ -70,9 +73,9 @@ impl ToolOutput {
 /// For now, keep them blocked to prevent resource exhaustion (fork bombs) even in container.
 const BLOCKED_PATTERNS: &[&str] = &[
     // Original patterns
-    "rm -rf /",       // Still dangerous if volume mounted
+    "rm -rf /", // Still dangerous if volume mounted
     "format c:",
-    ":(){:|:&};:",    // Fork bomb
+    ":(){:|:&};:", // Fork bomb
     "dd if=/dev/zero",
     // Curl/wget piping to shell — remote code execution
     "curl|sh",
@@ -132,59 +135,178 @@ pub struct ToolInfo {
 pub fn list_available_tools() -> Vec<ToolInfo> {
     vec![
         // Filesystem tools
-        ToolInfo { name: "execute_command", category: "filesystem" },
-        ToolInfo { name: "read_file", category: "filesystem" },
-        ToolInfo { name: "write_file", category: "filesystem" },
-        ToolInfo { name: "edit_file", category: "filesystem" },
-        ToolInfo { name: "delete_file", category: "filesystem" },
-        ToolInfo { name: "list_directory", category: "filesystem" },
-        ToolInfo { name: "search_files", category: "filesystem" },
-        ToolInfo { name: "get_code_structure", category: "filesystem" },
-        ToolInfo { name: "read_file_section", category: "filesystem" },
-        ToolInfo { name: "find_file", category: "filesystem" },
-        ToolInfo { name: "diff_files", category: "filesystem" },
+        ToolInfo {
+            name: "execute_command",
+            category: "filesystem",
+        },
+        ToolInfo {
+            name: "read_file",
+            category: "filesystem",
+        },
+        ToolInfo {
+            name: "write_file",
+            category: "filesystem",
+        },
+        ToolInfo {
+            name: "edit_file",
+            category: "filesystem",
+        },
+        ToolInfo {
+            name: "delete_file",
+            category: "filesystem",
+        },
+        ToolInfo {
+            name: "list_directory",
+            category: "filesystem",
+        },
+        ToolInfo {
+            name: "search_files",
+            category: "filesystem",
+        },
+        ToolInfo {
+            name: "get_code_structure",
+            category: "filesystem",
+        },
+        ToolInfo {
+            name: "read_file_section",
+            category: "filesystem",
+        },
+        ToolInfo {
+            name: "find_file",
+            category: "filesystem",
+        },
+        ToolInfo {
+            name: "diff_files",
+            category: "filesystem",
+        },
         // Document tools
-        ToolInfo { name: "read_pdf", category: "document" },
-        ToolInfo { name: "analyze_image", category: "document" },
-        ToolInfo { name: "ocr_document", category: "document" },
+        ToolInfo {
+            name: "read_pdf",
+            category: "document",
+        },
+        ToolInfo {
+            name: "analyze_image",
+            category: "document",
+        },
+        ToolInfo {
+            name: "ocr_document",
+            category: "document",
+        },
         // Web tools
-        ToolInfo { name: "fetch_webpage", category: "web" },
-        ToolInfo { name: "crawl_website", category: "web" },
+        ToolInfo {
+            name: "fetch_webpage",
+            category: "web",
+        },
+        ToolInfo {
+            name: "crawl_website",
+            category: "web",
+        },
         // Git tools
-        ToolInfo { name: "git_status", category: "git" },
-        ToolInfo { name: "git_log", category: "git" },
-        ToolInfo { name: "git_diff", category: "git" },
-        ToolInfo { name: "git_branch", category: "git" },
-        ToolInfo { name: "git_commit", category: "git" },
+        ToolInfo {
+            name: "git_status",
+            category: "git",
+        },
+        ToolInfo {
+            name: "git_log",
+            category: "git",
+        },
+        ToolInfo {
+            name: "git_diff",
+            category: "git",
+        },
+        ToolInfo {
+            name: "git_branch",
+            category: "git",
+        },
+        ToolInfo {
+            name: "git_commit",
+            category: "git",
+        },
         // GitHub tools
-        ToolInfo { name: "github_list_repos", category: "github" },
-        ToolInfo { name: "github_get_repo", category: "github" },
-        ToolInfo { name: "github_list_issues", category: "github" },
-        ToolInfo { name: "github_get_issue", category: "github" },
-        ToolInfo { name: "github_create_issue", category: "github" },
-        ToolInfo { name: "github_create_pr", category: "github" },
+        ToolInfo {
+            name: "github_list_repos",
+            category: "github",
+        },
+        ToolInfo {
+            name: "github_get_repo",
+            category: "github",
+        },
+        ToolInfo {
+            name: "github_list_issues",
+            category: "github",
+        },
+        ToolInfo {
+            name: "github_get_issue",
+            category: "github",
+        },
+        ToolInfo {
+            name: "github_create_issue",
+            category: "github",
+        },
+        ToolInfo {
+            name: "github_create_pr",
+            category: "github",
+        },
         // Vercel tools
-        ToolInfo { name: "vercel_list_projects", category: "vercel" },
-        ToolInfo { name: "vercel_get_deployment", category: "vercel" },
-        ToolInfo { name: "vercel_deploy", category: "vercel" },
+        ToolInfo {
+            name: "vercel_list_projects",
+            category: "vercel",
+        },
+        ToolInfo {
+            name: "vercel_get_deployment",
+            category: "vercel",
+        },
+        ToolInfo {
+            name: "vercel_deploy",
+            category: "vercel",
+        },
         // Fly.io tools
-        ToolInfo { name: "fly_list_apps", category: "fly" },
-        ToolInfo { name: "fly_get_status", category: "fly" },
-        ToolInfo { name: "fly_get_logs", category: "fly" },
+        ToolInfo {
+            name: "fly_list_apps",
+            category: "fly",
+        },
+        ToolInfo {
+            name: "fly_get_status",
+            category: "fly",
+        },
+        ToolInfo {
+            name: "fly_get_logs",
+            category: "fly",
+        },
         // ZIP tools
-        ToolInfo { name: "list_zip", category: "document" },
-        ToolInfo { name: "extract_zip_file", category: "document" },
+        ToolInfo {
+            name: "list_zip",
+            category: "document",
+        },
+        ToolInfo {
+            name: "extract_zip_file",
+            category: "document",
+        },
         // A2A delegation
-        ToolInfo { name: "call_agent", category: "a2a" },
+        ToolInfo {
+            name: "call_agent",
+            category: "a2a",
+        },
         // MCP proxy
-        ToolInfo { name: "list_mcp_tools", category: "mcp" },
-        ToolInfo { name: "execute_mcp_tool", category: "mcp" },
+        ToolInfo {
+            name: "list_mcp_tools",
+            category: "mcp",
+        },
+        ToolInfo {
+            name: "execute_mcp_tool",
+            category: "mcp",
+        },
     ]
 }
 
 /// Central dispatcher — routes tool call to the appropriate handler.
 /// Returns `ToolOutput` supporting text + optional multimodal data (Gemini 3).
-pub async fn execute_tool(name: &str, args: &Value, state: &AppState, working_directory: &str) -> Result<ToolOutput, String> {
+pub async fn execute_tool(
+    name: &str,
+    args: &Value,
+    state: &AppState,
+    working_directory: &str,
+) -> Result<ToolOutput, String> {
     let tool_start = std::time::Instant::now();
     tracing::debug!("Tool '{}' started", name);
 
@@ -195,10 +317,16 @@ pub async fn execute_tool(name: &str, args: &Value, state: &AppState, working_di
                 .ok_or("Missing required argument: command")?;
             // Per-call working_directory takes priority, fallback to global setting
             let per_call_wd = args["working_directory"].as_str();
-            let effective_wd = per_call_wd.or_else(|| {
-                if working_directory.is_empty() { None } else { Some(working_directory) }
+            let effective_wd = per_call_wd.or({
+                if working_directory.is_empty() {
+                    None
+                } else {
+                    Some(working_directory)
+                }
             });
-            tool_execute_command(command, effective_wd, state).await.map(ToolOutput::text)
+            tool_execute_command(command, effective_wd, state)
+                .await
+                .map(ToolOutput::text)
         }
         "read_file" => {
             let path = args["path"]
@@ -215,7 +343,9 @@ pub async fn execute_tool(name: &str, args: &Value, state: &AppState, working_di
             let content = args["content"]
                 .as_str()
                 .ok_or("Missing required argument: content")?;
-            tool_write_file(&resolved, content).await.map(ToolOutput::text)
+            tool_write_file(&resolved, content)
+                .await
+                .map(ToolOutput::text)
         }
         "edit_file" => {
             let path = args["path"]
@@ -228,7 +358,9 @@ pub async fn execute_tool(name: &str, args: &Value, state: &AppState, working_di
             let new_text = args["new_text"]
                 .as_str()
                 .ok_or("Missing required argument: new_text")?;
-            tool_edit_file(&resolved, old_text, new_text).await.map(ToolOutput::text)
+            tool_edit_file(&resolved, old_text, new_text)
+                .await
+                .map(ToolOutput::text)
         }
         "delete_file" => {
             let path = args["path"]
@@ -243,7 +375,9 @@ pub async fn execute_tool(name: &str, args: &Value, state: &AppState, working_di
                 .ok_or("Missing required argument: path")?;
             let resolved = resolve_path(path, working_directory);
             let show_hidden = args["show_hidden"].as_bool().unwrap_or(false);
-            tool_list_directory(&resolved, show_hidden).await.map(ToolOutput::text)
+            tool_list_directory(&resolved, show_hidden)
+                .await
+                .map(ToolOutput::text)
         }
         "search_files" => {
             let path = args["path"]
@@ -257,14 +391,18 @@ pub async fn execute_tool(name: &str, args: &Value, state: &AppState, working_di
             let offset = args["offset"].as_u64().unwrap_or(0) as usize;
             let limit = args["limit"].as_u64().unwrap_or(80) as usize;
             let multiline = args["multiline"].as_bool().unwrap_or(false);
-            tool_search_files(&resolved, pattern, extensions, offset, limit, multiline).await.map(ToolOutput::text)
+            tool_search_files(&resolved, pattern, extensions, offset, limit, multiline)
+                .await
+                .map(ToolOutput::text)
         }
         "get_code_structure" => {
             let path = args["path"]
                 .as_str()
                 .ok_or("Missing required argument: path")?;
             let resolved = resolve_path(path, working_directory);
-            tool_get_code_structure(&resolved).await.map(ToolOutput::text)
+            tool_get_code_structure(&resolved)
+                .await
+                .map(ToolOutput::text)
         }
         "read_file_section" => {
             let path = args["path"]
@@ -273,11 +411,14 @@ pub async fn execute_tool(name: &str, args: &Value, state: &AppState, working_di
             let resolved = resolve_path(path, working_directory);
             let start_line = args["start_line"]
                 .as_u64()
-                .ok_or("Missing required argument: start_line")? as usize;
+                .ok_or("Missing required argument: start_line")?
+                as usize;
             let end_line = args["end_line"]
                 .as_u64()
                 .ok_or("Missing required argument: end_line")? as usize;
-            tool_read_file_section(&resolved, start_line, end_line).await.map(ToolOutput::text)
+            tool_read_file_section(&resolved, start_line, end_line)
+                .await
+                .map(ToolOutput::text)
         }
         "find_file" => {
             let path = args["path"]
@@ -287,7 +428,9 @@ pub async fn execute_tool(name: &str, args: &Value, state: &AppState, working_di
             let pattern = args["pattern"]
                 .as_str()
                 .ok_or("Missing required argument: pattern")?;
-            tool_find_file(&resolved, pattern).await.map(ToolOutput::text)
+            tool_find_file(&resolved, pattern)
+                .await
+                .map(ToolOutput::text)
         }
         "diff_files" => {
             let path_a = args["path_a"]
@@ -298,7 +441,9 @@ pub async fn execute_tool(name: &str, args: &Value, state: &AppState, working_di
                 .as_str()
                 .ok_or("Missing required argument: path_b")?;
             let resolved_b = resolve_path(path_b, working_directory);
-            tool_diff_files(&resolved_a, &resolved_b).await.map(ToolOutput::text)
+            tool_diff_files(&resolved_a, &resolved_b)
+                .await
+                .map(ToolOutput::text)
         }
         "read_pdf" => {
             let path = args["path"]
@@ -306,7 +451,9 @@ pub async fn execute_tool(name: &str, args: &Value, state: &AppState, working_di
                 .ok_or("Missing required argument: path")?;
             let resolved = resolve_path(path, working_directory);
             let page_range = args["page_range"].as_str();
-            tool_read_pdf(&resolved, page_range, state).await.map(ToolOutput::text)
+            tool_read_pdf(&resolved, page_range, state)
+                .await
+                .map(ToolOutput::text)
         }
         "analyze_image" => {
             let path = args["path"]
@@ -323,21 +470,21 @@ pub async fn execute_tool(name: &str, args: &Value, state: &AppState, working_di
                 .ok_or("Missing required argument: path")?;
             let resolved = resolve_path(path, working_directory);
             let prompt = args["prompt"].as_str();
-            tool_ocr_document(&resolved, prompt, state).await.map(ToolOutput::text)
+            tool_ocr_document(&resolved, prompt, state)
+                .await
+                .map(ToolOutput::text)
         }
-        "fetch_webpage" => {
-            web_scraping::tool_fetch_webpage(args, &state.client).await
-        }
-        "crawl_website" => {
-            web_scraping::tool_crawl_website(args, &state.client).await
-        }
+        "fetch_webpage" => web_scraping::tool_fetch_webpage(args, &state.client).await,
+        "crawl_website" => web_scraping::tool_crawl_website(args, &state.client).await,
         // ── Git tools ──
         "git_status" => {
             let repo = args["repo_path"]
                 .as_str()
                 .ok_or("Missing required argument: repo_path")?;
             let resolved = resolve_path(repo, working_directory);
-            git_tools::tool_git_status(&resolved).await.map(ToolOutput::text)
+            git_tools::tool_git_status(&resolved)
+                .await
+                .map(ToolOutput::text)
         }
         "git_log" => {
             let repo = args["repo_path"]
@@ -345,7 +492,9 @@ pub async fn execute_tool(name: &str, args: &Value, state: &AppState, working_di
                 .ok_or("Missing required argument: repo_path")?;
             let resolved = resolve_path(repo, working_directory);
             let count = args["count"].as_u64().map(|n| n as u32);
-            git_tools::tool_git_log(&resolved, count).await.map(ToolOutput::text)
+            git_tools::tool_git_log(&resolved, count)
+                .await
+                .map(ToolOutput::text)
         }
         "git_diff" => {
             let repo = args["repo_path"]
@@ -353,7 +502,9 @@ pub async fn execute_tool(name: &str, args: &Value, state: &AppState, working_di
                 .ok_or("Missing required argument: repo_path")?;
             let resolved = resolve_path(repo, working_directory);
             let target = args["target"].as_str();
-            git_tools::tool_git_diff(&resolved, target).await.map(ToolOutput::text)
+            git_tools::tool_git_diff(&resolved, target)
+                .await
+                .map(ToolOutput::text)
         }
         "git_branch" => {
             let repo = args["repo_path"]
@@ -361,7 +512,9 @@ pub async fn execute_tool(name: &str, args: &Value, state: &AppState, working_di
                 .ok_or("Missing required argument: repo_path")?;
             let resolved = resolve_path(repo, working_directory);
             let action = args["action"].as_str();
-            git_tools::tool_git_branch(&resolved, action).await.map(ToolOutput::text)
+            git_tools::tool_git_branch(&resolved, action)
+                .await
+                .map(ToolOutput::text)
         }
         "git_commit" => {
             let repo = args["repo_path"]
@@ -372,20 +525,30 @@ pub async fn execute_tool(name: &str, args: &Value, state: &AppState, working_di
                 .as_str()
                 .ok_or("Missing required argument: message")?;
             let files = args["files"].as_str();
-            git_tools::tool_git_commit(&resolved, message, files).await.map(ToolOutput::text)
+            git_tools::tool_git_commit(&resolved, message, files)
+                .await
+                .map(ToolOutput::text)
         }
         // ── GitHub tools ──
-        "github_list_repos" | "github_get_repo" | "github_list_issues"
-        | "github_get_issue" | "github_create_issue" | "github_create_pr" => {
-            github_tools::execute(name, args, state).await.map(ToolOutput::text)
-        }
+        "github_list_repos"
+        | "github_get_repo"
+        | "github_list_issues"
+        | "github_get_issue"
+        | "github_create_issue"
+        | "github_create_pr" => github_tools::execute(name, args, state)
+            .await
+            .map(ToolOutput::text),
         // ── Vercel tools ──
         "vercel_list_projects" | "vercel_get_deployment" | "vercel_deploy" => {
-            vercel_tools::execute(name, args, state).await.map(ToolOutput::text)
+            vercel_tools::execute(name, args, state)
+                .await
+                .map(ToolOutput::text)
         }
         // ── Fly.io tools ──
         "fly_list_apps" | "fly_get_status" | "fly_get_logs" => {
-            fly_tools::execute(name, args, state).await.map(ToolOutput::text)
+            fly_tools::execute(name, args, state)
+                .await
+                .map(ToolOutput::text)
         }
         // ── ZIP tools ──
         "list_zip" => {
@@ -393,7 +556,9 @@ pub async fn execute_tool(name: &str, args: &Value, state: &AppState, working_di
                 .as_str()
                 .ok_or("Missing required argument: path")?;
             let resolved = resolve_path(path, working_directory);
-            zip_tools::tool_list_zip(&resolved).await.map(ToolOutput::text)
+            zip_tools::tool_list_zip(&resolved)
+                .await
+                .map(ToolOutput::text)
         }
         "extract_zip_file" => {
             let path = args["path"]
@@ -403,29 +568,40 @@ pub async fn execute_tool(name: &str, args: &Value, state: &AppState, working_di
             let file_path = args["file_path"]
                 .as_str()
                 .ok_or("Missing required argument: file_path")?;
-            zip_tools::tool_extract_zip_file(&resolved, file_path).await.map(ToolOutput::text)
-        }
-        // ── MCP proxy tools (mcp_{server}_{tool}) ──
-        _ if name.starts_with("mcp_") => {
-            state.mcp_client.call_tool(name, args)
+            zip_tools::tool_extract_zip_file(&resolved, file_path)
                 .await
                 .map(ToolOutput::text)
-                .map_err(|e| format!("MCP tool error: {}", e))
         }
+        // ── MCP proxy tools (mcp_{server}_{tool}) ──
+        _ if name.starts_with("mcp_") => state
+            .mcp_client
+            .call_tool(name, args)
+            .await
+            .map(ToolOutput::text)
+            .map_err(|e| format!("MCP tool error: {}", e)),
         // ── MCP meta tools ──
         "list_mcp_tools" => {
             let tools = state.mcp_client.list_all_tools().await;
-            let info: Vec<Value> = tools.iter().map(|t| json!({
-                "name": t.prefixed_name,
-                "server": t.server_name,
-                "description": t.description,
-            })).collect();
-            Ok(ToolOutput::text(serde_json::to_string_pretty(&info).unwrap_or_else(|_| "[]".to_string())))
+            let info: Vec<Value> = tools
+                .iter()
+                .map(|t| {
+                    json!({
+                        "name": t.prefixed_name,
+                        "server": t.server_name,
+                        "description": t.description,
+                    })
+                })
+                .collect();
+            Ok(ToolOutput::text(
+                serde_json::to_string_pretty(&info).unwrap_or_else(|_| "[]".to_string()),
+            ))
         }
         "execute_mcp_tool" => {
             let tool_name = args["tool_name"].as_str().ok_or("Missing tool_name")?;
             let tool_args = args.get("arguments").cloned().unwrap_or(json!({}));
-            state.mcp_client.call_tool(tool_name, &tool_args)
+            state
+                .mcp_client
+                .call_tool(tool_name, &tool_args)
                 .await
                 .map(ToolOutput::text)
                 .map_err(|e| format!("MCP tool error: {}", e))
@@ -436,7 +612,12 @@ pub async fn execute_tool(name: &str, args: &Value, state: &AppState, working_di
     let elapsed = tool_start.elapsed();
     match &result {
         Ok(_) => tracing::debug!("Tool '{}' completed in {:.2}s", name, elapsed.as_secs_f64()),
-        Err(e) => tracing::warn!("Tool '{}' failed in {:.2}s: {}", name, elapsed.as_secs_f64(), e),
+        Err(e) => tracing::warn!(
+            "Tool '{}' failed in {:.2}s: {}",
+            name,
+            elapsed.as_secs_f64(),
+            e
+        ),
     }
     result
 }
@@ -445,7 +626,11 @@ pub async fn execute_tool(name: &str, args: &Value, state: &AppState, working_di
 // execute_command
 // ---------------------------------------------------------------------------
 
-async fn tool_execute_command(command: &str, working_directory: Option<&str>, state: &AppState) -> Result<String, String> {
+async fn tool_execute_command(
+    command: &str,
+    working_directory: Option<&str>,
+    state: &AppState,
+) -> Result<String, String> {
     let lower = command.to_lowercase();
     for pattern in BLOCKED_PATTERNS {
         if lower.contains(pattern) {
@@ -457,7 +642,10 @@ async fn tool_execute_command(command: &str, working_directory: Option<&str>, st
     let cwd = if let Some(dir) = working_directory {
         let p = std::path::Path::new(dir);
         if !p.is_dir() {
-            return Err(format!("working_directory '{}' does not exist or is not a directory", dir));
+            return Err(format!(
+                "working_directory '{}' does not exist or is not a directory",
+                dir
+            ));
         }
         Some(p.to_path_buf())
     } else {
@@ -465,28 +653,42 @@ async fn tool_execute_command(command: &str, working_directory: Option<&str>, st
     };
 
     // Check sandbox setting
-    let use_sandbox = sqlx::query_scalar::<_, bool>("SELECT use_docker_sandbox FROM gh_settings WHERE id = 1")
-        .fetch_one(&state.db)
-        .await
-        .unwrap_or(false);
+    let use_sandbox =
+        sqlx::query_scalar::<_, bool>("SELECT use_docker_sandbox FROM gh_settings WHERE id = 1")
+            .fetch_one(&state.db)
+            .await
+            .unwrap_or(false);
 
     let output_res = if use_sandbox {
         // Run in Docker — mount working dir (or cwd) to /app
-        let mount_dir = cwd.as_ref()
+        let mount_dir = cwd
+            .as_ref()
             .map(|p| p.to_string_lossy().to_string())
-            .or_else(|| std::env::current_dir().ok().map(|p| p.to_string_lossy().to_string()))
+            .or_else(|| {
+                std::env::current_dir()
+                    .ok()
+                    .map(|p| p.to_string_lossy().to_string())
+            })
             .ok_or_else(|| "Cannot determine working directory".to_string())?;
 
         let docker_args = [
             "run",
             "--rm",
-            "-v", &format!("{}:/app", mount_dir),
-            "-w", "/app",
+            "-v",
+            &format!("{}:/app", mount_dir),
+            "-w",
+            "/app",
             "alpine:latest",
-            "sh", "-c", command
+            "sh",
+            "-c",
+            command,
         ];
 
-        tokio::time::timeout(COMMAND_TIMEOUT, Command::new("docker").args(docker_args).output()).await
+        tokio::time::timeout(
+            COMMAND_TIMEOUT,
+            Command::new("docker").args(docker_args).output(),
+        )
+        .await
     } else {
         // Run locally with optional working directory
         tokio::time::timeout(COMMAND_TIMEOUT, run_command(command, cwd.as_deref())).await
@@ -512,7 +714,10 @@ async fn tool_execute_command(command: &str, working_directory: Option<&str>, st
     }
 
     if result.is_empty() {
-        result = format!("Command completed with exit code: {}", output.status.code().unwrap_or(-1));
+        result = format!(
+            "Command completed with exit code: {}",
+            output.status.code().unwrap_or(-1)
+        );
     }
 
     // Truncate if too large
@@ -529,7 +734,10 @@ async fn tool_execute_command(command: &str, working_directory: Option<&str>, st
     }
 }
 
-async fn run_command(command: &str, cwd: Option<&std::path::Path>) -> std::io::Result<std::process::Output> {
+async fn run_command(
+    command: &str,
+    cwd: Option<&std::path::Path>,
+) -> std::io::Result<std::process::Output> {
     let mut cmd = if cfg!(target_os = "windows") {
         let mut c = Command::new("cmd");
         c.args(["/C", command]);
@@ -588,7 +796,8 @@ async fn tool_edit_file(path: &str, old_text: &str, new_text: &str) -> Result<St
         return Err(format!("File not found: {}", path));
     }
 
-    let content = tokio::fs::read_to_string(p).await
+    let content = tokio::fs::read_to_string(p)
+        .await
         .map_err(|e| format!("Failed to read file: {}", e))?;
 
     let count = content.matches(old_text).count();
@@ -620,11 +829,16 @@ async fn tool_edit_file(path: &str, old_text: &str, new_text: &str) -> Result<St
                 if end_line <= content_lines.len() {
                     let original_section = content_lines[start_line..end_line].join("\n");
                     let new_content = content.replacen(&original_section, new_text, 1);
-                    tokio::fs::write(p, &new_content).await
+                    tokio::fs::write(p, &new_content)
+                        .await
                         .map_err(|e| format!("Failed to write file: {}", e))?;
                     return Ok(format!(
                         "Successfully edited {} (fuzzy match on lines {}-{}, {} bytes -> {} bytes)",
-                        path, start_line + 1, end_line, content.len(), new_content.len()
+                        path,
+                        start_line + 1,
+                        end_line,
+                        content.len(),
+                        new_content.len()
                     ));
                 }
             }
@@ -642,12 +856,15 @@ async fn tool_edit_file(path: &str, old_text: &str, new_text: &str) -> Result<St
     }
 
     let new_content = content.replacen(old_text, new_text, 1);
-    tokio::fs::write(p, &new_content).await
+    tokio::fs::write(p, &new_content)
+        .await
         .map_err(|e| format!("Failed to write file: {}", e))?;
 
     Ok(format!(
         "Successfully edited {} ({} bytes -> {} bytes)",
-        path, content.len(), new_content.len()
+        path,
+        content.len(),
+        new_content.len()
     ))
 }
 
@@ -667,10 +884,12 @@ async fn tool_delete_file(path: &str) -> Result<String, String> {
     }
 
     if p.is_dir() {
-        tokio::fs::remove_dir(p).await
+        tokio::fs::remove_dir(p)
+            .await
             .map_err(|e| format!("Failed to remove directory (must be empty): {}", e))?;
     } else {
-        tokio::fs::remove_file(p).await
+        tokio::fs::remove_file(p)
+            .await
             .map_err(|e| format!("Failed to delete file: {}", e))?;
     }
 
@@ -693,7 +912,8 @@ async fn tool_list_directory(path: &str, show_hidden: bool) -> Result<String, St
     // Parallel line counting via JoinSet
     let mut line_count_set = tokio::task::JoinSet::new();
     for entry in &entries {
-        if !entry.is_dir && entry.size_bytes < 1024 * 1024
+        if !entry.is_dir
+            && entry.size_bytes < 1024 * 1024
             && crate::files::is_text_file(std::path::Path::new(&entry.path))
         {
             let path_owned = entry.path.clone();
@@ -716,7 +936,10 @@ async fn tool_list_directory(path: &str, show_hidden: bool) -> Result<String, St
             let size = format_size(entry.size_bytes);
             let line_count = line_counts.get(&entry.path).copied().flatten();
             if let Some(count) = line_count {
-                lines.push(format!("  {:>8} ({:>4} lines)  {}", size, count, entry.name));
+                lines.push(format!(
+                    "  {:>8} ({:>4} lines)  {}",
+                    size, count, entry.name
+                ));
             } else {
                 lines.push(format!("  {:>8}  {}", size, entry.name));
             }
@@ -767,8 +990,18 @@ const MAX_SEARCH_DEPTH: usize = 12;
 
 /// Directories to skip during search.
 const SKIP_DIRS: &[&str] = &[
-    "node_modules", "target", "dist", "build", ".git", "__pycache__",
-    ".next", ".nuxt", "vendor", ".cache", "coverage", ".turbo",
+    "node_modules",
+    "target",
+    "dist",
+    "build",
+    ".git",
+    "__pycache__",
+    ".next",
+    ".nuxt",
+    "vendor",
+    ".cache",
+    "coverage",
+    ".turbo",
 ];
 
 async fn tool_search_files(
@@ -806,7 +1039,8 @@ async fn tool_search_files(
     let mut stack: Vec<(std::path::PathBuf, usize)> = vec![(dir.to_path_buf(), 0)];
 
     while let Some((current_dir, depth)) = stack.pop() {
-        if depth > MAX_SEARCH_DEPTH || all_results.len() >= MAX_SEARCH_RESULTS
+        if depth > MAX_SEARCH_DEPTH
+            || all_results.len() >= MAX_SEARCH_RESULTS
             || cumulative_result_bytes > MAX_RESULT_BYTES
         {
             break;
@@ -845,10 +1079,10 @@ async fn tool_search_files(
                     .to_lowercase();
 
                 // Filter by extension if specified
-                if let Some(ref filter) = ext_filter {
-                    if !filter.contains(&ext) {
-                        continue;
-                    }
+                if let Some(ref filter) = ext_filter
+                    && !filter.contains(&ext)
+                {
+                    continue;
                 }
 
                 // Only search text files
@@ -885,7 +1119,8 @@ async fn tool_search_files(
                             );
                             cumulative_result_bytes += result_str.len();
                             if cumulative_result_bytes > MAX_RESULT_BYTES {
-                                all_results.push("... [results truncated due to size limit]".to_string());
+                                all_results
+                                    .push("... [results truncated due to size limit]".to_string());
                                 size_limit_hit = true;
                                 break;
                             }
@@ -919,7 +1154,9 @@ async fn tool_search_files(
                                 );
                                 cumulative_result_bytes += result_str.len();
                                 if cumulative_result_bytes > MAX_RESULT_BYTES {
-                                    all_results.push("... [results truncated due to size limit]".to_string());
+                                    all_results.push(
+                                        "... [results truncated due to size limit]".to_string(),
+                                    );
                                     size_limit_hit = true;
                                     break;
                                 }
@@ -948,7 +1185,11 @@ async fn tool_search_files(
         let page: Vec<&String> = all_results.iter().skip(offset).take(limit).collect();
         let shown_start = offset + 1;
         let shown_end = (offset + page.len()).min(total);
-        let page_str: String = page.iter().map(|s| s.as_str()).collect::<Vec<_>>().join("\n");
+        let page_str: String = page
+            .iter()
+            .map(|s| s.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
 
         let truncated = if total >= MAX_SEARCH_RESULTS {
             format!(" (capped at {} total results)", MAX_SEARCH_RESULTS)
@@ -958,12 +1199,7 @@ async fn tool_search_files(
 
         Ok(format!(
             "Showing matches {}-{} of {} total ({} files searched){}:\n\n{}",
-            shown_start,
-            shown_end,
-            total,
-            files_searched,
-            truncated,
-            page_str
+            shown_start, shown_end, total, files_searched, truncated, page_str
         ))
     }
 }
@@ -979,7 +1215,9 @@ async fn tool_get_code_structure(path: &str) -> Result<String, String> {
         .map_err(|e| format!("Cannot read file '{}': {}", e.path, e.reason))?;
 
     // Analyze (tree-sitter first, regex fallback)
-    if let Some(structure) = crate::analysis::analyze_file_async(ctx.path.clone(), ctx.content.clone()).await {
+    if let Some(structure) =
+        crate::analysis::analyze_file_async(ctx.path.clone(), ctx.content.clone()).await
+    {
         let mut out = format!("### Code Structure: {}\n", ctx.path);
         if structure.symbols.is_empty() {
             out.push_str("(No symbols detected or language not supported)");
@@ -992,7 +1230,10 @@ async fn tool_get_code_structure(path: &str) -> Result<String, String> {
         }
         Ok(out)
     } else {
-        Ok(format!("Could not analyze structure for '{}' (unsupported language?)", path))
+        Ok(format!(
+            "Could not analyze structure for '{}' (unsupported language?)",
+            path
+        ))
     }
 }
 
@@ -1001,12 +1242,19 @@ async fn tool_get_code_structure(path: &str) -> Result<String, String> {
 // ---------------------------------------------------------------------------
 
 /// Read a specific line range from a file (1-indexed, inclusive).
-async fn tool_read_file_section(path: &str, start_line: usize, end_line: usize) -> Result<String, String> {
+async fn tool_read_file_section(
+    path: &str,
+    start_line: usize,
+    end_line: usize,
+) -> Result<String, String> {
     if start_line == 0 {
         return Err("start_line must be >= 1 (1-indexed)".to_string());
     }
     if end_line < start_line {
-        return Err(format!("end_line ({}) must be >= start_line ({})", end_line, start_line));
+        return Err(format!(
+            "end_line ({}) must be >= start_line ({})",
+            end_line, start_line
+        ));
     }
     if end_line - start_line + 1 > 500 {
         return Err(format!(
@@ -1075,8 +1323,8 @@ async fn tool_find_file(path: &str, pattern: &str) -> Result<String, String> {
     }
     regex_str.push('$');
 
-    let re = Regex::new(&regex_str)
-        .map_err(|e| format!("Invalid glob pattern '{}': {}", pattern, e))?;
+    let re =
+        Regex::new(&regex_str).map_err(|e| format!("Invalid glob pattern '{}': {}", pattern, e))?;
 
     let mut results: Vec<(String, u64)> = Vec::new();
     let mut stack: Vec<(std::path::PathBuf, usize)> = vec![(dir.to_path_buf(), 0)];
@@ -1184,8 +1432,16 @@ async fn tool_diff_files(path_a: &str, path_b: &str) -> Result<String, String> {
             j += 1;
         } else {
             // Look ahead in B for current A line (detect deletion vs replacement)
-            let b_ahead = lines_b.iter().skip(j).take(5).position(|l| i < lines_a.len() && *l == lines_a[i]);
-            let a_ahead = lines_a.iter().skip(i).take(5).position(|l| j < lines_b.len() && *l == lines_b[j]);
+            let b_ahead = lines_b
+                .iter()
+                .skip(j)
+                .take(5)
+                .position(|l| i < lines_a.len() && *l == lines_a[i]);
+            let a_ahead = lines_a
+                .iter()
+                .skip(i)
+                .take(5)
+                .position(|l| j < lines_b.len() && *l == lines_b[j]);
 
             match (a_ahead, b_ahead) {
                 (Some(a_off), Some(b_off)) if a_off <= b_off => {
@@ -1237,7 +1493,11 @@ async fn tool_diff_files(path_a: &str, path_b: &str) -> Result<String, String> {
         }
     }
 
-    let changed = diff_output.iter().filter(|l| l.starts_with('+') || l.starts_with('-')).count() - 2; // minus header lines
+    let changed = diff_output
+        .iter()
+        .filter(|l| l.starts_with('+') || l.starts_with('-'))
+        .count()
+        - 2; // minus header lines
     Ok(format!(
         "{}\n\n{} changed line(s)",
         diff_output.join("\n"),
@@ -1304,7 +1564,7 @@ async fn tool_read_pdf(
         tokio::task::spawn_blocking(move || {
             pdf_extract::extract_text_from_mem(&bytes_ref)
                 .map_err(|e| format!("PDF extraction failed: {}", e))
-        })
+        }),
     )
     .await
     .map_err(|_| "PDF extraction timed out after 60s".to_string())?
@@ -1346,7 +1606,10 @@ async fn tool_read_pdf(
             .map(|(i, p)| format!("--- Page {} ---\n{}", start + i, p.trim()))
             .collect::<Vec<_>>()
             .join("\n\n");
-        (selected, format!("pages {}-{} of {}", start, end, total_pages))
+        (
+            selected,
+            format!("pages {}-{} of {}", start, end, total_pages),
+        )
     } else {
         (text.clone(), format!("{} pages", total_pages))
     };
@@ -1370,7 +1633,10 @@ async fn tool_read_pdf(
 fn parse_pdf_page_range(range: &str, total: usize) -> Result<(usize, usize), String> {
     let range = range.trim();
     if let Some((start_s, end_s)) = range.split_once('-') {
-        let start: usize = start_s.trim().parse().map_err(|_| "Invalid page range start")?;
+        let start: usize = start_s
+            .trim()
+            .parse()
+            .map_err(|_| "Invalid page range start")?;
         let end: usize = end_s.trim().parse().map_err(|_| "Invalid page range end")?;
         if start < 1 || end < start || end > total {
             return Err(format!(
@@ -1474,7 +1740,8 @@ async fn tool_analyze_image(
         .await
         .ok_or_else(|| "No Google API credential configured".to_string())?;
 
-    let url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent";
+    let url =
+        "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent";
 
     let request_body = serde_json::json!({
         "contents": [{
@@ -1537,10 +1804,18 @@ async fn tool_analyze_image(
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("image");
-    let label = if extract_text.unwrap_or(false) { "OCR" } else { "Image Analysis" };
+    let label = if extract_text.unwrap_or(false) {
+        "OCR"
+    } else {
+        "Image Analysis"
+    };
     let output_text = format!(
         "### {}: {} ({}, {} bytes)\n\n{}",
-        label, filename, mime_type, metadata.len(), text
+        label,
+        filename,
+        mime_type,
+        metadata.len(),
+        text
     );
 
     // Return text + inline_data for Gemini multimodal function responses
@@ -1621,7 +1896,9 @@ async fn tool_ocr_document(
         .unwrap_or("document");
     Ok(format!(
         "### OCR: {} ({}, {} bytes)\n\n{}",
-        filename, mime_type, metadata.len(), text
+        filename,
+        mime_type,
+        metadata.len(),
+        text
     ))
 }
-

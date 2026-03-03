@@ -1,16 +1,14 @@
 //! Memory and knowledge-graph handlers.
 
+use axum::Json;
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
-use axum::Json;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::models::{KnowledgeEdgeRow, KnowledgeNodeRow, MemoryRow};
 use crate::state::AppState;
 
-use super::{
-    AddMemoryRequest, ClearMemoryParams, KnowledgeEdge, KnowledgeNode, MemoryQueryParams,
-};
+use super::{AddMemoryRequest, ClearMemoryParams, KnowledgeEdge, KnowledgeNode, MemoryQueryParams};
 
 // ============================================================================
 // Memory handlers
@@ -119,9 +117,7 @@ pub async fn clear_memories(
 #[utoipa::path(get, path = "/api/memory/graph", tag = "memory",
     responses((status = 200, description = "Knowledge graph nodes and edges", body = Value))
 )]
-pub async fn get_knowledge_graph(
-    State(state): State<AppState>,
-) -> Result<Json<Value>, StatusCode> {
+pub async fn get_knowledge_graph(State(state): State<AppState>) -> Result<Json<Value>, StatusCode> {
     let node_rows = sqlx::query_as::<_, KnowledgeNodeRow>(
         "SELECT id, node_type, label FROM gh_knowledge_nodes",
     )

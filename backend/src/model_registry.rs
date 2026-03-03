@@ -7,12 +7,12 @@
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
+use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::header;
 use axum::response::IntoResponse;
-use axum::Json;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use utoipa::ToSchema;
 
 use crate::state::AppState;
@@ -89,8 +89,7 @@ async fn fetch_google_models(
 ) -> Result<Vec<ModelInfo>, String> {
     let url = "https://generativelanguage.googleapis.com/v1beta/models";
 
-    let parsed_url = reqwest::Url::parse(url)
-        .map_err(|e| format!("Invalid URL: {}", e))?;
+    let parsed_url = reqwest::Url::parse(url).map_err(|e| format!("Invalid URL: {}", e))?;
 
     let resp = crate::oauth::apply_google_auth(client.get(parsed_url), api_key, is_oauth)
         .send()
@@ -223,7 +222,10 @@ pub async fn refresh_cache(state: &AppState) -> (HashMap<String, Vec<ModelInfo>>
     let (google_result, anthropic_result) = tokio::join!(
         async {
             if let Some((cred, is_oauth)) = google_cred {
-                Some((fetch_google_models(&state.client, &cred, is_oauth).await, is_oauth))
+                Some((
+                    fetch_google_models(&state.client, &cred, is_oauth).await,
+                    is_oauth,
+                ))
             } else {
                 None
             }
@@ -253,12 +255,8 @@ pub async fn refresh_cache(state: &AppState) -> (HashMap<String, Vec<ModelInfo>>
                     if let Some((fallback_cred, fallback_is_oauth)) =
                         crate::oauth::get_google_api_key_credential(state).await
                     {
-                        match fetch_google_models(
-                            &state.client,
-                            &fallback_cred,
-                            fallback_is_oauth,
-                        )
-                        .await
+                        match fetch_google_models(&state.client, &fallback_cred, fallback_is_oauth)
+                            .await
                         {
                             Ok(models) => {
                                 tracing::info!(
@@ -268,7 +266,10 @@ pub async fn refresh_cache(state: &AppState) -> (HashMap<String, Vec<ModelInfo>>
                                 all_models.insert("google".to_string(), models);
                             }
                             Err(e2) => {
-                                tracing::warn!("model_registry: API key fallback also failed: {}", e2);
+                                tracing::warn!(
+                                    "model_registry: API key fallback also failed: {}",
+                                    e2
+                                );
                                 errors.push(format!("google (oauth): {}", e));
                                 errors.push(format!("google (api_key): {}", e2));
                             }
@@ -375,23 +376,41 @@ pub async fn resolve_models(state: &AppState) -> ResolvedModels {
     let chat = select_best(
         &google,
         &["pro", "customtools"],
-        &["lite", "latest", "image", "tts", "computer", "robotics", "thinking"],
+        &[
+            "lite", "latest", "image", "tts", "computer", "robotics", "thinking",
+        ],
     )
-    .or_else(|| select_best(&google, &["pro"], &["lite", "latest", "image", "tts", "computer", "robotics", "thinking"]));
+    .or_else(|| {
+        select_best(
+            &google,
+            &["pro"],
+            &[
+                "lite", "latest", "image", "tts", "computer", "robotics", "thinking",
+            ],
+        )
+    });
 
     // Thinking: highest version_key (Gemini 3+ has dynamic thinking built-in)
-    let thinking = select_best(&google, &[], &["lite", "latest", "image", "tts", "computer", "robotics", "audio"])
-        .or_else(|| chat.clone());
+    let thinking = select_best(
+        &google,
+        &[],
+        &[
+            "lite", "latest", "image", "tts", "computer", "robotics", "audio",
+        ],
+    )
+    .or_else(|| chat.clone());
 
     // Image: gemini model with image generation capability
-    let image = select_best(&google, &["image"], &["robotics", "computer"])
-        .or_else(|| chat.clone());
+    let image =
+        select_best(&google, &["image"], &["robotics", "computer"]).or_else(|| chat.clone());
 
     // Flash: fastest Gemini model for simple tasks
     let flash = select_best(
         &google,
         &["flash"],
-        &["lite", "latest", "image", "tts", "computer", "robotics", "audio", "thinking"],
+        &[
+            "lite", "latest", "image", "tts", "computer", "robotics", "audio", "thinking",
+        ],
     );
 
     ResolvedModels {
@@ -409,9 +428,23 @@ pub fn classify_complexity(prompt: &str) -> &'static str {
     let words = prompt.split_whitespace().count();
     let lower = prompt.to_lowercase();
     let complex_keywords = [
-        "architect", "refactor", "design pattern", "migration", "security audit",
-        "performance", "optimize", "scale", "infrastructure", "deploy",
-        "```", "fn ", "function ", "class ", "impl ", "async ", "struct ",
+        "architect",
+        "refactor",
+        "design pattern",
+        "migration",
+        "security audit",
+        "performance",
+        "optimize",
+        "scale",
+        "infrastructure",
+        "deploy",
+        "```",
+        "fn ",
+        "function ",
+        "class ",
+        "impl ",
+        "async ",
+        "struct ",
     ];
     let has_complex = complex_keywords.iter().any(|k| lower.contains(k));
 
@@ -428,17 +461,20 @@ pub fn classify_complexity(prompt: &str) -> &'static str {
 /// Priority: 1) DB pin  2) dynamic auto-selection  3) hardcoded fallback.
 pub async fn get_model_id(state: &AppState, use_case: &str) -> String {
     // 1) Check for a pinned model in DB
-    let pinned: Option<String> = sqlx::query_scalar(
-        "SELECT model_id FROM gh_model_pins WHERE use_case = $1",
-    )
-    .bind(use_case)
-    .fetch_optional(&state.db)
-    .await
-    .ok()
-    .flatten();
+    let pinned: Option<String> =
+        sqlx::query_scalar("SELECT model_id FROM gh_model_pins WHERE use_case = $1")
+            .bind(use_case)
+            .fetch_optional(&state.db)
+            .await
+            .ok()
+            .flatten();
 
     if let Some(ref pin) = pinned {
-        tracing::info!("model_registry: use_case={} → model={} (pinned)", use_case, pin);
+        tracing::info!(
+            "model_registry: use_case={} → model={} (pinned)",
+            use_case,
+            pin
+        );
         return pin.clone();
     }
 
@@ -459,7 +495,11 @@ pub async fn get_model_id(state: &AppState, use_case: &str) -> String {
         "model_registry: use_case={} → model={}{}",
         use_case,
         id,
-        if model.is_some() { " (auto)" } else { " (fallback)" }
+        if model.is_some() {
+            " (auto)"
+        } else {
+            " (fallback)"
+        }
     );
 
     id.to_string()
@@ -469,12 +509,11 @@ pub async fn get_model_id(state: &AppState, use_case: &str) -> String {
 
 /// Read all pins from DB as a HashMap.
 async fn get_pins_map(state: &AppState) -> HashMap<String, String> {
-    let rows: Vec<(String, String)> = sqlx::query_as(
-        "SELECT use_case, model_id FROM gh_model_pins",
-    )
-    .fetch_all(&state.db)
-    .await
-    .unwrap_or_default();
+    let rows: Vec<(String, String)> =
+        sqlx::query_as("SELECT use_case, model_id FROM gh_model_pins")
+            .fetch_all(&state.db)
+            .await
+            .unwrap_or_default();
 
     rows.into_iter().collect()
 }
@@ -488,7 +527,11 @@ pub async fn startup_sync(state: &AppState) {
 
     let (models, startup_errors) = refresh_cache(state).await;
     let total: usize = models.values().map(|v| v.len()).sum();
-    tracing::info!("model_registry: {} models cached from {} providers", total, models.len());
+    tracing::info!(
+        "model_registry: {} models cached from {} providers",
+        total,
+        models.len()
+    );
     for err in &startup_errors {
         tracing::warn!("model_registry: startup fetch error: {}", err);
     }
@@ -517,10 +560,26 @@ pub async fn startup_sync(state: &AppState) {
     // Log all resolved use cases
     tracing::info!(
         "model_registry: resolved → chat={}, thinking={}, image={}, flash={}",
-        resolved.chat.as_ref().map(|m| m.id.as_str()).unwrap_or("(none)"),
-        resolved.thinking.as_ref().map(|m| m.id.as_str()).unwrap_or("(none)"),
-        resolved.image.as_ref().map(|m| m.id.as_str()).unwrap_or("(none)"),
-        resolved.flash.as_ref().map(|m| m.id.as_str()).unwrap_or("(none)"),
+        resolved
+            .chat
+            .as_ref()
+            .map(|m| m.id.as_str())
+            .unwrap_or("(none)"),
+        resolved
+            .thinking
+            .as_ref()
+            .map(|m| m.id.as_str())
+            .unwrap_or("(none)"),
+        resolved
+            .image
+            .as_ref()
+            .map(|m| m.id.as_str())
+            .unwrap_or("(none)"),
+        resolved
+            .flash
+            .as_ref()
+            .map(|m| m.id.as_str())
+            .unwrap_or("(none)"),
     );
 }
 
@@ -601,7 +660,9 @@ pub async fn pin_model(
     let valid = ["chat", "thinking", "image", "flash"];
 
     if !valid.contains(&body.use_case.as_str()) {
-        return Json(json!({ "error": format!("Invalid use_case '{}'. Valid: {:?}", body.use_case, valid) }));
+        return Json(
+            json!({ "error": format!("Invalid use_case '{}'. Valid: {:?}", body.use_case, valid) }),
+        );
     }
 
     let result = sqlx::query(
@@ -616,7 +677,11 @@ pub async fn pin_model(
 
     match result {
         Ok(_) => {
-            tracing::info!("model_registry: pinned use_case={} → model={}", body.use_case, body.model_id);
+            tracing::info!(
+                "model_registry: pinned use_case={} → model={}",
+                body.use_case,
+                body.model_id
+            );
 
             crate::audit::log_audit(
                 &state.db,
@@ -771,9 +836,7 @@ mod tests {
 
     #[test]
     fn select_best_no_match_returns_none() {
-        let models = vec![
-            model("gemini-3.1-pro-preview", "google"),
-        ];
+        let models = vec![model("gemini-3.1-pro-preview", "google")];
 
         let best = select_best(&models, &["nonexistent"], &[]);
         assert!(best.is_none());
@@ -866,7 +929,13 @@ mod tests {
         assert!(best.is_none());
 
         // fallback to any pro
-        let fallback = select_best(&models, &["pro"], &["lite", "latest", "image", "tts", "computer", "robotics", "thinking"]);
+        let fallback = select_best(
+            &models,
+            &["pro"],
+            &[
+                "lite", "latest", "image", "tts", "computer", "robotics", "thinking",
+            ],
+        );
         assert_eq!(fallback.unwrap().id, "gemini-3.1-pro-preview");
     }
 }

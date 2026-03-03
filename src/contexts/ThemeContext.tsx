@@ -6,16 +6,7 @@
  * Persists selection to localStorage.
  * Updates document data-theme attribute and meta theme-color tag.
  */
-import {
-  createContext,
-  type ReactNode,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useState,
-  useSyncExternalStore,
-} from 'react';
+import { createContext, type ReactNode, useContext, useEffect, useState, useSyncExternalStore } from 'react';
 import type { ResolvedTheme, Theme } from '@/shared/types';
 
 // ============================================
@@ -76,12 +67,12 @@ export function ThemeProvider({
   );
 
   // Compute resolved theme without extra state
-  const resolvedTheme = useMemo<ResolvedTheme>(() => {
+  const resolvedTheme: ResolvedTheme = (() => {
     if (theme === 'system') {
       return systemPrefersDark ? 'dark' : 'light';
     }
     return theme;
-  }, [theme, systemPrefersDark]);
+  })();
 
   // Apply theme to document (side effect only, no setState)
   useEffect(() => {
@@ -104,23 +95,17 @@ export function ThemeProvider({
     metaThemeColor.setAttribute('content', META_THEME_COLORS[resolvedTheme]);
   }, [resolvedTheme]);
 
-  const setTheme = useCallback(
-    (newTheme: Theme) => {
-      localStorage.setItem(storageKey, newTheme);
-      setThemeState(newTheme);
-    },
-    [storageKey],
-  );
+  const setTheme = (newTheme: Theme) => {
+    localStorage.setItem(storageKey, newTheme);
+    setThemeState(newTheme);
+  };
 
-  const toggleTheme = useCallback(() => {
+  const toggleTheme = () => {
     const next: Theme = resolvedTheme === 'dark' ? 'light' : 'dark';
     setTheme(next);
-  }, [resolvedTheme, setTheme]);
+  };
 
-  const value = useMemo<ThemeContextType>(
-    () => ({ theme, setTheme, toggleTheme, resolvedTheme }),
-    [theme, setTheme, toggleTheme, resolvedTheme],
-  );
+  const value: ThemeContextType = { theme, setTheme, toggleTheme, resolvedTheme };
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }

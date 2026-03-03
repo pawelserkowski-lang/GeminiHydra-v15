@@ -4,10 +4,9 @@
  * ==========
  * Glass-styled text input with icon slot, right element slot, error state, label, and size
  * variants. Uses `.glass-input` from globals.css and theme accent for focus.
- * Supports forwardRef for external ref access.
  */
 
-import { forwardRef, type InputHTMLAttributes, memo, type ReactNode, useId } from 'react';
+import { type InputHTMLAttributes, memo, type ReactNode, useId } from 'react';
 import { cn } from '@/shared/utils/cn';
 
 // ---------------------------------------------------------------------------
@@ -17,6 +16,7 @@ import { cn } from '@/shared/utils/cn';
 type InputSize = 'sm' | 'md' | 'lg';
 
 interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
+  ref?: React.Ref<HTMLInputElement>;
   /** Optional label rendered above the input. */
   label?: string;
   /** Icon element rendered on the left side of the input. */
@@ -64,79 +64,85 @@ const rightElementPaddingClasses: Record<InputSize, string> = {
 // ---------------------------------------------------------------------------
 
 export const Input = memo(
-  forwardRef<HTMLInputElement, InputProps>(
-    (
-      { label, icon, rightElement, error, inputSize = 'md', className = '', disabled, id: externalId, ...rest },
-      ref,
-    ) => {
-      const autoId = useId();
-      const inputId = externalId ?? autoId;
-      const errorId = error ? `${inputId}-error` : undefined;
+  ({
+    label,
+    icon,
+    rightElement,
+    error,
+    inputSize = 'md',
+    className = '',
+    disabled,
+    id: externalId,
+    ref,
+    ...rest
+  }: InputProps) => {
+    const autoId = useId();
+    const inputId = externalId ?? autoId;
+    const errorId = error ? `${inputId}-error` : undefined;
 
-      const hasError = Boolean(error);
+    const hasError = Boolean(error);
 
-      return (
-        <div className={cn('flex flex-col gap-1.5', className)}>
-          {/* Label */}
-          {label && (
-            <label htmlFor={inputId} className="text-xs font-medium text-[var(--matrix-text-secondary)]">
-              {label}
-            </label>
+    return (
+      <div className={cn('flex flex-col gap-1.5', className)}>
+        {/* Label */}
+        {label && (
+          <label htmlFor={inputId} className="text-xs font-medium text-[var(--matrix-text-secondary)]">
+            {label}
+          </label>
+        )}
+
+        {/* Input wrapper */}
+        <div className="relative">
+          {/* Left icon */}
+          {icon && (
+            <span
+              className={cn(
+                'absolute top-1/2 -translate-y-1/2 text-[var(--matrix-text-secondary)] pointer-events-none',
+                iconSizeClasses[inputSize],
+              )}
+              aria-hidden="true"
+            >
+              {icon}
+            </span>
           )}
 
-          {/* Input wrapper */}
-          <div className="relative">
-            {/* Left icon */}
-            {icon && (
-              <span
-                className={cn(
-                  'absolute top-1/2 -translate-y-1/2 text-[var(--matrix-text-secondary)] pointer-events-none',
-                  iconSizeClasses[inputSize],
-                )}
-                aria-hidden="true"
-              >
-                {icon}
-              </span>
+          {/* Input */}
+          <input
+            ref={ref}
+            id={inputId}
+            disabled={disabled}
+            aria-invalid={hasError || undefined}
+            aria-describedby={errorId}
+            className={cn(
+              'glass-input w-full rounded-lg font-mono',
+              'text-[var(--matrix-text-primary)] placeholder:text-[var(--matrix-text-secondary)]/60',
+              'outline-none transition-all duration-200',
+              'focus-visible:border-[var(--matrix-accent)] focus-visible:ring-2 focus-visible:ring-[var(--matrix-accent)]',
+              'focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--matrix-bg-primary)]',
+              'disabled:opacity-50 disabled:cursor-not-allowed',
+              hasError && 'border-red-500 focus-visible:border-red-500 focus-visible:ring-red-500/30',
+              sizeClasses[inputSize],
+              icon && iconPaddingClasses[inputSize],
+              rightElement && rightElementPaddingClasses[inputSize],
             )}
+            {...rest}
+          />
 
-            {/* Input */}
-            <input
-              ref={ref}
-              id={inputId}
-              disabled={disabled}
-              aria-invalid={hasError || undefined}
-              aria-describedby={errorId}
-              className={cn(
-                'glass-input w-full rounded-lg font-mono',
-                'text-[var(--matrix-text-primary)] placeholder:text-[var(--matrix-text-secondary)]/60',
-                'outline-none transition-all duration-200',
-                'focus-visible:border-[var(--matrix-accent)] focus-visible:ring-2 focus-visible:ring-[var(--matrix-accent)]',
-                'focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--matrix-bg-primary)]',
-                'disabled:opacity-50 disabled:cursor-not-allowed',
-                hasError && 'border-red-500 focus-visible:border-red-500 focus-visible:ring-red-500/30',
-                sizeClasses[inputSize],
-                icon && iconPaddingClasses[inputSize],
-                rightElement && rightElementPaddingClasses[inputSize],
-              )}
-              {...rest}
-            />
-
-            {/* Right Element */}
-            {rightElement && (
-              <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center">{rightElement}</div>
-            )}
-          </div>
-
-          {/* Error message */}
-          {error && (
-            <p id={errorId} role="alert" className="text-xs text-red-500 font-mono">
-              {error}
-            </p>
+          {/* Right Element */}
+          {rightElement && (
+            <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center">{rightElement}</div>
           )}
         </div>
-      );
-    },
-  ),
+
+        {/* Error message */}
+        {error && (
+          <p id={errorId} role="alert" className="text-xs text-red-500 font-mono">
+            {error}
+          </p>
+        )}
+      </div>
+    );
+  },
 );
 
 Input.displayName = 'Input';

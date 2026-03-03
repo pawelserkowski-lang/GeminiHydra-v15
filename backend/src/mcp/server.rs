@@ -13,10 +13,10 @@
 //! - `resources/read` — read a resource by URI
 //! - `ping` — health check
 
+use axum::Json;
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
-use axum::Json;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::state::AppState;
 use crate::tools;
@@ -37,9 +37,7 @@ pub async fn mcp_handler(
     tracing::debug!(method = %method, "MCP server: incoming request");
 
     // Check for session ID header (optional, for stateful sessions)
-    let _session_id = headers
-        .get("mcp-session-id")
-        .and_then(|v| v.to_str().ok());
+    let _session_id = headers.get("mcp-session-id").and_then(|v| v.to_str().ok());
 
     let result = match method {
         "initialize" => handle_initialize(&id),
@@ -123,10 +121,7 @@ async fn handle_tools_list(state: &AppState, id: &Value) -> Value {
 
 async fn handle_tools_call(state: &AppState, request: &Value, id: &Value) -> Value {
     let params = request.get("params").cloned().unwrap_or(json!({}));
-    let tool_name = params
-        .get("name")
-        .and_then(|n| n.as_str())
-        .unwrap_or("");
+    let tool_name = params.get("name").and_then(|n| n.as_str()).unwrap_or("");
     let arguments = params.get("arguments").cloned().unwrap_or(json!({}));
 
     if tool_name.is_empty() {
@@ -277,14 +272,17 @@ async fn handle_resources_read(state: &AppState, request: &Value, id: &Value) ->
             .fetch_all(&state.db)
             .await
             .unwrap_or_default();
-            let summaries: Vec<serde_json::Value> = rows.iter().map(|r| {
-                json!({
-                    "id": r.id.to_string(),
-                    "title": r.title,
-                    "created_at": r.created_at.to_rfc3339(),
-                    "message_count": r.message_count,
+            let summaries: Vec<serde_json::Value> = rows
+                .iter()
+                .map(|r| {
+                    json!({
+                        "id": r.id.to_string(),
+                        "title": r.title,
+                        "created_at": r.created_at.to_rfc3339(),
+                        "message_count": r.message_count,
+                    })
                 })
-            }).collect();
+                .collect();
             serde_json::to_string_pretty(&summaries).unwrap_or_else(|_| "[]".to_string())
         }
 
@@ -304,7 +302,9 @@ async fn handle_resources_read(state: &AppState, request: &Value, id: &Value) ->
 
         "geminihydra://models" => {
             let cache = state.model_cache.read().await;
-            let fetched_ago = cache.fetched_at.map(|t| format!("{}s ago", t.elapsed().as_secs()));
+            let fetched_ago = cache
+                .fetched_at
+                .map(|t| format!("{}s ago", t.elapsed().as_secs()));
             json!({
                 "total_models": cache.models.len(),
                 "fetched_ago": fetched_ago,
@@ -357,303 +357,447 @@ async fn handle_resources_read(state: &AppState, request: &Value, id: &Value) ->
 /// Maps from Gemini `function_declarations` format to MCP `Tool` format.
 fn build_mcp_tool_list() -> Vec<Value> {
     vec![
-        mcp_tool("list_directory", "List files and subdirectories in a local directory with sizes and line counts.", json!({
-            "type": "object",
-            "properties": {
-                "path": { "type": "string", "description": "Absolute path to the directory" },
-                "show_hidden": { "type": "boolean", "description": "Include hidden files" }
-            },
-            "required": ["path"]
-        })),
-        mcp_tool("read_file", "Read a file from the local filesystem by its absolute path.", json!({
-            "type": "object",
-            "properties": { "path": { "type": "string", "description": "Absolute path to the file" } },
-            "required": ["path"]
-        })),
-        mcp_tool("read_file_section", "Read specific line range from a file (1-indexed, inclusive). Max 500 lines.", json!({
-            "type": "object",
-            "properties": {
-                "path": { "type": "string", "description": "Absolute path to the file" },
-                "start_line": { "type": "integer", "description": "First line to read (1-indexed)" },
-                "end_line": { "type": "integer", "description": "Last line to read (1-indexed)" }
-            },
-            "required": ["path", "start_line", "end_line"]
-        })),
-        mcp_tool("search_files", "Search for text/regex patterns across all files in a directory (recursive). Returns matching lines with file paths and line numbers.", json!({
-            "type": "object",
-            "properties": {
-                "path": { "type": "string", "description": "Directory to search in" },
-                "pattern": { "type": "string", "description": "Text or regex pattern (case-insensitive)" },
-                "file_extensions": { "type": "string", "description": "Comma-separated extensions to filter" },
-                "offset": { "type": "integer", "description": "Matches to skip (pagination)" },
-                "limit": { "type": "integer", "description": "Max matches to return (default 80)" },
-                "multiline": { "type": "boolean", "description": "Match across line boundaries" }
-            },
-            "required": ["path", "pattern"]
-        })),
-        mcp_tool("find_file", "Find files by glob pattern. Returns matching file paths with sizes.", json!({
-            "type": "object",
-            "properties": {
-                "path": { "type": "string", "description": "Root directory to search" },
-                "pattern": { "type": "string", "description": "Glob pattern like '*.tsx' or 'auth*'" }
-            },
-            "required": ["path", "pattern"]
-        })),
-        mcp_tool("get_code_structure", "Analyze code structure (functions, classes, structs) via AST. Supports Rust, TypeScript, JavaScript, Python, Go.", json!({
-            "type": "object",
-            "properties": { "path": { "type": "string", "description": "Absolute path to the source file" } },
-            "required": ["path"]
-        })),
-        mcp_tool("write_file", "Write or create a file on the local filesystem.", json!({
-            "type": "object",
-            "properties": {
-                "path": { "type": "string", "description": "Absolute path for the file" },
-                "content": { "type": "string", "description": "Full file content" }
-            },
-            "required": ["path", "content"]
-        })),
-        mcp_tool("edit_file", "Edit an existing file by replacing a specific text section. Safer than write_file for modifications.", json!({
-            "type": "object",
-            "properties": {
-                "path": { "type": "string", "description": "Absolute path to the file" },
-                "old_text": { "type": "string", "description": "Exact text to find (must appear once)" },
-                "new_text": { "type": "string", "description": "Replacement text" }
-            },
-            "required": ["path", "old_text", "new_text"]
-        })),
-        mcp_tool("diff_files", "Compare two files and show line-by-line differences in unified diff format.", json!({
-            "type": "object",
-            "properties": {
-                "path_a": { "type": "string", "description": "First file path" },
-                "path_b": { "type": "string", "description": "Second file path" }
-            },
-            "required": ["path_a", "path_b"]
-        })),
-        mcp_tool("fetch_webpage", "Fetch a web page with SSRF protection, extract readable text (tables→markdown, code→fenced), metadata, and categorized links.", json!({
-            "type": "object",
-            "properties": {
-                "url": { "type": "string", "description": "Full URL to fetch (http/https)" },
-                "extract_links": { "type": "boolean", "description": "Extract categorized links (default: true)" },
-                "extract_metadata": { "type": "boolean", "description": "Extract OpenGraph/JSON-LD metadata (default: false)" },
-                "include_images": { "type": "boolean", "description": "Include image alt text (default: false)" },
-                "output_format": { "type": "string", "description": "'text' or 'json' (default: 'text')" },
-                "max_text_length": { "type": "integer", "description": "Max text chars, 0=unlimited (default: 0)" },
-                "headers": { "type": "object", "description": "Custom HTTP headers" }
-            },
-            "required": ["url"]
-        })),
-        mcp_tool("crawl_website", "Crawl a website with robots.txt, sitemap, concurrent requests, content dedup, and categorized link index.", json!({
-            "type": "object",
-            "properties": {
-                "url": { "type": "string", "description": "Starting URL to crawl" },
-                "max_depth": { "type": "integer", "description": "Max depth (default: 1, max: 5)" },
-                "max_pages": { "type": "integer", "description": "Max pages (default: 10, max: 50)" },
-                "same_domain_only": { "type": "boolean", "description": "Same-domain only (default: true)" },
-                "path_prefix": { "type": "string", "description": "Only crawl URLs with this path prefix" },
-                "exclude_patterns": { "type": "array", "items": { "type": "string" }, "description": "Skip URLs containing these substrings" },
-                "respect_robots_txt": { "type": "boolean", "description": "Respect robots.txt (default: true)" },
-                "use_sitemap": { "type": "boolean", "description": "Seed from sitemap.xml (default: false)" },
-                "concurrent_requests": { "type": "integer", "description": "Concurrent fetches (default: 1, max: 5)" },
-                "delay_ms": { "type": "integer", "description": "Delay between requests in ms (default: 300)" },
-                "max_total_seconds": { "type": "integer", "description": "Max crawl time (default: 180)" },
-                "output_format": { "type": "string", "description": "'text' or 'json' (default: 'text')" },
-                "max_text_length": { "type": "integer", "description": "Max text per page (default: 2000)" },
-                "include_metadata": { "type": "boolean", "description": "Include metadata per page (default: false)" },
-                "headers": { "type": "object", "description": "Custom HTTP headers" }
-            },
-            "required": ["url"]
-        })),
-        mcp_tool("read_pdf", "Extract text from a PDF file. Supports page ranges for large documents.", json!({
-            "type": "object",
-            "properties": {
-                "path": { "type": "string", "description": "Absolute path to the PDF file" },
-                "page_range": { "type": "string", "description": "Page range, e.g. '1-5' or '3' (optional, reads all if omitted)" }
-            },
-            "required": ["path"]
-        })),
-        mcp_tool("analyze_image", "Analyze an image using Gemini Vision API. Returns description, text extraction, or custom analysis.", json!({
-            "type": "object",
-            "properties": {
-                "path": { "type": "string", "description": "Absolute path to the image file (PNG, JPEG, WebP, GIF)" },
-                "prompt": { "type": "string", "description": "Custom analysis prompt (optional)" },
-                "extract_text": { "type": "boolean", "description": "Focus on text extraction (OCR mode)" }
-            },
-            "required": ["path"]
-        })),
-        mcp_tool("ocr_document", "Extract text from an image or PDF with high-fidelity OCR. Preserves tables (markdown pipe format), headers, lists, and diacritics.", json!({
-            "type": "object",
-            "properties": {
-                "path": { "type": "string", "description": "Absolute path to the image or PDF file" },
-                "prompt": { "type": "string", "description": "Additional OCR instructions (optional)" }
-            },
-            "required": ["path"]
-        })),
-        mcp_tool("execute_command", "Execute a shell command on the local machine. Use for build/test/npm/cargo operations.", json!({
-            "type": "object",
-            "properties": {
-                "command": { "type": "string", "description": "Shell command (Windows cmd.exe)" },
-                "working_directory": { "type": "string", "description": "Working directory" }
-            },
-            "required": ["command"]
-        })),
-        mcp_tool("list_mcp_tools", "List all available MCP tools from connected external servers. Returns tool names, descriptions, and which server provides each tool.", json!({
-            "type": "object",
-            "properties": {},
-            "required": []
-        })),
-        mcp_tool("execute_mcp_tool", "Execute a specific MCP tool by its prefixed name (mcp_servername_toolname) with custom arguments. Use list_mcp_tools first to discover available tools.", json!({
-            "type": "object",
-            "properties": {
-                "tool_name": { "type": "string", "description": "Prefixed MCP tool name (e.g. mcp_brave_web_search)" },
-                "arguments": { "type": "object", "description": "Tool arguments as a JSON object" }
-            },
-            "required": ["tool_name"]
-        })),
+        mcp_tool(
+            "list_directory",
+            "List files and subdirectories in a local directory with sizes and line counts.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "Absolute path to the directory" },
+                    "show_hidden": { "type": "boolean", "description": "Include hidden files" }
+                },
+                "required": ["path"]
+            }),
+        ),
+        mcp_tool(
+            "read_file",
+            "Read a file from the local filesystem by its absolute path.",
+            json!({
+                "type": "object",
+                "properties": { "path": { "type": "string", "description": "Absolute path to the file" } },
+                "required": ["path"]
+            }),
+        ),
+        mcp_tool(
+            "read_file_section",
+            "Read specific line range from a file (1-indexed, inclusive). Max 500 lines.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "Absolute path to the file" },
+                    "start_line": { "type": "integer", "description": "First line to read (1-indexed)" },
+                    "end_line": { "type": "integer", "description": "Last line to read (1-indexed)" }
+                },
+                "required": ["path", "start_line", "end_line"]
+            }),
+        ),
+        mcp_tool(
+            "search_files",
+            "Search for text/regex patterns across all files in a directory (recursive). Returns matching lines with file paths and line numbers.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "Directory to search in" },
+                    "pattern": { "type": "string", "description": "Text or regex pattern (case-insensitive)" },
+                    "file_extensions": { "type": "string", "description": "Comma-separated extensions to filter" },
+                    "offset": { "type": "integer", "description": "Matches to skip (pagination)" },
+                    "limit": { "type": "integer", "description": "Max matches to return (default 80)" },
+                    "multiline": { "type": "boolean", "description": "Match across line boundaries" }
+                },
+                "required": ["path", "pattern"]
+            }),
+        ),
+        mcp_tool(
+            "find_file",
+            "Find files by glob pattern. Returns matching file paths with sizes.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "Root directory to search" },
+                    "pattern": { "type": "string", "description": "Glob pattern like '*.tsx' or 'auth*'" }
+                },
+                "required": ["path", "pattern"]
+            }),
+        ),
+        mcp_tool(
+            "get_code_structure",
+            "Analyze code structure (functions, classes, structs) via AST. Supports Rust, TypeScript, JavaScript, Python, Go.",
+            json!({
+                "type": "object",
+                "properties": { "path": { "type": "string", "description": "Absolute path to the source file" } },
+                "required": ["path"]
+            }),
+        ),
+        mcp_tool(
+            "write_file",
+            "Write or create a file on the local filesystem.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "Absolute path for the file" },
+                    "content": { "type": "string", "description": "Full file content" }
+                },
+                "required": ["path", "content"]
+            }),
+        ),
+        mcp_tool(
+            "edit_file",
+            "Edit an existing file by replacing a specific text section. Safer than write_file for modifications.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "Absolute path to the file" },
+                    "old_text": { "type": "string", "description": "Exact text to find (must appear once)" },
+                    "new_text": { "type": "string", "description": "Replacement text" }
+                },
+                "required": ["path", "old_text", "new_text"]
+            }),
+        ),
+        mcp_tool(
+            "diff_files",
+            "Compare two files and show line-by-line differences in unified diff format.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "path_a": { "type": "string", "description": "First file path" },
+                    "path_b": { "type": "string", "description": "Second file path" }
+                },
+                "required": ["path_a", "path_b"]
+            }),
+        ),
+        mcp_tool(
+            "fetch_webpage",
+            "Fetch a web page with SSRF protection, extract readable text (tables→markdown, code→fenced), metadata, and categorized links.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "url": { "type": "string", "description": "Full URL to fetch (http/https)" },
+                    "extract_links": { "type": "boolean", "description": "Extract categorized links (default: true)" },
+                    "extract_metadata": { "type": "boolean", "description": "Extract OpenGraph/JSON-LD metadata (default: false)" },
+                    "include_images": { "type": "boolean", "description": "Include image alt text (default: false)" },
+                    "output_format": { "type": "string", "description": "'text' or 'json' (default: 'text')" },
+                    "max_text_length": { "type": "integer", "description": "Max text chars, 0=unlimited (default: 0)" },
+                    "headers": { "type": "object", "description": "Custom HTTP headers" }
+                },
+                "required": ["url"]
+            }),
+        ),
+        mcp_tool(
+            "crawl_website",
+            "Crawl a website with robots.txt, sitemap, concurrent requests, content dedup, and categorized link index.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "url": { "type": "string", "description": "Starting URL to crawl" },
+                    "max_depth": { "type": "integer", "description": "Max depth (default: 1, max: 5)" },
+                    "max_pages": { "type": "integer", "description": "Max pages (default: 10, max: 50)" },
+                    "same_domain_only": { "type": "boolean", "description": "Same-domain only (default: true)" },
+                    "path_prefix": { "type": "string", "description": "Only crawl URLs with this path prefix" },
+                    "exclude_patterns": { "type": "array", "items": { "type": "string" }, "description": "Skip URLs containing these substrings" },
+                    "respect_robots_txt": { "type": "boolean", "description": "Respect robots.txt (default: true)" },
+                    "use_sitemap": { "type": "boolean", "description": "Seed from sitemap.xml (default: false)" },
+                    "concurrent_requests": { "type": "integer", "description": "Concurrent fetches (default: 1, max: 5)" },
+                    "delay_ms": { "type": "integer", "description": "Delay between requests in ms (default: 300)" },
+                    "max_total_seconds": { "type": "integer", "description": "Max crawl time (default: 180)" },
+                    "output_format": { "type": "string", "description": "'text' or 'json' (default: 'text')" },
+                    "max_text_length": { "type": "integer", "description": "Max text per page (default: 2000)" },
+                    "include_metadata": { "type": "boolean", "description": "Include metadata per page (default: false)" },
+                    "headers": { "type": "object", "description": "Custom HTTP headers" }
+                },
+                "required": ["url"]
+            }),
+        ),
+        mcp_tool(
+            "read_pdf",
+            "Extract text from a PDF file. Supports page ranges for large documents.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "Absolute path to the PDF file" },
+                    "page_range": { "type": "string", "description": "Page range, e.g. '1-5' or '3' (optional, reads all if omitted)" }
+                },
+                "required": ["path"]
+            }),
+        ),
+        mcp_tool(
+            "analyze_image",
+            "Analyze an image using Gemini Vision API. Returns description, text extraction, or custom analysis.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "Absolute path to the image file (PNG, JPEG, WebP, GIF)" },
+                    "prompt": { "type": "string", "description": "Custom analysis prompt (optional)" },
+                    "extract_text": { "type": "boolean", "description": "Focus on text extraction (OCR mode)" }
+                },
+                "required": ["path"]
+            }),
+        ),
+        mcp_tool(
+            "ocr_document",
+            "Extract text from an image or PDF with high-fidelity OCR. Preserves tables (markdown pipe format), headers, lists, and diacritics.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "Absolute path to the image or PDF file" },
+                    "prompt": { "type": "string", "description": "Additional OCR instructions (optional)" }
+                },
+                "required": ["path"]
+            }),
+        ),
+        mcp_tool(
+            "execute_command",
+            "Execute a shell command on the local machine. Use for build/test/npm/cargo operations.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "command": { "type": "string", "description": "Shell command (Windows cmd.exe)" },
+                    "working_directory": { "type": "string", "description": "Working directory" }
+                },
+                "required": ["command"]
+            }),
+        ),
+        mcp_tool(
+            "list_mcp_tools",
+            "List all available MCP tools from connected external servers. Returns tool names, descriptions, and which server provides each tool.",
+            json!({
+                "type": "object",
+                "properties": {},
+                "required": []
+            }),
+        ),
+        mcp_tool(
+            "execute_mcp_tool",
+            "Execute a specific MCP tool by its prefixed name (mcp_servername_toolname) with custom arguments. Use list_mcp_tools first to discover available tools.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "tool_name": { "type": "string", "description": "Prefixed MCP tool name (e.g. mcp_brave_web_search)" },
+                    "arguments": { "type": "object", "description": "Tool arguments as a JSON object" }
+                },
+                "required": ["tool_name"]
+            }),
+        ),
         // Git tools
-        mcp_tool("git_status", "Show working tree status for a git repository.", json!({
-            "type": "object",
-            "properties": { "repo_path": { "type": "string", "description": "Absolute path to the git repository" } },
-            "required": ["repo_path"]
-        })),
-        mcp_tool("git_log", "Show commit history as a graph with branch decorations.", json!({
-            "type": "object",
-            "properties": {
-                "repo_path": { "type": "string", "description": "Absolute path to the git repository" },
-                "count": { "type": "integer", "description": "Number of commits (default: 20, max: 50)" }
-            },
-            "required": ["repo_path"]
-        })),
-        mcp_tool("git_diff", "Show changes (diff) in a git repository.", json!({
-            "type": "object",
-            "properties": {
-                "repo_path": { "type": "string", "description": "Absolute path to the git repository" },
-                "target": { "type": "string", "description": "'staged', '--stat', or a commit/branch ref" }
-            },
-            "required": ["repo_path"]
-        })),
-        mcp_tool("git_branch", "List, create, or switch git branches.", json!({
-            "type": "object",
-            "properties": {
-                "repo_path": { "type": "string", "description": "Absolute path to the git repository" },
-                "action": { "type": "string", "description": "'list', 'create:name', or 'switch:name'" }
-            },
-            "required": ["repo_path"]
-        })),
-        mcp_tool("git_commit", "Stage files and create a git commit (no push).", json!({
-            "type": "object",
-            "properties": {
-                "repo_path": { "type": "string", "description": "Absolute path to the git repository" },
-                "message": { "type": "string", "description": "Commit message" },
-                "files": { "type": "string", "description": "'all' or comma-separated paths" }
-            },
-            "required": ["repo_path", "message"]
-        })),
+        mcp_tool(
+            "git_status",
+            "Show working tree status for a git repository.",
+            json!({
+                "type": "object",
+                "properties": { "repo_path": { "type": "string", "description": "Absolute path to the git repository" } },
+                "required": ["repo_path"]
+            }),
+        ),
+        mcp_tool(
+            "git_log",
+            "Show commit history as a graph with branch decorations.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "repo_path": { "type": "string", "description": "Absolute path to the git repository" },
+                    "count": { "type": "integer", "description": "Number of commits (default: 20, max: 50)" }
+                },
+                "required": ["repo_path"]
+            }),
+        ),
+        mcp_tool(
+            "git_diff",
+            "Show changes (diff) in a git repository.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "repo_path": { "type": "string", "description": "Absolute path to the git repository" },
+                    "target": { "type": "string", "description": "'staged', '--stat', or a commit/branch ref" }
+                },
+                "required": ["repo_path"]
+            }),
+        ),
+        mcp_tool(
+            "git_branch",
+            "List, create, or switch git branches.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "repo_path": { "type": "string", "description": "Absolute path to the git repository" },
+                    "action": { "type": "string", "description": "'list', 'create:name', or 'switch:name'" }
+                },
+                "required": ["repo_path"]
+            }),
+        ),
+        mcp_tool(
+            "git_commit",
+            "Stage files and create a git commit (no push).",
+            json!({
+                "type": "object",
+                "properties": {
+                    "repo_path": { "type": "string", "description": "Absolute path to the git repository" },
+                    "message": { "type": "string", "description": "Commit message" },
+                    "files": { "type": "string", "description": "'all' or comma-separated paths" }
+                },
+                "required": ["repo_path", "message"]
+            }),
+        ),
         // GitHub tools
-        mcp_tool("github_list_repos", "List GitHub repositories for the authenticated user.", json!({
-            "type": "object",
-            "properties": {
-                "sort": { "type": "string", "description": "Sort by: created, updated, pushed, full_name" },
-                "per_page": { "type": "integer", "description": "Results per page, max 100" }
-            },
-            "required": []
-        })),
-        mcp_tool("github_get_repo", "Get detailed information about a specific GitHub repository.", json!({
-            "type": "object",
-            "properties": {
-                "owner": { "type": "string", "description": "Repository owner" },
-                "repo": { "type": "string", "description": "Repository name" }
-            },
-            "required": ["owner", "repo"]
-        })),
-        mcp_tool("github_list_issues", "List issues for a GitHub repository.", json!({
-            "type": "object",
-            "properties": {
-                "owner": { "type": "string", "description": "Repository owner" },
-                "repo": { "type": "string", "description": "Repository name" },
-                "state": { "type": "string", "description": "open, closed, or all" }
-            },
-            "required": ["owner", "repo"]
-        })),
-        mcp_tool("github_get_issue", "Get a specific GitHub issue with comments.", json!({
-            "type": "object",
-            "properties": {
-                "owner": { "type": "string", "description": "Repository owner" },
-                "repo": { "type": "string", "description": "Repository name" },
-                "number": { "type": "integer", "description": "Issue number" }
-            },
-            "required": ["owner", "repo", "number"]
-        })),
-        mcp_tool("github_create_issue", "Create a new issue in a GitHub repository.", json!({
-            "type": "object",
-            "properties": {
-                "owner": { "type": "string", "description": "Repository owner" },
-                "repo": { "type": "string", "description": "Repository name" },
-                "title": { "type": "string", "description": "Issue title" },
-                "body": { "type": "string", "description": "Issue body (markdown)" }
-            },
-            "required": ["owner", "repo", "title"]
-        })),
-        mcp_tool("github_create_pr", "Create a pull request in a GitHub repository.", json!({
-            "type": "object",
-            "properties": {
-                "owner": { "type": "string", "description": "Repository owner" },
-                "repo": { "type": "string", "description": "Repository name" },
-                "title": { "type": "string", "description": "PR title" },
-                "body": { "type": "string", "description": "PR body (markdown)" },
-                "head": { "type": "string", "description": "Branch with changes" },
-                "base": { "type": "string", "description": "Target branch (default: main)" }
-            },
-            "required": ["owner", "repo", "title", "head"]
-        })),
+        mcp_tool(
+            "github_list_repos",
+            "List GitHub repositories for the authenticated user.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "sort": { "type": "string", "description": "Sort by: created, updated, pushed, full_name" },
+                    "per_page": { "type": "integer", "description": "Results per page, max 100" }
+                },
+                "required": []
+            }),
+        ),
+        mcp_tool(
+            "github_get_repo",
+            "Get detailed information about a specific GitHub repository.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "owner": { "type": "string", "description": "Repository owner" },
+                    "repo": { "type": "string", "description": "Repository name" }
+                },
+                "required": ["owner", "repo"]
+            }),
+        ),
+        mcp_tool(
+            "github_list_issues",
+            "List issues for a GitHub repository.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "owner": { "type": "string", "description": "Repository owner" },
+                    "repo": { "type": "string", "description": "Repository name" },
+                    "state": { "type": "string", "description": "open, closed, or all" }
+                },
+                "required": ["owner", "repo"]
+            }),
+        ),
+        mcp_tool(
+            "github_get_issue",
+            "Get a specific GitHub issue with comments.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "owner": { "type": "string", "description": "Repository owner" },
+                    "repo": { "type": "string", "description": "Repository name" },
+                    "number": { "type": "integer", "description": "Issue number" }
+                },
+                "required": ["owner", "repo", "number"]
+            }),
+        ),
+        mcp_tool(
+            "github_create_issue",
+            "Create a new issue in a GitHub repository.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "owner": { "type": "string", "description": "Repository owner" },
+                    "repo": { "type": "string", "description": "Repository name" },
+                    "title": { "type": "string", "description": "Issue title" },
+                    "body": { "type": "string", "description": "Issue body (markdown)" }
+                },
+                "required": ["owner", "repo", "title"]
+            }),
+        ),
+        mcp_tool(
+            "github_create_pr",
+            "Create a pull request in a GitHub repository.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "owner": { "type": "string", "description": "Repository owner" },
+                    "repo": { "type": "string", "description": "Repository name" },
+                    "title": { "type": "string", "description": "PR title" },
+                    "body": { "type": "string", "description": "PR body (markdown)" },
+                    "head": { "type": "string", "description": "Branch with changes" },
+                    "base": { "type": "string", "description": "Target branch (default: main)" }
+                },
+                "required": ["owner", "repo", "title", "head"]
+            }),
+        ),
         // Vercel tools
-        mcp_tool("vercel_list_projects", "List Vercel projects for the authenticated user/team.", json!({
-            "type": "object",
-            "properties": { "limit": { "type": "integer", "description": "Max results (default: 20)" } },
-            "required": []
-        })),
-        mcp_tool("vercel_get_deployment", "Get details about a specific Vercel deployment.", json!({
-            "type": "object",
-            "properties": { "deployment_id": { "type": "string", "description": "Deployment ID or URL" } },
-            "required": ["deployment_id"]
-        })),
-        mcp_tool("vercel_deploy", "Trigger a new Vercel deployment.", json!({
-            "type": "object",
-            "properties": {
-                "project": { "type": "string", "description": "Project name or ID" },
-                "target": { "type": "string", "description": "production or preview (default: preview)" }
-            },
-            "required": ["project"]
-        })),
+        mcp_tool(
+            "vercel_list_projects",
+            "List Vercel projects for the authenticated user/team.",
+            json!({
+                "type": "object",
+                "properties": { "limit": { "type": "integer", "description": "Max results (default: 20)" } },
+                "required": []
+            }),
+        ),
+        mcp_tool(
+            "vercel_get_deployment",
+            "Get details about a specific Vercel deployment.",
+            json!({
+                "type": "object",
+                "properties": { "deployment_id": { "type": "string", "description": "Deployment ID or URL" } },
+                "required": ["deployment_id"]
+            }),
+        ),
+        mcp_tool(
+            "vercel_deploy",
+            "Trigger a new Vercel deployment.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "project": { "type": "string", "description": "Project name or ID" },
+                    "target": { "type": "string", "description": "production or preview (default: preview)" }
+                },
+                "required": ["project"]
+            }),
+        ),
         // Fly.io tools
-        mcp_tool("fly_list_apps", "List Fly.io applications.", json!({
-            "type": "object",
-            "properties": { "org_slug": { "type": "string", "description": "Organization slug (default: personal)" } },
-            "required": []
-        })),
-        mcp_tool("fly_get_status", "Get Fly.io app status with machine states and health checks.", json!({
-            "type": "object",
-            "properties": { "app_name": { "type": "string", "description": "Application name" } },
-            "required": ["app_name"]
-        })),
-        mcp_tool("fly_get_logs", "Get recent logs for a Fly.io application.", json!({
-            "type": "object",
-            "properties": { "app_name": { "type": "string", "description": "Application name" } },
-            "required": ["app_name"]
-        })),
+        mcp_tool(
+            "fly_list_apps",
+            "List Fly.io applications.",
+            json!({
+                "type": "object",
+                "properties": { "org_slug": { "type": "string", "description": "Organization slug (default: personal)" } },
+                "required": []
+            }),
+        ),
+        mcp_tool(
+            "fly_get_status",
+            "Get Fly.io app status with machine states and health checks.",
+            json!({
+                "type": "object",
+                "properties": { "app_name": { "type": "string", "description": "Application name" } },
+                "required": ["app_name"]
+            }),
+        ),
+        mcp_tool(
+            "fly_get_logs",
+            "Get recent logs for a Fly.io application.",
+            json!({
+                "type": "object",
+                "properties": { "app_name": { "type": "string", "description": "Application name" } },
+                "required": ["app_name"]
+            }),
+        ),
         // ZIP tools
-        mcp_tool("list_zip", "List contents of a ZIP archive.", json!({
-            "type": "object",
-            "properties": { "path": { "type": "string", "description": "Absolute path to the ZIP file" } },
-            "required": ["path"]
-        })),
-        mcp_tool("extract_zip_file", "Extract and preview a single file from a ZIP archive.", json!({
-            "type": "object",
-            "properties": {
-                "path": { "type": "string", "description": "Absolute path to the ZIP archive" },
-                "file_path": { "type": "string", "description": "Path of the file inside the ZIP" }
-            },
-            "required": ["path", "file_path"]
-        })),
+        mcp_tool(
+            "list_zip",
+            "List contents of a ZIP archive.",
+            json!({
+                "type": "object",
+                "properties": { "path": { "type": "string", "description": "Absolute path to the ZIP file" } },
+                "required": ["path"]
+            }),
+        ),
+        mcp_tool(
+            "extract_zip_file",
+            "Extract and preview a single file from a ZIP archive.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "Absolute path to the ZIP archive" },
+                    "file_path": { "type": "string", "description": "Path of the file inside the ZIP" }
+                },
+                "required": ["path", "file_path"]
+            }),
+        ),
     ]
 }
 

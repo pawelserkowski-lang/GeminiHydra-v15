@@ -103,9 +103,7 @@ export const AgentActivityPanel = memo<{ activity: AgentActivity }>(({ activity 
   // Memoized tool rows list (#5)
   const toolRowsList = useMemo(
     () =>
-      activity.tools.map((tool, i) => (
-        <ToolRow key={`tool-${tool.iteration}-${tool.name}-${i}`} tool={tool} theme={theme} />
-      )),
+      activity.tools.map((tool) => <ToolRow key={`tool-${tool.iteration}-${tool.name}`} tool={tool} theme={theme} />),
     [activity.tools, theme],
   );
 

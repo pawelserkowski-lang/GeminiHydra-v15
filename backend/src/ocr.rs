@@ -13,15 +13,15 @@ use std::convert::Infallible;
 use std::sync::Arc;
 use std::time::Instant;
 
+use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::IntoResponse;
-use axum::Json;
+use axum::response::sse::{Event, KeepAlive, Sse};
 use futures_util::Stream;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
-use tokio::sync::{mpsc, Semaphore};
+use serde_json::{Value, json};
+use tokio::sync::{Semaphore, mpsc};
 use tokio_stream::wrappers::ReceiverStream;
 
 use crate::oauth;
@@ -225,8 +225,11 @@ fn detect_preset(filename: Option<&str>, _mime_type: &str) -> Option<&'static st
     if lower.contains("paragon") || lower.contains("receipt") || lower.contains("bon") {
         return Some("receipt");
     }
-    if lower.contains("dokument") || lower.contains("document") || lower.contains("umowa")
-        || lower.contains("wniosek") || lower.contains("zaswiadczenie")
+    if lower.contains("dokument")
+        || lower.contains("document")
+        || lower.contains("umowa")
+        || lower.contains("wniosek")
+        || lower.contains("zaswiadczenie")
     {
         return Some("document");
     }
@@ -248,24 +251,34 @@ fn build_ocr_prompt(base: &str, language: Option<&str>, preset: Option<&str>) ->
 
     if let Some(preset) = preset {
         let extra = match preset {
-            "invoice" => "\n\nThis is an INVOICE/RECEIPT. You MUST extract:\n\
+            "invoice" => {
+                "\n\nThis is an INVOICE/RECEIPT. You MUST extract:\n\
                 - Seller and buyer details (name, address, NIP/VAT ID)\n\
                 - Invoice number and dates\n\
                 - Line items table with columns: Lp./Name/Qty/Unit/Net price/Net value/VAT rate/VAT amount/Gross value\n\
                 - Summary totals (net, VAT, gross)\n\
-                - Payment details (bank account, due date)",
-            "receipt" => "\n\nThis is a RECEIPT. Extract all items with prices in a table. \
-                Include store name, date, total, and payment method.",
-            "table" => "\n\nThis document contains IMPORTANT TABLES. Extract EVERY table with \
-                precise alignment of columns and rows using markdown pipe syntax. Do not skip any cells.",
-            "handwriting" => "\n\nThis contains HANDWRITTEN text. Take extra care to:\n\
+                - Payment details (bank account, due date)"
+            }
+            "receipt" => {
+                "\n\nThis is a RECEIPT. Extract all items with prices in a table. \
+                Include store name, date, total, and payment method."
+            }
+            "table" => {
+                "\n\nThis document contains IMPORTANT TABLES. Extract EVERY table with \
+                precise alignment of columns and rows using markdown pipe syntax. Do not skip any cells."
+            }
+            "handwriting" => {
+                "\n\nThis contains HANDWRITTEN text. Take extra care to:\n\
                 - Distinguish similar characters (l/1, O/0, n/u)\n\
                 - Preserve crossed-out text as ~~strikethrough~~\n\
-                - Mark illegible words as [illegible]",
-            "document" => "\n\nThis is an official DOCUMENT. Preserve:\n\
+                - Mark illegible words as [illegible]"
+            }
+            "document" => {
+                "\n\nThis is an official DOCUMENT. Preserve:\n\
                 - All form fields and their values as key:value pairs\n\
                 - Official stamps and signatures as [stamp] / [signature]\n\
-                - Reference numbers, dates, and legal identifiers exactly",
+                - Reference numbers, dates, and legal identifiers exactly"
+            }
             _ => "",
         };
         prompt.push_str(extra);
@@ -294,9 +307,14 @@ pub async fn ocr(
     let effective_preset = body.preset.as_deref().or(detected);
 
     let format = body.output_format.as_deref().unwrap_or("text");
-    let default_prompt = if format == "html" { OCR_HTML_PROMPT } else { OCR_PROMPT };
+    let default_prompt = if format == "html" {
+        OCR_HTML_PROMPT
+    } else {
+        OCR_PROMPT
+    };
     let base_prompt = body.prompt.as_deref().unwrap_or(default_prompt);
-    let effective_prompt = build_ocr_prompt(base_prompt, body.language.as_deref(), effective_preset);
+    let effective_prompt =
+        build_ocr_prompt(base_prompt, body.language.as_deref(), effective_preset);
 
     let (text, confidence) = ocr_with_gemini(
         &state,
@@ -307,13 +325,14 @@ pub async fn ocr(
     .await
     .map_err(|e| {
         tracing::error!("OCR failed: {e}");
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": e})),
-        )
+        (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e})))
     })?;
 
-    let pages = if format == "html" { split_html_into_pages(&text) } else { split_into_pages(&text) };
+    let pages = if format == "html" {
+        split_html_into_pages(&text)
+    } else {
+        split_into_pages(&text)
+    };
     let total_pages = pages.len().max(1);
 
     // Structured data extraction (optional second AI call)
@@ -346,7 +365,15 @@ pub async fn ocr(
     let mime = body.mime_type.clone();
     let preset_str = body.preset.clone().or(detected_preset);
     tokio::spawn(async move {
-        if let Err(e) = save_ocr_result(&db, filename.as_deref(), &mime, preset_str.as_deref(), &resp_clone).await {
+        if let Err(e) = save_ocr_result(
+            &db,
+            filename.as_deref(),
+            &mime,
+            preset_str.as_deref(),
+            &resp_clone,
+        )
+        .await
+        {
             tracing::warn!("Failed to save OCR history: {e}");
         }
     });
@@ -379,19 +406,36 @@ pub async fn ocr_stream(
         let effective_preset = body.preset.as_deref().or(detected);
 
         let format = body.output_format.as_deref().unwrap_or("text");
-        let default_prompt = if format == "html" { OCR_HTML_PROMPT } else { OCR_PROMPT };
+        let default_prompt = if format == "html" {
+            OCR_HTML_PROMPT
+        } else {
+            OCR_PROMPT
+        };
         let base_prompt = body.prompt.as_deref().unwrap_or(default_prompt);
-        let effective_prompt = build_ocr_prompt(base_prompt, body.language.as_deref(), effective_preset);
-        let result = ocr_with_gemini(&state, &body.data_base64, &body.mime_type, &effective_prompt).await;
+        let effective_prompt =
+            build_ocr_prompt(base_prompt, body.language.as_deref(), effective_preset);
+        let result = ocr_with_gemini(
+            &state,
+            &body.data_base64,
+            &body.mime_type,
+            &effective_prompt,
+        )
+        .await;
 
         match result {
             Ok((text, confidence)) => {
-                let pages = if format == "html" { split_html_into_pages(&text) } else { split_into_pages(&text) };
+                let pages = if format == "html" {
+                    split_html_into_pages(&text)
+                } else {
+                    split_into_pages(&text)
+                };
                 let total = pages.len().max(1);
 
                 for (i, page) in pages.iter().enumerate() {
                     let preview = if page.text.len() > 200 {
-                        let end = page.text.char_indices()
+                        let end = page
+                            .text
+                            .char_indices()
                             .take_while(|(i, _)| *i < 200)
                             .last()
                             .map(|(i, c)| i + c.len_utf8())
@@ -445,7 +489,15 @@ pub async fn ocr_stream(
                 let mime = body.mime_type.clone();
                 let preset_str = body.preset.clone().or(detected_preset);
                 tokio::spawn(async move {
-                    if let Err(e) = save_ocr_result(&db, filename.as_deref(), &mime, preset_str.as_deref(), &resp_clone).await {
+                    if let Err(e) = save_ocr_result(
+                        &db,
+                        filename.as_deref(),
+                        &mime,
+                        preset_str.as_deref(),
+                        &resp_clone,
+                    )
+                    .await
+                    {
                         tracing::warn!("Failed to save OCR history: {e}");
                     }
                 });
@@ -518,16 +570,26 @@ pub async fn ocr_batch_stream(
                 let detected = detect_preset(filename.as_deref(), &mime_type);
                 let effective_preset = preset.as_deref().or(detected);
                 let format = output_format.as_deref().unwrap_or("text");
-                let default_prompt = if format == "html" { OCR_HTML_PROMPT } else { OCR_PROMPT };
+                let default_prompt = if format == "html" {
+                    OCR_HTML_PROMPT
+                } else {
+                    OCR_PROMPT
+                };
                 let base_prompt_str = batch_prompt.as_deref().unwrap_or(default_prompt);
-                let effective_prompt = build_ocr_prompt(base_prompt_str, language.as_deref(), effective_preset);
+                let effective_prompt =
+                    build_ocr_prompt(base_prompt_str, language.as_deref(), effective_preset);
 
-                let ocr_result = ocr_with_gemini(&state, &data_base64, &mime_type, &effective_prompt).await;
+                let ocr_result =
+                    ocr_with_gemini(&state, &data_base64, &mime_type, &effective_prompt).await;
 
                 // Post-process OCR result
                 match ocr_result {
                     Ok((text, confidence)) => {
-                        let pages = if format == "html" { split_html_into_pages(&text) } else { split_into_pages(&text) };
+                        let pages = if format == "html" {
+                            split_html_into_pages(&text)
+                        } else {
+                            split_into_pages(&text)
+                        };
                         let total_pages = pages.len().max(1);
 
                         let structured_data = if extract_structured == Some(true)
@@ -557,7 +619,15 @@ pub async fn ocr_batch_stream(
                         let mime_clone = mime_type.clone();
                         let preset_str = preset.clone().or_else(|| detected.map(|s| s.to_string()));
                         tokio::spawn(async move {
-                            if let Err(e) = save_ocr_result(&db, fn_clone.as_deref(), &mime_clone, preset_str.as_deref(), &resp_clone).await {
+                            if let Err(e) = save_ocr_result(
+                                &db,
+                                fn_clone.as_deref(),
+                                &mime_clone,
+                                preset_str.as_deref(),
+                                &resp_clone,
+                            )
+                            .await
+                            {
                                 tracing::error!("Failed to save OCR result: {e}");
                             }
                         });
@@ -594,9 +664,12 @@ pub async fn ocr_batch_stream(
                                 response: Some(response),
                                 error: None,
                             };
-                            let done_event = Event::default()
-                                .event("batch_file_done")
-                                .data(serde_json::to_string(&json!({"file_index": idx, "result": &result})).unwrap_or_default());
+                            let done_event = Event::default().event("batch_file_done").data(
+                                serde_json::to_string(
+                                    &json!({"file_index": idx, "result": &result}),
+                                )
+                                .unwrap_or_default(),
+                            );
                             let _ = tx.send(Ok(done_event)).await;
                             results.push(result);
                         }
@@ -606,9 +679,10 @@ pub async fn ocr_batch_stream(
                                 response: None,
                                 error: Some(e.clone()),
                             };
-                            let err_event = Event::default()
-                                .event("batch_file_error")
-                                .data(json!({"file_index": idx, "filename": &filename, "error": e}).to_string());
+                            let err_event = Event::default().event("batch_file_error").data(
+                                json!({"file_index": idx, "filename": &filename, "error": e})
+                                    .to_string(),
+                            );
                             let _ = tx.send(Ok(err_event)).await;
                             results.push(result);
                         }
@@ -626,14 +700,15 @@ pub async fn ocr_batch_stream(
         }
 
         // batch/complete
-        let complete = Event::default()
-            .event("batch_complete")
-            .data(json!({
+        let complete = Event::default().event("batch_complete").data(
+            json!({
                 "total_files": files_total,
                 "successful": results.iter().filter(|r| r.response.is_some()).count(),
                 "failed": results.iter().filter(|r| r.error.is_some()).count(),
                 "total_time_ms": started.elapsed().as_millis() as u64,
-            }).to_string());
+            })
+            .to_string(),
+        );
         let _ = tx.send(Ok(complete)).await;
     });
 
@@ -652,77 +727,103 @@ pub async fn ocr_history(
 
     let (items, total) = if let Some(search) = &params.search {
         let pattern = format!("%{search}%");
-        let items = sqlx::query_as::<_, OcrHistoryEntry>(
-            concat!(
-                "SELECT id::TEXT as id, filename, mime_type, preset, total_pages, provider, ",
-                "processing_time_ms, detected_preset, created_at ",
-                "FROM ", "gh_ocr_history",
-                " WHERE filename ILIKE $1 OR preset ILIKE $1 OR detected_preset ILIKE $1 ",
-                "ORDER BY created_at DESC LIMIT $2 OFFSET $3"
-            ),
-        )
+        let items = sqlx::query_as::<_, OcrHistoryEntry>(concat!(
+            "SELECT id::TEXT as id, filename, mime_type, preset, total_pages, provider, ",
+            "processing_time_ms, detected_preset, created_at ",
+            "FROM ",
+            "gh_ocr_history",
+            " WHERE filename ILIKE $1 OR preset ILIKE $1 OR detected_preset ILIKE $1 ",
+            "ORDER BY created_at DESC LIMIT $2 OFFSET $3"
+        ))
         .bind(&pattern)
         .bind(limit)
         .bind(offset)
         .fetch_all(&state.db)
         .await
-        .map_err(|e: sqlx::Error| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?;
+        .map_err(|e: sqlx::Error| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": e.to_string()})),
+            )
+        })?;
 
-        let total: (i64,) = sqlx::query_as::<_, (i64,)>(
-            concat!(
-                "SELECT COUNT(*) FROM ", "gh_ocr_history",
-                " WHERE filename ILIKE $1 OR preset ILIKE $1 OR detected_preset ILIKE $1"
-            ),
-        )
+        let total: (i64,) = sqlx::query_as::<_, (i64,)>(concat!(
+            "SELECT COUNT(*) FROM ",
+            "gh_ocr_history",
+            " WHERE filename ILIKE $1 OR preset ILIKE $1 OR detected_preset ILIKE $1"
+        ))
         .bind(&pattern)
         .fetch_one(&state.db)
         .await
-        .map_err(|e: sqlx::Error| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?;
+        .map_err(|e: sqlx::Error| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": e.to_string()})),
+            )
+        })?;
 
         (items, total.0)
     } else {
-        let items = sqlx::query_as::<_, OcrHistoryEntry>(
-            concat!(
-                "SELECT id::TEXT as id, filename, mime_type, preset, total_pages, provider, ",
-                "processing_time_ms, detected_preset, created_at ",
-                "FROM ", "gh_ocr_history",
-                " ORDER BY created_at DESC LIMIT $1 OFFSET $2"
-            ),
-        )
+        let items = sqlx::query_as::<_, OcrHistoryEntry>(concat!(
+            "SELECT id::TEXT as id, filename, mime_type, preset, total_pages, provider, ",
+            "processing_time_ms, detected_preset, created_at ",
+            "FROM ",
+            "gh_ocr_history",
+            " ORDER BY created_at DESC LIMIT $1 OFFSET $2"
+        ))
         .bind(limit)
         .bind(offset)
         .fetch_all(&state.db)
         .await
-        .map_err(|e: sqlx::Error| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?;
+        .map_err(|e: sqlx::Error| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": e.to_string()})),
+            )
+        })?;
 
-        let total: (i64,) = sqlx::query_as::<_, (i64,)>(
-            concat!("SELECT COUNT(*) FROM ", "gh_ocr_history"),
-        )
-        .fetch_one(&state.db)
-        .await
-        .map_err(|e: sqlx::Error| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?;
+        let total: (i64,) =
+            sqlx::query_as::<_, (i64,)>(concat!("SELECT COUNT(*) FROM ", "gh_ocr_history"))
+                .fetch_one(&state.db)
+                .await
+                .map_err(|e: sqlx::Error| {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(json!({"error": e.to_string()})),
+                    )
+                })?;
 
         (items, total.0)
     };
 
-    Ok(Json(PaginatedOcrHistory { items, total, limit, offset }))
+    Ok(Json(PaginatedOcrHistory {
+        items,
+        total,
+        limit,
+        offset,
+    }))
 }
 
 pub async fn ocr_history_item(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<OcrHistoryFull>, (StatusCode, Json<Value>)> {
-    let entry = sqlx::query_as::<_, OcrHistoryFull>(
-        concat!(
-            "SELECT id::TEXT as id, filename, mime_type, preset, text, pages_json, total_pages, ",
-            "confidence, provider, processing_time_ms, detected_preset, structured_data, created_at ",
-            "FROM ", "gh_ocr_history", " WHERE id::TEXT = $1"
-        ),
-    )
+    let entry = sqlx::query_as::<_, OcrHistoryFull>(concat!(
+        "SELECT id::TEXT as id, filename, mime_type, preset, text, pages_json, total_pages, ",
+        "confidence, provider, processing_time_ms, detected_preset, structured_data, created_at ",
+        "FROM ",
+        "gh_ocr_history",
+        " WHERE id::TEXT = $1"
+    ))
     .bind(&id)
     .fetch_optional(&state.db)
     .await
-    .map_err(|e: sqlx::Error| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?
+    .map_err(|e: sqlx::Error| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": e.to_string()})),
+        )
+    })?
     .ok_or_else(|| (StatusCode::NOT_FOUND, Json(json!({"error": "Not found"}))))?;
 
     Ok(Json(entry))
@@ -732,13 +833,20 @@ pub async fn ocr_history_delete(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
-    let result = sqlx::query(
-        concat!("DELETE FROM ", "gh_ocr_history", " WHERE id::TEXT = $1"),
-    )
+    let result = sqlx::query(concat!(
+        "DELETE FROM ",
+        "gh_ocr_history",
+        " WHERE id::TEXT = $1"
+    ))
     .bind(&id)
     .execute(&state.db)
     .await
-    .map_err(|e: sqlx::Error| (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": e.to_string()}))))?;
+    .map_err(|e: sqlx::Error| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({"error": e.to_string()})),
+        )
+    })?;
 
     if result.rows_affected() == 0 {
         return Err((StatusCode::NOT_FOUND, Json(json!({"error": "Not found"}))));
@@ -829,10 +937,7 @@ async fn ocr_with_gemini(
 
 // ── Structured data extraction ───────────────────────────────────────────────
 
-async fn extract_structured_data(
-    state: &AppState,
-    ocr_text: &str,
-) -> Result<Value, String> {
+async fn extract_structured_data(state: &AppState, ocr_text: &str) -> Result<Value, String> {
     let (credential, is_oauth) = oauth::get_google_credential(state)
         .await
         .ok_or_else(|| "No Google API credential configured".to_string())?;
@@ -886,8 +991,7 @@ async fn extract_structured_data(
         trimmed
     };
 
-    serde_json::from_str(json_str)
-        .map_err(|e| format!("Failed to parse structured data JSON: {e}"))
+    serde_json::from_str(json_str).map_err(|e| format!("Failed to parse structured data JSON: {e}"))
 }
 
 // ── Save to history ──────────────────────────────────────────────────────────
@@ -901,14 +1005,13 @@ async fn save_ocr_result(
 ) -> Result<(), sqlx::Error> {
     let pages_json = serde_json::to_value(&response.pages).unwrap_or_else(|_| json!([]));
 
-    sqlx::query(
-        concat!(
-            "INSERT INTO ", "gh_ocr_history",
-            " (filename, mime_type, preset, text, pages_json, total_pages, confidence, ",
-            "provider, processing_time_ms, detected_preset, structured_data) ",
-            "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)"
-        ),
-    )
+    sqlx::query(concat!(
+        "INSERT INTO ",
+        "gh_ocr_history",
+        " (filename, mime_type, preset, text, pages_json, total_pages, confidence, ",
+        "provider, processing_time_ms, detected_preset, structured_data) ",
+        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)"
+    ))
     .bind(filename)
     .bind(mime_type)
     .bind(preset)
@@ -1055,9 +1158,7 @@ async fn send_progress(
     if let Some(d) = detail {
         payload["detail"] = d.clone();
     }
-    let event = Event::default()
-        .event("progress")
-        .data(payload.to_string());
+    let event = Event::default().event("progress").data(payload.to_string());
     if tx.send(Ok(event)).await.is_err() {
         tracing::warn!("OCR SSE {status}: client disconnected");
     }

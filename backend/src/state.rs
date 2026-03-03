@@ -54,15 +54,18 @@ impl LogRingBuffer {
         buf.clear();
     }
 
-    pub fn recent(&self, limit: usize, min_level: Option<&str>, search: Option<&str>) -> Vec<LogEntry> {
+    pub fn recent(
+        &self,
+        limit: usize,
+        min_level: Option<&str>,
+        search: Option<&str>,
+    ) -> Vec<LogEntry> {
         let buf = self.entries.lock().unwrap_or_else(|p| p.into_inner());
         buf.iter()
             .rev()
+            .filter(|e| min_level.is_none_or(|lvl| level_ord(&e.level) >= level_ord(lvl)))
             .filter(|e| {
-                min_level.map_or(true, |lvl| level_ord(&e.level) >= level_ord(lvl))
-            })
-            .filter(|e| {
-                search.map_or(true, |s| {
+                search.is_none_or(|s| {
                     let s_lower = s.to_lowercase();
                     e.message.to_lowercase().contains(&s_lower)
                         || e.target.to_lowercase().contains(&s_lower)
@@ -139,17 +142,17 @@ impl CircuitBreaker {
         // OPEN — check if recovery timeout has elapsed.
         if current == STATE_OPEN {
             let lock = self.last_failure_time.read().await;
-            if let Some(t) = *lock {
-                if t.elapsed().as_secs() >= RECOVERY_TIMEOUT_SECS {
-                    drop(lock);
-                    // Transition to HALF_OPEN so the next request is a probe.
-                    self.state.store(STATE_HALF_OPEN, Ordering::Release);
-                    tracing::info!(
-                        "circuit_breaker[{}]: OPEN -> HALF_OPEN (recovery window elapsed)",
-                        self.provider
-                    );
-                    return Ok(());
-                }
+            if let Some(t) = *lock
+                && t.elapsed().as_secs() >= RECOVERY_TIMEOUT_SECS
+            {
+                drop(lock);
+                // Transition to HALF_OPEN so the next request is a probe.
+                self.state.store(STATE_HALF_OPEN, Ordering::Release);
+                tracing::info!(
+                    "circuit_breaker[{}]: OPEN -> HALF_OPEN (recovery window elapsed)",
+                    self.provider
+                );
+                return Ok(());
             }
             let remaining = lock
                 .map(|t| RECOVERY_TIMEOUT_SECS.saturating_sub(t.elapsed().as_secs()))
@@ -172,7 +175,11 @@ impl CircuitBreaker {
             tracing::info!(
                 "circuit_breaker[{}]: {} -> CLOSED (success)",
                 self.provider,
-                match prev { STATE_OPEN => "OPEN", STATE_HALF_OPEN => "HALF_OPEN", _ => "?" }
+                match prev {
+                    STATE_OPEN => "OPEN",
+                    STATE_HALF_OPEN => "HALF_OPEN",
+                    _ => "?",
+                }
             );
         }
     }
@@ -188,7 +195,9 @@ impl CircuitBreaker {
                 tracing::warn!(
                     "circuit_breaker[{}]: TRIPPED after {} consecutive failures — \
                      failing fast for {}s",
-                    self.provider, count, RECOVERY_TIMEOUT_SECS
+                    self.provider,
+                    count,
+                    RECOVERY_TIMEOUT_SECS
                 );
             }
         }
@@ -290,8 +299,8 @@ impl AppState {
         // ── API keys from environment ──────────────────────────────────
         let mut api_keys = HashMap::new();
 
-        if let Ok(key) = std::env::var("GOOGLE_API_KEY")
-            .or_else(|_| std::env::var("GEMINI_API_KEY"))
+        if let Ok(key) =
+            std::env::var("GOOGLE_API_KEY").or_else(|_| std::env::var("GEMINI_API_KEY"))
         {
             api_keys.insert("google".to_string(), key);
         }
@@ -351,7 +360,9 @@ impl AppState {
         });
 
         if agents_vec.is_empty() {
-            tracing::warn!("No agents loaded from DB — agent routing will fail. Check gh_agents table.");
+            tracing::warn!(
+                "No agents loaded from DB — agent routing will fail. Check gh_agents table."
+            );
         }
 
         let auth_secret = std::env::var("AUTH_SECRET").ok().filter(|s| !s.is_empty());
@@ -361,10 +372,17 @@ impl AppState {
             tracing::info!("AUTH_SECRET not set — authentication disabled (dev mode)");
         }
 
-        let knowledge_api_url = std::env::var("KNOWLEDGE_API_URL").ok().filter(|s| !s.is_empty());
-        let knowledge_auth_secret = std::env::var("KNOWLEDGE_AUTH_SECRET").ok().filter(|s| !s.is_empty());
+        let knowledge_api_url = std::env::var("KNOWLEDGE_API_URL")
+            .ok()
+            .filter(|s| !s.is_empty());
+        let knowledge_auth_secret = std::env::var("KNOWLEDGE_AUTH_SECRET")
+            .ok()
+            .filter(|s| !s.is_empty());
         if knowledge_api_url.is_some() {
-            tracing::info!("Knowledge API configured: {}", knowledge_api_url.as_deref().unwrap_or(""));
+            tracing::info!(
+                "Knowledge API configured: {}",
+                knowledge_api_url.as_deref().unwrap_or("")
+            );
         }
 
         tracing::info!(
@@ -402,9 +420,10 @@ impl AppState {
 
     /// Refresh agents cache from DB
     pub async fn refresh_agents(&self) {
-        if let Ok(new_list) = sqlx::query_as::<_, WitcherAgent>("SELECT * FROM gh_agents ORDER BY created_at ASC")
-            .fetch_all(&self.db)
-            .await
+        if let Ok(new_list) =
+            sqlx::query_as::<_, WitcherAgent>("SELECT * FROM gh_agents ORDER BY created_at ASC")
+                .fetch_all(&self.db)
+                .await
         {
             let mut lock = self.agents.write().await;
             *lock = new_list;

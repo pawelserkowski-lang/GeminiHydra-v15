@@ -1,0 +1,12 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`Button > matches snapshot 1`] = `
+<div>
+  <button
+    class="inline-flex items-center justify-center gap-2 font-medium transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--matrix-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--matrix-bg-primary)] rounded-lg font-mono glass-button text-matrix-text text-base px-6 py-3"
+    tabindex="0"
+  >
+    Snapshot Button
+  </button>
+</div>
+`;

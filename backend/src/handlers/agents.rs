@@ -2,10 +2,10 @@
 // handlers/agents.rs — Agent CRUD + classification endpoints
 // ---------------------------------------------------------------------------
 
+use axum::Json;
 use axum::extract::State;
 use axum::response::IntoResponse;
-use axum::Json;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::models::{ClassifyRequest, ClassifyResponse, WitcherAgent};
 use crate::state::AppState;
@@ -38,7 +38,11 @@ pub async fn classify_agent(
 ) -> Json<ClassifyResponse> {
     let agents = state.agents.read().await;
     let (agent_id, confidence, reasoning) = classify_prompt(&body.prompt, &agents);
-    Json(ClassifyResponse { agent: agent_id, confidence, reasoning })
+    Json(ClassifyResponse {
+        agent: agent_id,
+        confidence,
+        reasoning,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -112,7 +116,10 @@ pub async fn delete_agent(
     axum::extract::ConnectInfo(addr): axum::extract::ConnectInfo<std::net::SocketAddr>,
     axum::extract::Path(id): axum::extract::Path<String>,
 ) -> Json<Value> {
-    let _ = sqlx::query("DELETE FROM gh_agents WHERE id=$1").bind(&id).execute(&state.db).await;
+    let _ = sqlx::query("DELETE FROM gh_agents WHERE id=$1")
+        .bind(&id)
+        .execute(&state.db)
+        .await;
     state.refresh_agents().await;
 
     crate::audit::log_audit(

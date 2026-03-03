@@ -8,7 +8,7 @@
 
 use regex::Regex;
 use scraper::{Html, Selector};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::net::IpAddr;
@@ -33,18 +33,24 @@ const MAX_RETRY_ATTEMPTS: u32 = 3;
 const WEB_USER_AGENT: &str = "Jaskier-Bot/1.0 (AI Agent Tool)";
 
 const TRACKING_PARAMS: &[&str] = &[
-    "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content",
-    "fbclid", "gclid", "mc_cid", "mc_eid", "ref", "_ga",
+    "utm_source",
+    "utm_medium",
+    "utm_campaign",
+    "utm_term",
+    "utm_content",
+    "fbclid",
+    "gclid",
+    "mc_cid",
+    "mc_eid",
+    "ref",
+    "_ga",
 ];
 
 const SKIP_EXTENSIONS: &[&str] = &[
-    ".pdf", ".zip", ".tar", ".gz", ".rar", ".7z",
-    ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".ico", ".bmp",
-    ".css", ".js", ".woff", ".woff2", ".ttf", ".eot",
-    ".xml", ".json", ".rss", ".atom",
-    ".mp3", ".mp4", ".avi", ".mov", ".wmv", ".flv",
-    ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
-    ".exe", ".dmg", ".apk", ".deb", ".rpm",
+    ".pdf", ".zip", ".tar", ".gz", ".rar", ".7z", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp",
+    ".ico", ".bmp", ".css", ".js", ".woff", ".woff2", ".ttf", ".eot", ".xml", ".json", ".rss",
+    ".atom", ".mp3", ".mp4", ".avi", ".mov", ".wmv", ".flv", ".doc", ".docx", ".xls", ".xlsx",
+    ".ppt", ".pptx", ".exe", ".dmg", ".apk", ".deb", ".rpm",
 ];
 
 // ---------------------------------------------------------------------------
@@ -72,7 +78,11 @@ struct WebPageMetadata {
 }
 
 #[derive(Clone)]
-enum WebLinkType { Internal, External, Resource }
+enum WebLinkType {
+    Internal,
+    External,
+    Resource,
+}
 
 #[derive(Clone)]
 struct WebCategorizedLink {
@@ -151,9 +161,16 @@ fn web_normalize_url(url: &Url) -> String {
     } else {
         let mut sorted = pairs;
         sorted.sort_by(|a, b| a.0.cmp(&b.0));
-        let qs: Vec<String> = sorted.iter().map(|(k, v)| {
-            if v.is_empty() { k.clone() } else { format!("{}={}", k, v) }
-        }).collect();
+        let qs: Vec<String> = sorted
+            .iter()
+            .map(|(k, v)| {
+                if v.is_empty() {
+                    k.clone()
+                } else {
+                    format!("{}={}", k, v)
+                }
+            })
+            .collect();
         normalized.set_query(Some(&qs.join("&")));
     }
     // Remove trailing slash for non-root paths
@@ -182,7 +199,9 @@ async fn web_fetch_robots(client: &reqwest::Client, base: &Url) -> Option<WebRob
         .send()
         .await
         .ok()?;
-    if !resp.status().is_success() { return None; }
+    if !resp.status().is_success() {
+        return None;
+    }
     let text = resp.text().await.ok()?;
     Some(web_parse_robots(&text))
 }
@@ -198,7 +217,9 @@ fn web_parse_robots(text: &str) -> WebRobotsRules {
     let mut in_any_section = false;
     for line in text.lines() {
         let line = line.trim();
-        if line.is_empty() || line.starts_with('#') { continue; }
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
         let lower = line.to_lowercase();
         if lower.starts_with("user-agent:") {
             let agent = line[11..].trim().to_lowercase();
@@ -212,14 +233,18 @@ fn web_parse_robots(text: &str) -> WebRobotsRules {
         } else if in_our_section || !in_any_section {
             if lower.starts_with("disallow:") {
                 let path = line[9..].trim();
-                if !path.is_empty() { rules.disallow.push(path.to_string()); }
+                if !path.is_empty() {
+                    rules.disallow.push(path.to_string());
+                }
             } else if lower.starts_with("allow:") {
                 let path = line[6..].trim();
-                if !path.is_empty() { rules.allow.push(path.to_string()); }
-            } else if lower.starts_with("crawl-delay:") {
-                if let Ok(d) = line[12..].trim().parse::<f64>() {
-                    rules.crawl_delay = Some(d);
+                if !path.is_empty() {
+                    rules.allow.push(path.to_string());
                 }
+            } else if lower.starts_with("crawl-delay:")
+                && let Ok(d) = line[12..].trim().parse::<f64>()
+            {
+                rules.crawl_delay = Some(d);
             }
         }
     }
@@ -229,10 +254,14 @@ fn web_parse_robots(text: &str) -> WebRobotsRules {
 fn web_is_allowed_by_robots(rules: &WebRobotsRules, path: &str) -> bool {
     // Allow rules take precedence over disallow for same-length match
     for a in &rules.allow {
-        if path.starts_with(a.as_str()) { return true; }
+        if path.starts_with(a.as_str()) {
+            return true;
+        }
     }
     for d in &rules.disallow {
-        if path.starts_with(d.as_str()) { return false; }
+        if path.starts_with(d.as_str()) {
+            return false;
+        }
     }
     true
 }
@@ -241,14 +270,22 @@ fn web_is_allowed_by_robots(rules: &WebRobotsRules, path: &str) -> bool {
 // Sitemap
 // ---------------------------------------------------------------------------
 
-async fn web_fetch_sitemap(client: &reqwest::Client, base: &Url, robots: &Option<WebRobotsRules>) -> Vec<String> {
+async fn web_fetch_sitemap(
+    client: &reqwest::Client,
+    base: &Url,
+    robots: &Option<WebRobotsRules>,
+) -> Vec<String> {
     let mut sitemap_urls: Vec<String> = Vec::new();
     let mut candidates = Vec::new();
     if let Some(r) = robots {
         candidates.extend(r.sitemaps.clone());
     }
     if candidates.is_empty() {
-        candidates.push(format!("{}://{}/sitemap.xml", base.scheme(), base.authority()));
+        candidates.push(format!(
+            "{}://{}/sitemap.xml",
+            base.scheme(),
+            base.authority()
+        ));
     }
     for sm_url in &candidates {
         if let Ok(resp) = client
@@ -257,12 +294,10 @@ async fn web_fetch_sitemap(client: &reqwest::Client, base: &Url, robots: &Option
             .timeout(Duration::from_secs(15))
             .send()
             .await
+            && resp.status().is_success()
+            && let Ok(body) = resp.text().await
         {
-            if resp.status().is_success() {
-                if let Ok(body) = resp.text().await {
-                    web_parse_sitemap_xml(&body, &mut sitemap_urls);
-                }
-            }
+            web_parse_sitemap_xml(&body, &mut sitemap_urls);
         }
     }
     sitemap_urls
@@ -316,7 +351,7 @@ async fn web_fetch_with_retry(
         match req.send().await {
             Ok(resp) => {
                 let status = resp.status().as_u16();
-                if status == 429 || (status >= 500 && status < 600) {
+                if status == 429 || (500..600).contains(&status) {
                     last_err = format!("HTTP {} for '{}'", status, url);
                     continue; // retry
                 }
@@ -324,19 +359,27 @@ async fn web_fetch_with_retry(
                     return Err(format!("HTTP {} for '{}'", status, url));
                 }
                 // Content-Type check
-                let ct = resp.headers().get("content-type")
+                let ct = resp
+                    .headers()
+                    .get("content-type")
                     .and_then(|v| v.to_str().ok())
                     .unwrap_or("");
-                if !ct.is_empty() && !ct.contains("text/") && !ct.contains("html") && !ct.contains("xml") {
+                if !ct.is_empty()
+                    && !ct.contains("text/")
+                    && !ct.contains("html")
+                    && !ct.contains("xml")
+                {
                     return Err(format!("Non-HTML content: {} for '{}'", ct, url));
                 }
-                if let Some(len) = resp.content_length() {
-                    if len as usize > MAX_PAGE_SIZE {
-                        return Err(format!("Response too large: {} bytes", len));
-                    }
+                if let Some(len) = resp.content_length()
+                    && len as usize > MAX_PAGE_SIZE
+                {
+                    return Err(format!("Response too large: {} bytes", len));
                 }
                 let final_url = resp.url().clone();
-                let bytes = resp.bytes().await
+                let bytes = resp
+                    .bytes()
+                    .await
                     .map_err(|e| format!("Read body failed for '{}': {}", url, e))?;
                 if bytes.len() > MAX_PAGE_SIZE {
                     return Err(format!("Response too large: {} bytes", bytes.len()));
@@ -346,12 +389,17 @@ async fn web_fetch_with_retry(
             }
             Err(e) => {
                 last_err = format!("Fetch '{}': {}", url, e);
-                if e.is_timeout() { continue; }
+                if e.is_timeout() {
+                    continue;
+                }
                 return Err(last_err);
             }
         }
     }
-    Err(format!("Failed after {} retries: {}", MAX_RETRY_ATTEMPTS, last_err))
+    Err(format!(
+        "Failed after {} retries: {}",
+        MAX_RETRY_ATTEMPTS, last_err
+    ))
 }
 
 // ---------------------------------------------------------------------------
@@ -362,16 +410,17 @@ fn web_extract_text(html: &str, opts: &WebExtractionOptions) -> String {
     let doc = Html::parse_document(html);
 
     // Title
-    let title = Selector::parse("title").ok()
+    let title = Selector::parse("title")
+        .ok()
         .and_then(|sel| doc.select(&sel).next())
         .map(|el| el.text().collect::<String>());
 
     // Content priority: article > main > body
-    let content_el = ["article", "main", "body"].iter()
-        .find_map(|tag| {
-            Selector::parse(tag).ok()
-                .and_then(|sel| doc.select(&sel).next())
-        });
+    let content_el = ["article", "main", "body"].iter().find_map(|tag| {
+        Selector::parse(tag)
+            .ok()
+            .and_then(|sel| doc.select(&sel).next())
+    });
 
     let mut raw = String::new();
     if let Some(el) = content_el {
@@ -385,7 +434,9 @@ fn web_extract_text(html: &str, opts: &WebExtractionOptions) -> String {
     for line in lines {
         if line.is_empty() {
             blank_count += 1;
-            if blank_count <= 2 { output.push('\n'); }
+            if blank_count <= 2 {
+                output.push('\n');
+            }
         } else {
             blank_count = 0;
             output.push_str(line);
@@ -403,11 +454,18 @@ fn web_extract_text(html: &str, opts: &WebExtractionOptions) -> String {
     text
 }
 
-fn web_collect_element_text(element: scraper::ElementRef, out: &mut String, opts: &WebExtractionOptions) {
+fn web_collect_element_text(
+    element: scraper::ElementRef,
+    out: &mut String,
+    opts: &WebExtractionOptions,
+) {
     let tag = element.value().name();
 
     // Skip noise
-    if matches!(tag, "script" | "style" | "noscript" | "svg" | "iframe" | "nav" | "footer" | "header") {
+    if matches!(
+        tag,
+        "script" | "style" | "noscript" | "svg" | "iframe" | "nav" | "footer" | "header"
+    ) {
         return;
     }
 
@@ -426,10 +484,14 @@ fn web_collect_element_text(element: scraper::ElementRef, out: &mut String, opts
             let text: String = element.text().collect::<Vec<_>>().join("");
             if !text.trim().is_empty() {
                 // Detect language from class
-                let lang = element.value().attr("class")
-                    .and_then(|c| c.split_whitespace()
-                        .find(|cls| cls.starts_with("language-") || cls.starts_with("lang-"))
-                        .map(|cls| cls.split('-').nth(1).unwrap_or("")))
+                let lang = element
+                    .value()
+                    .attr("class")
+                    .and_then(|c| {
+                        c.split_whitespace()
+                            .find(|cls| cls.starts_with("language-") || cls.starts_with("lang-"))
+                            .map(|cls| cls.split('-').nth(1).unwrap_or(""))
+                    })
                     .unwrap_or("");
                 out.push_str(&format!("\n```{}\n{}\n```\n", lang, text.trim()));
             }
@@ -451,8 +513,10 @@ fn web_collect_element_text(element: scraper::ElementRef, out: &mut String, opts
             let href = element.value().attr("href").unwrap_or("").trim();
             let text: String = element.text().collect::<Vec<_>>().join(" ");
             let text = text.trim();
-            if !text.is_empty() && !href.is_empty()
-                && !href.starts_with('#') && !href.starts_with("javascript:")
+            if !text.is_empty()
+                && !href.is_empty()
+                && !href.starts_with('#')
+                && !href.starts_with("javascript:")
             {
                 out.push_str(&format!("[{}]({})", text, href));
             } else if !text.is_empty() {
@@ -462,11 +526,11 @@ fn web_collect_element_text(element: scraper::ElementRef, out: &mut String, opts
         }
         "details" => {
             // Expand details/summary
-            if let Ok(sum_sel) = Selector::parse("summary") {
-                if let Some(summary) = element.select(&sum_sel).next() {
-                    let text: String = summary.text().collect::<Vec<_>>().join(" ");
-                    out.push_str(&format!("\n**{}**\n", text.trim()));
-                }
+            if let Ok(sum_sel) = Selector::parse("summary")
+                && let Some(summary) = element.select(&sum_sel).next()
+            {
+                let text: String = summary.text().collect::<Vec<_>>().join(" ");
+                out.push_str(&format!("\n**{}**\n", text.trim()));
             }
         }
         "dl" => {
@@ -508,7 +572,10 @@ fn web_collect_element_text(element: scraper::ElementRef, out: &mut String, opts
         }
     }
 
-    if matches!(tag, "p" | "div" | "section" | "article" | "main" | "blockquote" | "li") {
+    if matches!(
+        tag,
+        "p" | "div" | "section" | "article" | "main" | "blockquote" | "li"
+    ) {
         out.push('\n');
     }
 }
@@ -525,9 +592,13 @@ fn web_extract_table(table: scraper::ElementRef, out: &mut String) {
             let text: String = cell.text().collect::<Vec<_>>().join(" ");
             cells.push(text.trim().replace('|', "\\|").to_string());
         }
-        if !cells.is_empty() { rows.push(cells); }
+        if !cells.is_empty() {
+            rows.push(cells);
+        }
     }
-    if rows.is_empty() { return; }
+    if rows.is_empty() {
+        return;
+    }
 
     let max_cols = rows.iter().map(|r| r.len()).max().unwrap_or(0);
     out.push('\n');
@@ -574,7 +645,11 @@ fn web_extract_metadata(html: &str, base_url: &Url) -> WebPageMetadata {
 
     if let Ok(sel) = Selector::parse("meta") {
         for el in doc.select(&sel) {
-            let name = el.value().attr("name").or_else(|| el.value().attr("property")).unwrap_or("");
+            let name = el
+                .value()
+                .attr("name")
+                .or_else(|| el.value().attr("property"))
+                .unwrap_or("");
             let content = el.value().attr("content").unwrap_or("");
             match name {
                 "description" => meta.description = content.to_string(),
@@ -585,19 +660,17 @@ fn web_extract_metadata(html: &str, base_url: &Url) -> WebPageMetadata {
             }
         }
     }
-    if let Ok(sel) = Selector::parse("link[rel='canonical']") {
-        if let Some(el) = doc.select(&sel).next() {
-            if let Some(href) = el.value().attr("href") {
-                meta.canonical_url = href.to_string();
-            }
-        }
+    if let Ok(sel) = Selector::parse("link[rel='canonical']")
+        && let Some(el) = doc.select(&sel).next()
+        && let Some(href) = el.value().attr("href")
+    {
+        meta.canonical_url = href.to_string();
     }
-    if let Ok(sel) = Selector::parse("html") {
-        if let Some(el) = doc.select(&sel).next() {
-            if let Some(lang) = el.value().attr("lang") {
-                meta.language = lang.to_string();
-            }
-        }
+    if let Ok(sel) = Selector::parse("html")
+        && let Some(el) = doc.select(&sel).next()
+        && let Some(lang) = el.value().attr("lang")
+    {
+        meta.language = lang.to_string();
     }
     // JSON-LD
     if let Ok(sel) = Selector::parse("script[type='application/ld+json']") {
@@ -640,7 +713,9 @@ fn web_extract_links(html: &str, base_url: &Url) -> Vec<WebCategorizedLink> {
                     Ok(u) => web_normalize_url(&u),
                     Err(_) => continue,
                 };
-                if seen.contains(&resolved) { continue; }
+                if seen.contains(&resolved) {
+                    continue;
+                }
                 seen.insert(resolved.clone());
 
                 let anchor: String = el.text().collect::<Vec<_>>().join(" ");
@@ -658,7 +733,11 @@ fn web_extract_links(html: &str, base_url: &Url) -> Vec<WebCategorizedLink> {
                     WebLinkType::External
                 };
 
-                links.push(WebCategorizedLink { href: resolved, anchor, link_type });
+                links.push(WebCategorizedLink {
+                    href: resolved,
+                    anchor,
+                    link_type,
+                });
             }
         }
     }
@@ -676,7 +755,9 @@ fn web_content_hash(text: &str) -> String {
 }
 
 fn web_truncate_text(text: &str, max_len: usize) -> String {
-    if text.len() <= max_len { return text.to_string(); }
+    if text.len() <= max_len {
+        return text.to_string();
+    }
     text.char_indices()
         .take_while(|(i, _)| *i < max_len)
         .map(|(_, c)| c)
@@ -688,7 +769,11 @@ fn web_truncate_text(text: &str, max_len: usize) -> String {
 // Output formatting
 // ---------------------------------------------------------------------------
 
-fn web_format_fetch_output(result: &WebFetchResult, opts: &WebExtractionOptions, as_json: bool) -> String {
+fn web_format_fetch_output(
+    result: &WebFetchResult,
+    opts: &WebExtractionOptions,
+    as_json: bool,
+) -> String {
     if as_json {
         let links_json: Vec<Value> = if opts.include_links {
             result.links.iter().map(|l| json!({
@@ -696,14 +781,18 @@ fn web_format_fetch_output(result: &WebFetchResult, opts: &WebExtractionOptions,
                 "anchor": l.anchor,
                 "type": match l.link_type { WebLinkType::Internal => "internal", WebLinkType::External => "external", WebLinkType::Resource => "resource" },
             })).collect()
-        } else { vec![] };
+        } else {
+            vec![]
+        };
         let mut obj = json!({
             "url": result.url,
             "title": result.title,
             "content_hash": result.content_hash,
             "text": web_truncate_text(&result.text, opts.max_text_length),
         });
-        if opts.include_links { obj["links"] = json!(links_json); }
+        if opts.include_links {
+            obj["links"] = json!(links_json);
+        }
         if opts.include_metadata {
             obj["metadata"] = json!({
                 "description": result.metadata.description,
@@ -716,31 +805,55 @@ fn web_format_fetch_output(result: &WebFetchResult, opts: &WebExtractionOptions,
         }
         serde_json::to_string_pretty(&obj).unwrap_or_else(|_| format!("{:?}", obj))
     } else {
-        let mut out = format!("## {}\n**URL**: {}\n**Hash**: {}\n\n",
-            result.title, result.url, result.content_hash);
+        let mut out = format!(
+            "## {}\n**URL**: {}\n**Hash**: {}\n\n",
+            result.title, result.url, result.content_hash
+        );
         if opts.include_metadata {
             let m = &result.metadata;
-            if !m.description.is_empty() { out.push_str(&format!("**Description**: {}\n", m.description)); }
-            if !m.language.is_empty() { out.push_str(&format!("**Language**: {}\n", m.language)); }
-            if !m.canonical_url.is_empty() { out.push_str(&format!("**Canonical**: {}\n", m.canonical_url)); }
+            if !m.description.is_empty() {
+                out.push_str(&format!("**Description**: {}\n", m.description));
+            }
+            if !m.language.is_empty() {
+                out.push_str(&format!("**Language**: {}\n", m.language));
+            }
+            if !m.canonical_url.is_empty() {
+                out.push_str(&format!("**Canonical**: {}\n", m.canonical_url));
+            }
             out.push('\n');
         }
         out.push_str(&web_truncate_text(&result.text, opts.max_text_length));
         if opts.include_links && !result.links.is_empty() {
             out.push_str("\n\n---\n### Links\n\n");
-            let internal: Vec<_> = result.links.iter().filter(|l| matches!(l.link_type, WebLinkType::Internal)).collect();
-            let external: Vec<_> = result.links.iter().filter(|l| matches!(l.link_type, WebLinkType::External)).collect();
+            let internal: Vec<_> = result
+                .links
+                .iter()
+                .filter(|l| matches!(l.link_type, WebLinkType::Internal))
+                .collect();
+            let external: Vec<_> = result
+                .links
+                .iter()
+                .filter(|l| matches!(l.link_type, WebLinkType::External))
+                .collect();
             if !internal.is_empty() {
                 out.push_str(&format!("**Internal ({}):**\n", internal.len()));
                 for l in &internal {
-                    let label = if l.anchor.is_empty() { &l.href } else { &l.anchor };
+                    let label = if l.anchor.is_empty() {
+                        &l.href
+                    } else {
+                        &l.anchor
+                    };
                     out.push_str(&format!("- [{}]({})\n", label, l.href));
                 }
             }
             if !external.is_empty() {
                 out.push_str(&format!("\n**External ({}):**\n", external.len()));
                 for l in &external {
-                    let label = if l.anchor.is_empty() { &l.href } else { &l.anchor };
+                    let label = if l.anchor.is_empty() {
+                        &l.href
+                    } else {
+                        &l.anchor
+                    };
                     out.push_str(&format!("- [{}]({})\n", label, l.href));
                 }
             }
@@ -789,17 +902,31 @@ fn web_format_crawl_output(
     } else {
         let mut out = format!(
             "## Crawl: {}\n**Pages**: {} | **Links**: {} | **Errors**: {} | **Time**: {:.1}s\n\n",
-            start_url, results.len(), total_links, errors.len(), elapsed_secs
+            start_url,
+            results.len(),
+            total_links,
+            errors.len(),
+            elapsed_secs
         );
         for (i, r) in results.iter().enumerate() {
-            out.push_str(&format!("### {}. {} ({})\n{}\n\n", i + 1, r.title, r.url, r.text_excerpt));
+            out.push_str(&format!(
+                "### {}. {} ({})\n{}\n\n",
+                i + 1,
+                r.title,
+                r.url,
+                r.text_excerpt
+            ));
         }
         if !results.is_empty() {
             out.push_str("---\n### Link Index\n\n");
             for r in results {
                 for l in &r.links {
                     if matches!(l.link_type, WebLinkType::Internal) {
-                        let label = if l.anchor.is_empty() { &l.href } else { &l.anchor };
+                        let label = if l.anchor.is_empty() {
+                            &l.href
+                        } else {
+                            &l.anchor
+                        };
                         out.push_str(&format!("- [{}]({}) \u{2190} {}\n", label, l.href, r.url));
                     }
                 }
@@ -807,7 +934,9 @@ fn web_format_crawl_output(
         }
         if !errors.is_empty() {
             out.push_str("\n---\n### Errors\n\n");
-            for e in errors { out.push_str(&format!("- {}\n", e)); }
+            for e in errors {
+                out.push_str(&format!("- {}\n", e));
+            }
         }
         out
     }
@@ -817,15 +946,23 @@ fn web_format_crawl_output(
 // Tool entry points (called from mod.rs dispatch)
 // ---------------------------------------------------------------------------
 
-pub(crate) async fn tool_fetch_webpage(args: &Value, client: &reqwest::Client) -> Result<ToolOutput, String> {
+pub(crate) async fn tool_fetch_webpage(
+    args: &Value,
+    client: &reqwest::Client,
+) -> Result<ToolOutput, String> {
     let url = args["url"].as_str().ok_or("Missing 'url'")?;
     let extract_links = args["extract_links"].as_bool().unwrap_or(true);
     let extract_metadata = args["extract_metadata"].as_bool().unwrap_or(false);
     let include_images = args["include_images"].as_bool().unwrap_or(false);
     let output_format = args["output_format"].as_str().unwrap_or("text");
     let max_text_length = args["max_text_length"].as_u64().unwrap_or(0) as usize;
-    let custom_headers: HashMap<String, String> = args["headers"].as_object()
-        .map(|m| m.iter().filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string()))).collect())
+    let custom_headers: HashMap<String, String> = args["headers"]
+        .as_object()
+        .map(|m| {
+            m.iter()
+                .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+                .collect()
+        })
         .unwrap_or_default();
 
     let (html, final_url, _status) = web_fetch_with_retry(client, url, &custom_headers).await?;
@@ -834,17 +971,32 @@ pub(crate) async fn tool_fetch_webpage(args: &Value, client: &reqwest::Client) -
         include_links: extract_links,
         include_metadata: extract_metadata,
         include_images,
-        max_text_length: if max_text_length == 0 { usize::MAX } else { max_text_length },
+        max_text_length: if max_text_length == 0 {
+            usize::MAX
+        } else {
+            max_text_length
+        },
     };
 
     let text = web_extract_text(&html, &opts);
-    let title_sel = Selector::parse("title").ok()
-        .and_then(|sel| Html::parse_document(&html).select(&sel).next()
-            .map(|el| el.text().collect::<String>()));
+    let title_sel = Selector::parse("title").ok().and_then(|sel| {
+        Html::parse_document(&html)
+            .select(&sel)
+            .next()
+            .map(|el| el.text().collect::<String>())
+    });
     let title = title_sel.unwrap_or_default().trim().to_string();
     let content_hash = web_content_hash(&text);
-    let metadata = if extract_metadata { web_extract_metadata(&html, &final_url) } else { WebPageMetadata::default() };
-    let links = if extract_links { web_extract_links(&html, &final_url) } else { Vec::new() };
+    let metadata = if extract_metadata {
+        web_extract_metadata(&html, &final_url)
+    } else {
+        WebPageMetadata::default()
+    };
+    let links = if extract_links {
+        web_extract_links(&html, &final_url)
+    } else {
+        Vec::new()
+    };
 
     let result = WebFetchResult {
         url: final_url.to_string(),
@@ -859,7 +1011,10 @@ pub(crate) async fn tool_fetch_webpage(args: &Value, client: &reqwest::Client) -
     Ok(ToolOutput::text(output))
 }
 
-pub(crate) async fn tool_crawl_website(args: &Value, client: &reqwest::Client) -> Result<ToolOutput, String> {
+pub(crate) async fn tool_crawl_website(
+    args: &Value,
+    client: &reqwest::Client,
+) -> Result<ToolOutput, String> {
     let start_url = args["url"].as_str().ok_or("Missing 'url'")?;
     let max_depth = (args["max_depth"].as_u64().unwrap_or(1) as u32).min(MAX_CRAWL_DEPTH);
     let max_pages = (args["max_pages"].as_u64().unwrap_or(10) as usize).min(MAX_CRAWL_PAGES);
@@ -867,17 +1022,31 @@ pub(crate) async fn tool_crawl_website(args: &Value, client: &reqwest::Client) -
     let path_prefix = args["path_prefix"].as_str().unwrap_or("");
     let respect_robots = args["respect_robots_txt"].as_bool().unwrap_or(true);
     let use_sitemap = args["use_sitemap"].as_bool().unwrap_or(false);
-    let concurrent = (args["concurrent_requests"].as_u64().unwrap_or(1) as usize).min(MAX_CONCURRENT);
+    let concurrent =
+        (args["concurrent_requests"].as_u64().unwrap_or(1) as usize).min(MAX_CONCURRENT);
     let delay_ms = args["delay_ms"].as_u64().unwrap_or(DEFAULT_CRAWL_DELAY_MS);
-    let max_total_secs = (args["max_total_seconds"].as_u64().unwrap_or(MAX_TOTAL_CRAWL_SECS)).min(MAX_TOTAL_CRAWL_SECS);
+    let max_total_secs = (args["max_total_seconds"]
+        .as_u64()
+        .unwrap_or(MAX_TOTAL_CRAWL_SECS))
+    .min(MAX_TOTAL_CRAWL_SECS);
     let output_format = args["output_format"].as_str().unwrap_or("text");
     let max_text_length = args["max_text_length"].as_u64().unwrap_or(2000) as usize;
     let include_metadata = args["include_metadata"].as_bool().unwrap_or(false);
-    let custom_headers: HashMap<String, String> = args["headers"].as_object()
-        .map(|m| m.iter().filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string()))).collect())
+    let custom_headers: HashMap<String, String> = args["headers"]
+        .as_object()
+        .map(|m| {
+            m.iter()
+                .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+                .collect()
+        })
         .unwrap_or_default();
-    let exclude_patterns: Vec<String> = args["exclude_patterns"].as_array()
-        .map(|a| a.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+    let exclude_patterns: Vec<String> = args["exclude_patterns"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect()
+        })
         .unwrap_or_default();
 
     let start_parsed = web_validate_url(start_url)?;
@@ -893,7 +1062,9 @@ pub(crate) async fn tool_crawl_website(args: &Value, client: &reqwest::Client) -
 
     // Effective crawl delay
     let effective_delay = if let Some(ref r) = robots {
-        r.crawl_delay.map(|d| (d * 1000.0) as u64).unwrap_or(delay_ms)
+        r.crawl_delay
+            .map(|d| (d * 1000.0) as u64)
+            .unwrap_or(delay_ms)
     } else {
         delay_ms
     };
@@ -909,10 +1080,11 @@ pub(crate) async fn tool_crawl_website(args: &Value, client: &reqwest::Client) -
     if use_sitemap {
         let sitemap_urls = web_fetch_sitemap(client, &start_parsed, &robots).await;
         for su in sitemap_urls {
-            if !path_prefix.is_empty() {
-                if let Ok(u) = Url::parse(&su) {
-                    if !u.path().starts_with(path_prefix) { continue; }
-                }
+            if !path_prefix.is_empty()
+                && let Ok(u) = Url::parse(&su)
+                && !u.path().starts_with(path_prefix)
+            {
+                continue;
             }
             queue.push_back((su, 0));
         }
@@ -928,21 +1100,31 @@ pub(crate) async fn tool_crawl_website(args: &Value, client: &reqwest::Client) -
     };
 
     while !queue.is_empty() && results.len() < max_pages {
-        if started.elapsed().as_secs() > max_total_secs { break; }
+        if started.elapsed().as_secs() > max_total_secs {
+            break;
+        }
 
         // Batch up to `concurrent` URLs
         let mut batch: Vec<(String, u32)> = Vec::new();
         while batch.len() < concurrent {
             if let Some((url, depth)) = queue.pop_front() {
-                let normalized = if let Ok(u) = Url::parse(&url) { web_normalize_url(&u) } else { url.clone() };
-                if visited.contains(&normalized) { continue; }
+                let normalized = if let Ok(u) = Url::parse(&url) {
+                    web_normalize_url(&u)
+                } else {
+                    url.clone()
+                };
+                if visited.contains(&normalized) {
+                    continue;
+                }
                 visited.insert(normalized.clone());
                 batch.push((normalized, depth));
             } else {
                 break;
             }
         }
-        if batch.is_empty() { break; }
+        if batch.is_empty() {
+            break;
+        }
 
         if concurrent > 1 && batch.len() > 1 {
             // Concurrent fetch
@@ -959,30 +1141,46 @@ pub(crate) async fn tool_crawl_website(args: &Value, client: &reqwest::Client) -
                 if let Ok((url, depth, fetch_result)) = res {
                     match fetch_result {
                         Ok((html, final_url, _)) => {
-                            let pr = web_process_page(&html, &final_url, &url, max_text_length, &opts);
-                            if content_hashes.contains(&pr.content_hash) { continue; }
+                            let pr =
+                                web_process_page(&html, &final_url, &url, max_text_length, &opts);
+                            if content_hashes.contains(&pr.content_hash) {
+                                continue;
+                            }
                             content_hashes.insert(pr.content_hash.clone());
 
                             // Enqueue discovered links
                             if depth < max_depth {
                                 for link in &pr.links {
-                                    if !matches!(link.link_type, WebLinkType::Internal) && same_domain { continue; }
-                                    if web_should_skip_url(&link.href) { continue; }
-                                    if !path_prefix.is_empty() {
-                                        if let Ok(u) = Url::parse(&link.href) {
-                                            if !u.path().starts_with(path_prefix) { continue; }
-                                        }
+                                    if !matches!(link.link_type, WebLinkType::Internal)
+                                        && same_domain
+                                    {
+                                        continue;
                                     }
-                                    if !exclude_patterns.is_empty() && exclude_patterns.iter().any(|p| link.href.contains(p)) { continue; }
-                                    if same_domain {
-                                        if let Ok(u) = Url::parse(&link.href) {
-                                            if u.domain().unwrap_or("") != start_domain { continue; }
-                                        }
+                                    if web_should_skip_url(&link.href) {
+                                        continue;
                                     }
-                                    if let Some(ref r) = robots {
-                                        if let Ok(u) = Url::parse(&link.href) {
-                                            if !web_is_allowed_by_robots(r, u.path()) { continue; }
-                                        }
+                                    if !path_prefix.is_empty()
+                                        && let Ok(u) = Url::parse(&link.href)
+                                        && !u.path().starts_with(path_prefix)
+                                    {
+                                        continue;
+                                    }
+                                    if !exclude_patterns.is_empty()
+                                        && exclude_patterns.iter().any(|p| link.href.contains(p))
+                                    {
+                                        continue;
+                                    }
+                                    if same_domain
+                                        && let Ok(u) = Url::parse(&link.href)
+                                        && u.domain().unwrap_or("") != start_domain
+                                    {
+                                        continue;
+                                    }
+                                    if let Some(ref r) = robots
+                                        && let Ok(u) = Url::parse(&link.href)
+                                        && !web_is_allowed_by_robots(r, u.path())
+                                    {
+                                        continue;
                                     }
                                     queue.push_back((link.href.clone(), depth + 1));
                                 }
@@ -996,39 +1194,55 @@ pub(crate) async fn tool_crawl_website(args: &Value, client: &reqwest::Client) -
         } else {
             // Sequential fetch
             for (url, depth) in batch {
-                if started.elapsed().as_secs() > max_total_secs || results.len() >= max_pages { break; }
+                if started.elapsed().as_secs() > max_total_secs || results.len() >= max_pages {
+                    break;
+                }
 
-                if let Some(ref r) = robots {
-                    if let Ok(u) = Url::parse(&url) {
-                        if !web_is_allowed_by_robots(r, u.path()) { continue; }
-                    }
+                if let Some(ref r) = robots
+                    && let Ok(u) = Url::parse(&url)
+                    && !web_is_allowed_by_robots(r, u.path())
+                {
+                    continue;
                 }
 
                 match web_fetch_with_retry(client, &url, &custom_headers).await {
                     Ok((html, final_url, _)) => {
                         let pr = web_process_page(&html, &final_url, &url, max_text_length, &opts);
-                        if content_hashes.contains(&pr.content_hash) { continue; }
+                        if content_hashes.contains(&pr.content_hash) {
+                            continue;
+                        }
                         content_hashes.insert(pr.content_hash.clone());
 
                         if depth < max_depth {
                             for link in &pr.links {
-                                if !matches!(link.link_type, WebLinkType::Internal) && same_domain { continue; }
-                                if web_should_skip_url(&link.href) { continue; }
-                                if !path_prefix.is_empty() {
-                                    if let Ok(u) = Url::parse(&link.href) {
-                                        if !u.path().starts_with(path_prefix) { continue; }
-                                    }
+                                if !matches!(link.link_type, WebLinkType::Internal) && same_domain {
+                                    continue;
                                 }
-                                if !exclude_patterns.is_empty() && exclude_patterns.iter().any(|p| link.href.contains(p)) { continue; }
-                                if same_domain {
-                                    if let Ok(u) = Url::parse(&link.href) {
-                                        if u.domain().unwrap_or("") != start_domain { continue; }
-                                    }
+                                if web_should_skip_url(&link.href) {
+                                    continue;
                                 }
-                                if let Some(ref r) = robots {
-                                    if let Ok(u) = Url::parse(&link.href) {
-                                        if !web_is_allowed_by_robots(r, u.path()) { continue; }
-                                    }
+                                if !path_prefix.is_empty()
+                                    && let Ok(u) = Url::parse(&link.href)
+                                    && !u.path().starts_with(path_prefix)
+                                {
+                                    continue;
+                                }
+                                if !exclude_patterns.is_empty()
+                                    && exclude_patterns.iter().any(|p| link.href.contains(p))
+                                {
+                                    continue;
+                                }
+                                if same_domain
+                                    && let Ok(u) = Url::parse(&link.href)
+                                    && u.domain().unwrap_or("") != start_domain
+                                {
+                                    continue;
+                                }
+                                if let Some(ref r) = robots
+                                    && let Ok(u) = Url::parse(&link.href)
+                                    && !web_is_allowed_by_robots(r, u.path())
+                                {
+                                    continue;
                                 }
                                 queue.push_back((link.href.clone(), depth + 1));
                             }
@@ -1046,7 +1260,13 @@ pub(crate) async fn tool_crawl_website(args: &Value, client: &reqwest::Client) -
     }
 
     let elapsed = started.elapsed().as_secs_f64();
-    let output = web_format_crawl_output(&results, &errors, start_url, elapsed, output_format == "json");
+    let output = web_format_crawl_output(
+        &results,
+        &errors,
+        start_url,
+        elapsed,
+        output_format == "json",
+    );
     Ok(ToolOutput::text(output))
 }
 
@@ -1058,16 +1278,32 @@ fn web_process_page(
     opts: &WebExtractionOptions,
 ) -> WebPageResult {
     let text = web_extract_text(html, opts);
-    let title = Selector::parse("title").ok()
-        .and_then(|sel| Html::parse_document(html).select(&sel).next()
-            .map(|el| el.text().collect::<String>()))
+    let title = Selector::parse("title")
+        .ok()
+        .and_then(|sel| {
+            Html::parse_document(html)
+                .select(&sel)
+                .next()
+                .map(|el| el.text().collect::<String>())
+        })
         .unwrap_or_default()
         .trim()
         .to_string();
     let content_hash = web_content_hash(&text);
     let excerpt = web_truncate_text(&text, max_text_length);
-    let metadata = if opts.include_metadata { web_extract_metadata(html, final_url) } else { WebPageMetadata::default() };
+    let metadata = if opts.include_metadata {
+        web_extract_metadata(html, final_url)
+    } else {
+        WebPageMetadata::default()
+    };
     let links = web_extract_links(html, final_url);
 
-    WebPageResult { url: final_url.to_string(), title, text_excerpt: excerpt, content_hash, metadata, links }
+    WebPageResult {
+        url: final_url.to_string(),
+        title,
+        text_excerpt: excerpt,
+        content_hash,
+        metadata,
+        links,
+    }
 }

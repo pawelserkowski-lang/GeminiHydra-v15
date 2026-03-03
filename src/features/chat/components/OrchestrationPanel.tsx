@@ -70,9 +70,9 @@ const DelegationChain = memo<{ chain: DelegationEvent[] }>(({ chain }) => {
 
   return (
     <div className="space-y-1">
-      {chain.map((d, i) => (
+      {chain.map((d, index) => (
         <motion.div
-          key={`del-${d.fromAgent}-${d.toAgent}-${i}`}
+          key={`del-${d.fromAgent}-${d.toAgent}-${d.timestamp ?? index}`}
           initial={{ opacity: 0, x: -8 }}
           animate={{ opacity: 1, x: 0 }}
           className="flex items-center gap-1.5 text-xs"

@@ -1,10 +1,10 @@
 // Jaskier Shared Pattern — logs
 // Backend log endpoints for the Logs View.
 
-use axum::extract::{Query, State};
 use axum::Json;
+use axum::extract::{Query, State};
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::state::AppState;
 
@@ -24,11 +24,9 @@ pub async fn backend_logs(
     Query(q): Query<BackendLogsQuery>,
 ) -> Json<Value> {
     let limit = q.limit.unwrap_or(200).min(500);
-    let entries = state.log_buffer.recent(
-        limit,
-        q.level.as_deref(),
-        q.search.as_deref(),
-    );
+    let entries = state
+        .log_buffer
+        .recent(limit, q.level.as_deref(), q.search.as_deref());
     Json(json!({ "logs": entries, "total": entries.len() }))
 }
 

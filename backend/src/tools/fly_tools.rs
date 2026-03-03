@@ -2,7 +2,7 @@
 // Agent tools for Fly.io API interactions (read-only).
 // Reads PAT from gh_service_tokens table via service_tokens module.
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::service_tokens;
 use crate::state::AppState;
@@ -15,11 +15,7 @@ const SERVICE_NAME: &str = "flyio";
 //  Tool execution
 // ═══════════════════════════════════════════════════════════════════════
 
-pub async fn execute(
-    tool_name: &str,
-    input: &Value,
-    state: &AppState,
-) -> Result<String, String> {
+pub async fn execute(tool_name: &str, input: &Value, state: &AppState) -> Result<String, String> {
     let token = match service_tokens::get_service_token(state, SERVICE_NAME).await {
         Some(t) => t,
         None => {
@@ -98,10 +94,7 @@ async fn exec_get_status(
     token: &str,
     input: &Value,
 ) -> Result<String, String> {
-    let app_name = input
-        .get("app_name")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+    let app_name = input.get("app_name").and_then(|v| v.as_str()).unwrap_or("");
 
     if app_name.is_empty() {
         return Err("app_name is required".to_string());
@@ -145,10 +138,7 @@ async fn exec_get_logs(
     token: &str,
     input: &Value,
 ) -> Result<String, String> {
-    let app_name = input
-        .get("app_name")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+    let app_name = input.get("app_name").and_then(|v| v.as_str()).unwrap_or("");
 
     if app_name.is_empty() {
         return Err("app_name is required".to_string());
@@ -183,9 +173,7 @@ async fn exec_get_logs(
     });
 
     let body = fly_graphql(client, token, &query).await?;
-    let app_data = body
-        .get("data")
-        .and_then(|d| d.get("app"));
+    let app_data = body.get("data").and_then(|d| d.get("app"));
 
     match app_data {
         Some(app) => {
@@ -213,11 +201,7 @@ async fn exec_get_logs(
 
 // ── HTTP helpers ─────────────────────────────────────────────────────────
 
-async fn fly_get(
-    client: &reqwest::Client,
-    token: &str,
-    url: &str,
-) -> Result<Value, String> {
+async fn fly_get(client: &reqwest::Client, token: &str, url: &str) -> Result<Value, String> {
     let resp = client
         .get(url)
         .header("authorization", format!("Bearer {}", token))

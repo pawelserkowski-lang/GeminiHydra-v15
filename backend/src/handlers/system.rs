@@ -2,10 +2,10 @@
 // handlers/system.rs — Health, readiness, system stats, auth mode, models, admin
 // ---------------------------------------------------------------------------
 
+use axum::Json;
 use axum::extract::State;
 use axum::response::IntoResponse;
-use axum::Json;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::models::{
     DetailedHealthResponse, GeminiModelInfo, GeminiModelsResponse, HealthResponse, SystemStats,
@@ -117,19 +117,27 @@ pub async fn gemini_models(State(state): State<AppState>) -> Json<Value> {
     let google_cred = crate::oauth::get_google_credential(&state).await;
     if let Some((key, is_oauth)) = google_cred {
         let url = "https://generativelanguage.googleapis.com/v1beta/models";
-        if let Ok(parsed) = reqwest::Url::parse(url) && let Ok(res) = crate::oauth::apply_google_auth(state.client.get(parsed), &key, is_oauth).send().await
+        if let Ok(parsed) = reqwest::Url::parse(url)
+            && let Ok(res) =
+                crate::oauth::apply_google_auth(state.client.get(parsed), &key, is_oauth)
+                    .send()
+                    .await
             && res.status().is_success()
-                && let Ok(body) = res.json::<Value>().await
-                    && let Some(list) = body["models"].as_array() {
-                        models.extend(list.iter().filter_map(|m| {
-                            let info: GeminiModelInfo = serde_json::from_value(m.clone()).ok()?;
-                            if info.supported_generation_methods.contains(&"generateContent".to_string()) {
-                                Some(info)
-                            } else {
-                                None
-                            }
-                        }));
-                    }
+            && let Ok(body) = res.json::<Value>().await
+            && let Some(list) = body["models"].as_array()
+        {
+            models.extend(list.iter().filter_map(|m| {
+                let info: GeminiModelInfo = serde_json::from_value(m.clone()).ok()?;
+                if info
+                    .supported_generation_methods
+                    .contains(&"generateContent".to_string())
+                {
+                    Some(info)
+                } else {
+                    None
+                }
+            }));
+        }
     }
 
     Json(json!(GeminiModelsResponse { models }))
@@ -165,8 +173,7 @@ pub async fn rotate_key(
     }
 
     let mut rt = state.runtime.write().await;
-    rt.api_keys
-        .insert(provider.to_string(), key.to_string());
+    rt.api_keys.insert(provider.to_string(), key.to_string());
     drop(rt);
 
     tracing::info!("API key rotated for provider '{}'", provider);

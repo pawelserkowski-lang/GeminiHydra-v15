@@ -1,0 +1,15 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`Badge > matches snapshot 1`] = `
+<div>
+  <span
+    class="inline-flex items-center gap-1 font-medium rounded-full transition-colors font-mono bg-matrix-accent/15 text-matrix-accent border border-matrix-accent/30 text-xs px-2 py-0.5"
+  >
+    <span
+      aria-hidden="true"
+      class="h-1.5 w-1.5 rounded-full flex-shrink-0 bg-matrix-accent"
+    />
+    Snapshot Badge
+  </span>
+</div>
+`;

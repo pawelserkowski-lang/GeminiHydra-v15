@@ -11,7 +11,11 @@ const adkUrl = process.env.VITE_ADK_URL || 'http://localhost:8000';
 
 export default defineConfig(({ mode }) => ({
   plugins: [
-    react(),
+    react({
+      babel: {
+        plugins: [['babel-plugin-react-compiler', { target: '19' }]],
+      },
+    }),
     tailwindcss(),
     ...(mode === 'analyze'
       ? [visualizer({ open: true, filename: 'dist/stats.html', gzipSize: true })]

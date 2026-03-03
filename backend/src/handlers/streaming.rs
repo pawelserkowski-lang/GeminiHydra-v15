@@ -5,19 +5,19 @@
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-use axum::extract::ws::{Message as WsMessage, WebSocket, WebSocketUpgrade};
 use axum::extract::State;
+use axum::extract::ws::{Message as WsMessage, WebSocket, WebSocketUpgrade};
 use axum::response::IntoResponse;
 use futures_util::{SinkExt, StreamExt};
 use rand::Rng;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use crate::models::{WsClientMessage, WsServerMessage};
 use crate::state::AppState;
 
-use crate::context::{prepare_execution, ExecuteContext};
+use crate::context::{ExecuteContext, prepare_execution};
 use crate::prompt::build_thinking_config;
 use crate::tool_defs::build_tools_with_mcp;
 
@@ -28,15 +28,25 @@ use crate::tool_defs::build_tools_with_mcp;
 #[derive(Debug, Clone)]
 enum SseParsedEvent {
     TextToken(String),
-    FunctionCall { name: String, args: Value, raw_part: Value },
+    FunctionCall {
+        name: String,
+        args: Value,
+        raw_part: Value,
+    },
     /// Gemini returned MALFORMED_FUNCTION_CALL — tool schema issue, retry without tools
     MalformedFunctionCall,
 }
 
-struct SseParser { buffer: String }
+struct SseParser {
+    buffer: String,
+}
 
 impl SseParser {
-    fn new() -> Self { Self { buffer: String::new() } }
+    fn new() -> Self {
+        Self {
+            buffer: String::new(),
+        }
+    }
 
     fn parse_parts(json_val: &Value) -> Vec<SseParsedEvent> {
         let mut events = Vec::new();
@@ -61,13 +71,15 @@ impl SseParser {
             }
         } else {
             // Log diagnostic info for chunks that might indicate safety blocks or errors
-            if let Some(reason) = json_val.get("promptFeedback")
+            if let Some(reason) = json_val
+                .get("promptFeedback")
                 .and_then(|f| f.get("blockReason"))
                 .and_then(|v| v.as_str())
             {
                 tracing::warn!("stream: Gemini blocked request (blockReason={})", reason);
             }
-            if let Some(reason) = json_val.get("candidates")
+            if let Some(reason) = json_val
+                .get("candidates")
                 .and_then(|c| c.get(0))
                 .and_then(|c0| c0.get("finishReason"))
                 .and_then(|v| v.as_str())
@@ -76,7 +88,10 @@ impl SseParser {
                     tracing::warn!("stream: MALFORMED_FUNCTION_CALL — will retry without tools");
                     events.push(SseParsedEvent::MalformedFunctionCall);
                 } else if reason != "STOP" {
-                    tracing::warn!("stream: Gemini chunk has no 'parts' (finishReason={})", reason);
+                    tracing::warn!(
+                        "stream: Gemini chunk has no 'parts' (finishReason={})",
+                        reason
+                    );
                 }
             }
         }
@@ -90,7 +105,8 @@ impl SseParser {
             let block = self.buffer[..pos].to_string();
             self.buffer = self.buffer[pos + 2..].to_string();
             for line in block.lines() {
-                if let Some(jv) = line.strip_prefix("data: ")
+                if let Some(jv) = line
+                    .strip_prefix("data: ")
                     .filter(|d| *d != "[DONE]" && !d.is_empty())
                     .and_then(|data| serde_json::from_str::<Value>(data).ok())
                 {
@@ -104,7 +120,8 @@ impl SseParser {
     fn flush(&mut self) -> Vec<SseParsedEvent> {
         let mut events = Vec::new();
         for line in self.buffer.lines() {
-            if let Some(jv) = line.strip_prefix("data: ")
+            if let Some(jv) = line
+                .strip_prefix("data: ")
                 .filter(|d| *d != "[DONE]" && !d.is_empty())
                 .and_then(|data| serde_json::from_str::<Value>(data).ok())
             {
@@ -148,7 +165,8 @@ fn truncate_for_context_with_limit(output: &str, limit: usize) -> String {
     if output.len() <= limit {
         return output.to_string();
     }
-    let boundary = output.char_indices()
+    let boundary = output
+        .char_indices()
         .take_while(|(i, _)| *i < limit)
         .last()
         .map(|(i, c)| i + c.len_utf8())
@@ -165,7 +183,10 @@ fn truncate_for_context_with_limit(output: &str, limit: usize) -> String {
 // WebSocket Helper
 // ---------------------------------------------------------------------------
 
-async fn ws_send(sender: &mut futures_util::stream::SplitSink<WebSocket, WsMessage>, msg: &WsServerMessage) -> bool {
+async fn ws_send(
+    sender: &mut futures_util::stream::SplitSink<WebSocket, WsMessage>,
+    msg: &WsServerMessage,
+) -> bool {
     if let Ok(json) = serde_json::to_string(msg) {
         sender.send(WsMessage::Text(json.into())).await.is_ok()
     } else {
@@ -251,15 +272,19 @@ async fn execute_orchestrated(
     cancel: CancellationToken,
 ) {
     let start = Instant::now();
-    let adk_url = std::env::var("ADK_SIDECAR_URL")
-        .unwrap_or_else(|_| "http://localhost:8000".into());
+    let adk_url =
+        std::env::var("ADK_SIDECAR_URL").unwrap_or_else(|_| "http://localhost:8000".into());
 
     // Announce orchestration start
     let agent_list = agents.map(|a| a.to_vec()).unwrap_or_default();
-    let _ = ws_send(sender, &WsServerMessage::OrchestrationStart {
-        pattern: pattern.to_string(),
-        agents: agent_list,
-    }).await;
+    let _ = ws_send(
+        sender,
+        &WsServerMessage::OrchestrationStart {
+            pattern: pattern.to_string(),
+            agents: agent_list,
+        },
+    )
+    .await;
 
     // Build ADK request
     let sid = session_id.unwrap_or_else(|| Uuid::new_v4().to_string());
@@ -278,7 +303,8 @@ async fn execute_orchestrated(
     });
 
     // Stream SSE from ADK sidecar
-    let resp = match state.client
+    let resp = match state
+        .client
         .post(format!("{}/run_sse", adk_url))
         .json(&adk_body)
         .send()
@@ -286,11 +312,18 @@ async fn execute_orchestrated(
     {
         Ok(r) => r,
         Err(e) => {
-            tracing::warn!("ADK sidecar unreachable ({}), falling back to direct execution", e);
-            let _ = ws_send(sender, &WsServerMessage::Error {
-                message: format!("ADK sidecar unavailable: {}. Use direct mode.", e),
-                code: Some("ADK_UNAVAILABLE".into()),
-            }).await;
+            tracing::warn!(
+                "ADK sidecar unreachable ({}), falling back to direct execution",
+                e
+            );
+            let _ = ws_send(
+                sender,
+                &WsServerMessage::Error {
+                    message: format!("ADK sidecar unavailable: {}. Use direct mode.", e),
+                    code: Some("ADK_UNAVAILABLE".into()),
+                },
+            )
+            .await;
             return;
         }
     };
@@ -298,10 +331,18 @@ async fn execute_orchestrated(
     if !resp.status().is_success() {
         let status = resp.status();
         let body_text = resp.text().await.unwrap_or_default();
-        let _ = ws_send(sender, &WsServerMessage::Error {
-            message: format!("ADK returned {}: {}", status, &body_text[..body_text.len().min(200)]),
-            code: Some("ADK_ERROR".into()),
-        }).await;
+        let _ = ws_send(
+            sender,
+            &WsServerMessage::Error {
+                message: format!(
+                    "ADK returned {}: {}",
+                    status,
+                    &body_text[..body_text.len().min(200)]
+                ),
+                code: Some("ADK_ERROR".into()),
+            },
+        )
+        .await;
         return;
     }
 
@@ -333,11 +374,10 @@ async fn execute_orchestrated(
 
                             // Extract data: lines
                             for line in event_text.lines() {
-                                if let Some(data) = line.strip_prefix("data: ") {
-                                    if let Ok(event) = serde_json::from_str::<Value>(data) {
+                                if let Some(data) = line.strip_prefix("data: ")
+                                    && let Ok(event) = serde_json::from_str::<Value>(data) {
                                         translate_adk_event(sender, &event, &mut last_author, &mut step_count).await;
                                     }
-                                }
                             }
                         }
                     }
@@ -351,9 +391,13 @@ async fn execute_orchestrated(
         }
     }
 
-    let _ = ws_send(sender, &WsServerMessage::Complete {
-        duration_ms: start.elapsed().as_millis() as u64,
-    }).await;
+    let _ = ws_send(
+        sender,
+        &WsServerMessage::Complete {
+            duration_ms: start.elapsed().as_millis() as u64,
+        },
+    )
+    .await;
 }
 
 /// Translate a single ADK SSE event into WsServerMessage(s).
@@ -367,16 +411,21 @@ async fn translate_adk_event(
 
     // Detect agent change (delegation)
     if author != last_author.as_str() && !last_author.is_empty() {
-        let reason = event.get("transfer_to_agent")
+        let reason = event
+            .get("transfer_to_agent")
             .and_then(|v| v.as_str())
             .unwrap_or("task delegation")
             .to_string();
 
-        let _ = ws_send(sender, &WsServerMessage::AgentDelegation {
-            from_agent: last_author.clone(),
-            to_agent: author.to_string(),
-            reason,
-        }).await;
+        let _ = ws_send(
+            sender,
+            &WsServerMessage::AgentDelegation {
+                from_agent: last_author.clone(),
+                to_agent: author.to_string(),
+                reason,
+            },
+        )
+        .await;
 
         *step_count += 1;
     }
@@ -386,48 +435,75 @@ async fn translate_adk_event(
     if let Some(fc) = event.get("function_call") {
         let name = fc["name"].as_str().unwrap_or("unknown").to_string();
         let args = fc.get("args").cloned().unwrap_or(json!({}));
-        let _ = ws_send(sender, &WsServerMessage::ToolCall {
-            name,
-            args,
-            iteration: *step_count,
-        }).await;
+        let _ = ws_send(
+            sender,
+            &WsServerMessage::ToolCall {
+                name,
+                args,
+                iteration: *step_count,
+            },
+        )
+        .await;
         return;
     }
 
     // Function response event
     if event.get("function_response").is_some() {
-        let name = event["function_response"]["name"].as_str().unwrap_or("unknown").to_string();
-        let _ = ws_send(sender, &WsServerMessage::ToolResult {
-            name,
-            success: true,
-            summary: "Tool completed".to_string(),
-            iteration: *step_count,
-        }).await;
+        let name = event["function_response"]["name"]
+            .as_str()
+            .unwrap_or("unknown")
+            .to_string();
+        let _ = ws_send(
+            sender,
+            &WsServerMessage::ToolResult {
+                name,
+                success: true,
+                summary: "Tool completed".to_string(),
+                iteration: *step_count,
+            },
+        )
+        .await;
         return;
     }
 
     // Text content from agent
-    if let Some(text) = event.get("text").and_then(|t| t.as_str()) {
-        if !text.is_empty() {
-            let _ = ws_send(sender, &WsServerMessage::AgentOutput {
+    if let Some(text) = event.get("text").and_then(|t| t.as_str())
+        && !text.is_empty()
+    {
+        let _ = ws_send(
+            sender,
+            &WsServerMessage::AgentOutput {
                 agent: author.to_string(),
                 content: text.to_string(),
                 is_final: false,
-            }).await;
-            // Also send as Token for backward compat with existing chat UI
-            let _ = ws_send(sender, &WsServerMessage::Token {
+            },
+        )
+        .await;
+        // Also send as Token for backward compat with existing chat UI
+        let _ = ws_send(
+            sender,
+            &WsServerMessage::Token {
                 content: text.to_string(),
-            }).await;
-        }
+            },
+        )
+        .await;
     }
 
     // Escalation (loop exit)
-    if event.get("escalate").and_then(|v| v.as_bool()).unwrap_or(false) {
-        let _ = ws_send(sender, &WsServerMessage::AgentOutput {
-            agent: author.to_string(),
-            content: "Pipeline stage completed (escalated)".to_string(),
-            is_final: true,
-        }).await;
+    if event
+        .get("escalate")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+    {
+        let _ = ws_send(
+            sender,
+            &WsServerMessage::AgentOutput {
+                agent: author.to_string(),
+                content: "Pipeline stage completed (escalated)".to_string(),
+                is_final: true,
+            },
+        )
+        .await;
     }
 }
 
@@ -450,9 +526,16 @@ async fn execute_streaming(
     // Resolve agent: explicit mode > session lock > classify
     let agent_info = if !mode.is_empty() && mode != "auto" {
         let agents = state.agents.read().await;
-        agents.iter()
+        agents
+            .iter()
             .find(|a| a.id == mode || a.name.to_lowercase() == mode.to_lowercase())
-            .map(|a| (a.id.clone(), 0.99_f64, "User explicitly selected agent via mode field".to_string()))
+            .map(|a| {
+                (
+                    a.id.clone(),
+                    0.99_f64,
+                    "User explicitly selected agent via mode field".to_string(),
+                )
+            })
     } else if let Some(s) = &sid {
         Some(resolve_session_agent(state, s, prompt).await)
     } else {
@@ -475,14 +558,39 @@ async fn execute_streaming(
     let ctx = prepare_execution(state, prompt, model_override, agent_info, &session_wd).await;
     let resp_id = Uuid::new_v4();
 
-    if !ws_send(sender, &WsServerMessage::Start { id: resp_id.to_string(), agent: ctx.agent_id.clone(), model: ctx.model.clone(), files_loaded: ctx.files_loaded.clone() }).await { return; }
-    let _ = ws_send(sender, &WsServerMessage::Plan { agent: ctx.agent_id.clone(), confidence: ctx.confidence, steps: ctx.steps.clone(), reasoning: ctx.reasoning.clone() }).await;
+    if !ws_send(
+        sender,
+        &WsServerMessage::Start {
+            id: resp_id.to_string(),
+            agent: ctx.agent_id.clone(),
+            model: ctx.model.clone(),
+            files_loaded: ctx.files_loaded.clone(),
+        },
+    )
+    .await
+    {
+        return;
+    }
+    let _ = ws_send(
+        sender,
+        &WsServerMessage::Plan {
+            agent: ctx.agent_id.clone(),
+            confidence: ctx.confidence,
+            steps: ctx.steps.clone(),
+            reasoning: ctx.reasoning.clone(),
+        },
+    )
+    .await;
 
     // Dispatch to Gemini streaming (with fallback to flash on failure)
     let full_text = execute_streaming_gemini(sender, state, &ctx, sid, cancel.clone()).await;
     let (full_text, used_model) = if full_text.is_empty() && !ctx.model.contains("flash") {
         let flash_model = crate::model_registry::get_model_id(state, "flash").await;
-        tracing::warn!("Model fallback: {} failed, retrying with {}", ctx.model, flash_model);
+        tracing::warn!(
+            "Model fallback: {} failed, retrying with {}",
+            ctx.model,
+            flash_model
+        );
         let mut fallback_ctx = ctx.clone();
         fallback_ctx.model = flash_model;
         let fb_text = execute_streaming_gemini(sender, state, &fallback_ctx, sid, cancel).await;
@@ -521,7 +629,13 @@ async fn execute_streaming(
         }
     });
 
-    let _ = ws_send(sender, &WsServerMessage::Complete { duration_ms: start.elapsed().as_millis() as u64 }).await;
+    let _ = ws_send(
+        sender,
+        &WsServerMessage::Complete {
+            duration_ms: start.elapsed().as_millis() as u64,
+        },
+    )
+    .await;
 }
 
 // ── Gemini retry with exponential backoff ───────────────────────────────────
@@ -553,7 +667,8 @@ async fn gemini_request_with_retry(
         if attempt > 0 {
             // Exponential backoff: base * 2^(attempt-1) + random jitter
             let backoff = GEMINI_BACKOFF_BASE * 2u32.saturating_pow(attempt - 1);
-            let jitter = Duration::from_millis(rand::thread_rng().gen_range(0..=GEMINI_BACKOFF_JITTER_MS));
+            let jitter =
+                Duration::from_millis(rand::thread_rng().gen_range(0..=GEMINI_BACKOFF_JITTER_MS));
             let delay = backoff + jitter;
             tracing::warn!(
                 "gemini_retry: attempt {}/{} after {:?} backoff",
@@ -564,9 +679,7 @@ async fn gemini_request_with_retry(
             tokio::time::sleep(delay).await;
         }
 
-        let result = crate::oauth::apply_google_auth(
-                client.post(url.clone()), api_key, is_oauth,
-            )
+        let result = crate::oauth::apply_google_auth(client.post(url.clone()), api_key, is_oauth)
             .json(body)
             .timeout(Duration::from_secs(300))
             .send()
@@ -585,7 +698,11 @@ async fn gemini_request_with_retry(
                         .last()
                         .map(|(i, c)| i + c.len_utf8())
                         .unwrap_or(0);
-                    Err(format!("Gemini API error ({}): {}", status, &err_body[..safe_len]))
+                    Err(format!(
+                        "Gemini API error ({}): {}",
+                        status,
+                        &err_body[..safe_len]
+                    ))
                 }
                 Err(e) => Err(format!("Gemini API request failed: {:?}", e)),
             };
@@ -620,27 +737,55 @@ async fn execute_streaming_gemini(
     cancel: CancellationToken,
 ) -> String {
     if ctx.api_key.is_empty() {
-        let _ = ws_send(sender, &WsServerMessage::Error { message: "Missing Google API Key".into(), code: Some("NO_API_KEY".into()) }).await;
+        let _ = ws_send(
+            sender,
+            &WsServerMessage::Error {
+                message: "Missing Google API Key".into(),
+                code: Some("NO_API_KEY".into()),
+            },
+        )
+        .await;
         return String::new();
     }
 
     // Circuit breaker — fail fast if the Gemini provider is tripped.
     if let Err(msg) = state.gemini_circuit.check().await {
         tracing::warn!("execute_streaming_gemini: {}", msg);
-        let _ = ws_send(sender, &WsServerMessage::Error { message: msg, code: Some("CIRCUIT_OPEN".into()) }).await;
+        let _ = ws_send(
+            sender,
+            &WsServerMessage::Error {
+                message: msg,
+                code: Some("CIRCUIT_OPEN".into()),
+            },
+        )
+        .await;
         return String::new();
     }
 
-    let url = format!("https://generativelanguage.googleapis.com/v1beta/models/{}:streamGenerateContent?alt=sse", ctx.model);
+    let url = format!(
+        "https://generativelanguage.googleapis.com/v1beta/models/{}:streamGenerateContent?alt=sse",
+        ctx.model
+    );
     let parsed_url = match reqwest::Url::parse(&url) {
         Ok(u) if u.scheme() == "https" => u,
         _ => {
-            let _ = ws_send(sender, &WsServerMessage::Error { message: "API credentials require HTTPS".into(), code: Some("SECURITY".into()) }).await;
+            let _ = ws_send(
+                sender,
+                &WsServerMessage::Error {
+                    message: "API credentials require HTTPS".into(),
+                    code: Some("SECURITY".into()),
+                },
+            )
+            .await;
             return String::new();
         }
     };
-    let tools = build_tools_with_mcp(&state).await;
-    let mut contents = if let Some(s) = &sid { load_session_history(&state.db, s).await } else { Vec::new() };
+    let tools = build_tools_with_mcp(state).await;
+    let mut contents = if let Some(s) = &sid {
+        load_session_history(&state.db, s).await
+    } else {
+        Vec::new()
+    };
     contents.push(json!({ "role": "user", "parts": [{ "text": ctx.final_user_prompt }] }));
 
     // #36 — Dynamic max iterations based on prompt complexity
@@ -661,7 +806,8 @@ async fn execute_streaming_gemini(
     let mut has_written_file = false;
     let mut agent_text_len: usize = 0;
     let mut loop_ended_naturally = true; // true if we exhausted max_iterations without break
-    let mut approx_context_bytes: usize = contents.iter()
+    let mut approx_context_bytes: usize = contents
+        .iter()
         .map(|c| serde_json::to_string(c).map(|s| s.len()).unwrap_or(0))
         .sum();
 
@@ -672,17 +818,32 @@ async fn execute_streaming_gemini(
     for iter in 0..max_iterations {
         // #39 — Check elapsed time at the start of each iteration
         if execution_start.elapsed() >= execution_timeout {
-            tracing::warn!("execute_streaming_gemini: global timeout after {}s at iteration {}", execution_start.elapsed().as_secs(), iter);
-            let _ = ws_send(sender, &WsServerMessage::Error {
-                message: "Execution timed out after 3 minutes".to_string(),
-                code: Some("TIMEOUT".to_string()),
-            }).await;
+            tracing::warn!(
+                "execute_streaming_gemini: global timeout after {}s at iteration {}",
+                execution_start.elapsed().as_secs(),
+                iter
+            );
+            let _ = ws_send(
+                sender,
+                &WsServerMessage::Error {
+                    message: "Execution timed out after 3 minutes".to_string(),
+                    code: Some("TIMEOUT".to_string()),
+                },
+            )
+            .await;
             loop_ended_naturally = false;
             break;
         }
 
         // #35 — Send iteration counter to frontend
-        let _ = ws_send(sender, &WsServerMessage::Iteration { number: iter as u32 + 1, max: max_iterations as u32 }).await;
+        let _ = ws_send(
+            sender,
+            &WsServerMessage::Iteration {
+                number: iter as u32 + 1,
+                max: max_iterations as u32,
+            },
+        )
+        .await;
 
         let mut gen_config = json!({
             "temperature": ctx.temperature,
@@ -700,7 +861,15 @@ async fn execute_streaming_gemini(
         });
 
         // Use retry-with-backoff helper; circuit breaker is updated on success/failure.
-        let resp = match gemini_request_with_retry(&state.client, &parsed_url, &ctx.api_key, ctx.is_oauth, &body).await {
+        let resp = match gemini_request_with_retry(
+            &state.client,
+            &parsed_url,
+            &ctx.api_key,
+            ctx.is_oauth,
+            &body,
+        )
+        .await
+        {
             Ok(r) => {
                 state.gemini_circuit.record_success().await;
                 r
@@ -708,18 +877,36 @@ async fn execute_streaming_gemini(
             Err(e) => {
                 state.gemini_circuit.record_failure().await;
                 tracing::error!("{}", e);
-                let _ = ws_send(sender, &WsServerMessage::Error { message: "AI service error".into(), code: Some("GEMINI_ERROR".into()) }).await;
+                let _ = ws_send(
+                    sender,
+                    &WsServerMessage::Error {
+                        message: "AI service error".into(),
+                        code: Some("GEMINI_ERROR".into()),
+                    },
+                )
+                .await;
 
                 // #38 — Model fallback chain: try gemini-2.5-flash if primary model failed
                 if full_text.is_empty() && ctx.model != "gemini-2.5-flash" {
-                    tracing::warn!("Primary model {} failed, trying gemini-2.5-flash fallback", ctx.model);
+                    tracing::warn!(
+                        "Primary model {} failed, trying gemini-2.5-flash fallback",
+                        ctx.model
+                    );
                     let fallback_url_str = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse";
-                    if let Ok(fallback_url) = reqwest::Url::parse(fallback_url_str) {
-                        if let Ok(fallback_resp) = gemini_request_with_retry(&state.client, &fallback_url, &ctx.api_key, ctx.is_oauth, &body).await {
-                            state.gemini_circuit.record_success().await;
-                            let (fallback_text, _, _, _) = consume_gemini_stream(fallback_resp, sender, &cancel).await;
-                            full_text.push_str(&fallback_text);
-                        }
+                    if let Ok(fallback_url) = reqwest::Url::parse(fallback_url_str)
+                        && let Ok(fallback_resp) = gemini_request_with_retry(
+                            &state.client,
+                            &fallback_url,
+                            &ctx.api_key,
+                            ctx.is_oauth,
+                            &body,
+                        )
+                        .await
+                    {
+                        state.gemini_circuit.record_success().await;
+                        let (fallback_text, _, _, _) =
+                            consume_gemini_stream(fallback_resp, sender, &cancel).await;
+                        full_text.push_str(&fallback_text);
                     }
                 }
 
@@ -733,7 +920,10 @@ async fn execute_streaming_gemini(
 
         // Retry without tools if Gemini generated a malformed function call
         if malformed && full_text.trim().is_empty() {
-            tracing::warn!("MALFORMED_FUNCTION_CALL on iter {}, retrying without tools", iter);
+            tracing::warn!(
+                "MALFORMED_FUNCTION_CALL on iter {}, retrying without tools",
+                iter
+            );
             let mut gen_config_retry = json!({
                 "temperature": ctx.temperature,
                 "topP": ctx.top_p,
@@ -747,20 +937,35 @@ async fn execute_streaming_gemini(
                 "contents": contents,
                 "generationConfig": gen_config_retry
             });
-            if let Ok(retry_resp) = gemini_request_with_retry(&state.client, &parsed_url, &ctx.api_key, ctx.is_oauth, &retry_body).await {
-                let (retry_text, _, _, _) = consume_gemini_stream(retry_resp, sender, &cancel).await;
+            if let Ok(retry_resp) = gemini_request_with_retry(
+                &state.client,
+                &parsed_url,
+                &ctx.api_key,
+                ctx.is_oauth,
+                &retry_body,
+            )
+            .await
+            {
+                let (retry_text, _, _, _) =
+                    consume_gemini_stream(retry_resp, sender, &cancel).await;
                 full_text.push_str(&retry_text);
             }
             loop_ended_naturally = false;
             break;
         }
-        if aborted || fcs.is_empty() { loop_ended_naturally = false; break; }
+        if aborted || fcs.is_empty() {
+            loop_ended_naturally = false;
+            break;
+        }
 
         // #37 — Early termination if agent text (excluding tool output) is too small after many iterations
         if iter >= 8 && text.trim().is_empty() {
             // Count how many iterations produced no agent text at all
-            let meaningful_text: String = full_text.lines()
-                .filter(|l| !l.starts_with("---") && !l.starts_with("```") && !l.starts_with("**🔧 Tool:**"))
+            let meaningful_text: String = full_text
+                .lines()
+                .filter(|l| {
+                    !l.starts_with("---") && !l.starts_with("```") && !l.starts_with("**🔧 Tool:**")
+                })
                 .collect::<Vec<_>>()
                 .join("");
             if meaningful_text.trim().len() < 50 {
@@ -772,24 +977,44 @@ async fn execute_streaming_gemini(
             }
         }
 
-        let mut model_parts: Vec<Value> = if !text.is_empty() { vec![json!({ "text": text })] } else { vec![] };
-        for (_, _, raw) in &fcs { model_parts.push(raw.clone()); }
+        let mut model_parts: Vec<Value> = if !text.is_empty() {
+            vec![json!({ "text": text })]
+        } else {
+            vec![]
+        };
+        for (_, _, raw) in &fcs {
+            model_parts.push(raw.clone());
+        }
         contents.push(json!({ "role": "model", "parts": model_parts }));
-        approx_context_bytes += serde_json::to_string(contents.last().unwrap()).map(|s| s.len()).unwrap_or(0);
+        if let Some(last) = contents.last() {
+            approx_context_bytes += serde_json::to_string(last).map(|s| s.len()).unwrap_or(0);
+        }
 
         // Announce all tool calls first (so the frontend can show them as "in progress")
         let tool_count = fcs.len();
         for (name, args, _) in &fcs {
-            let _ = ws_send(sender, &WsServerMessage::ToolCall { name: name.clone(), args: args.clone(), iteration: iter as u32 + 1 }).await;
+            let _ = ws_send(
+                sender,
+                &WsServerMessage::ToolCall {
+                    name: name.clone(),
+                    args: args.clone(),
+                    iteration: iter as u32 + 1,
+                },
+            )
+            .await;
         }
 
         // #40 — Send parallel tool header as ToolProgress instead of Token
         if tool_count > 1 {
-            let _ = ws_send(sender, &WsServerMessage::ToolProgress {
-                iteration: iter as u32,
-                tools_completed: 0,
-                tools_total: tool_count as u32,
-            }).await;
+            let _ = ws_send(
+                sender,
+                &WsServerMessage::ToolProgress {
+                    iteration: iter as u32,
+                    tools_completed: 0,
+                    tools_total: tool_count as u32,
+                },
+            )
+            .await;
         }
 
         // Execute all tool calls concurrently using tokio::join_all.
@@ -798,40 +1023,70 @@ async fn execute_streaming_gemini(
         // Heartbeat messages are sent every 15s to prevent proxy/LB timeouts.
         let call_depth = ctx.call_depth;
         let wd = ctx.working_directory.clone();
-        let tool_futures: Vec<_> = fcs.iter().map(|(name, args, _)| {
-            let name = name.clone();
-            let args = args.clone();
-            let state = state.clone();
-            let wd = wd.clone();
-            async move {
-                if name == "call_agent" {
-                    // A2A agent delegation — longer timeout (120s), depth tracking
-                    match tokio::time::timeout(
-                        Duration::from_secs(120),
-                        crate::a2a::execute_agent_call(&state, &args, call_depth),
-                    ).await {
-                        Ok(Ok(text)) => (name, crate::tools::ToolOutput::text(text)),
-                        Ok(Err(e)) => (name, crate::tools::ToolOutput::text(format!("AGENT_CALL_ERROR: {}", e))),
-                        Err(_) => (name, crate::tools::ToolOutput::text("AGENT_CALL_ERROR: timed out after 120s".to_string())),
-                    }
-                } else {
-                    match tokio::time::timeout(TOOL_TIMEOUT, crate::tools::execute_tool(&name, &args, &state, &wd)).await {
-                        Ok(Ok(output)) => (name, output),
-                        Ok(Err(e)) => (name, crate::tools::ToolOutput::text(format!("TOOL_ERROR: {}", e))),
-                        Err(_) => {
-                            tracing::warn!("tool '{}' timed out after {}s", name, TOOL_TIMEOUT.as_secs());
-                            (name, crate::tools::ToolOutput::text(format!("TOOL_ERROR: timed out after {}s", TOOL_TIMEOUT.as_secs())))
+        let tool_futures: Vec<_> = fcs
+            .iter()
+            .map(|(name, args, _)| {
+                let name = name.clone();
+                let args = args.clone();
+                let state = state.clone();
+                let wd = wd.clone();
+                async move {
+                    if name == "call_agent" {
+                        // A2A agent delegation — longer timeout (120s), depth tracking
+                        match tokio::time::timeout(
+                            Duration::from_secs(120),
+                            crate::a2a::execute_agent_call(&state, &args, call_depth),
+                        )
+                        .await
+                        {
+                            Ok(Ok(text)) => (name, crate::tools::ToolOutput::text(text)),
+                            Ok(Err(e)) => (
+                                name,
+                                crate::tools::ToolOutput::text(format!("AGENT_CALL_ERROR: {}", e)),
+                            ),
+                            Err(_) => (
+                                name,
+                                crate::tools::ToolOutput::text(
+                                    "AGENT_CALL_ERROR: timed out after 120s".to_string(),
+                                ),
+                            ),
+                        }
+                    } else {
+                        match tokio::time::timeout(
+                            TOOL_TIMEOUT,
+                            crate::tools::execute_tool(&name, &args, &state, &wd),
+                        )
+                        .await
+                        {
+                            Ok(Ok(output)) => (name, output),
+                            Ok(Err(e)) => (
+                                name,
+                                crate::tools::ToolOutput::text(format!("TOOL_ERROR: {}", e)),
+                            ),
+                            Err(_) => {
+                                tracing::warn!(
+                                    "tool '{}' timed out after {}s",
+                                    name,
+                                    TOOL_TIMEOUT.as_secs()
+                                );
+                                (
+                                    name,
+                                    crate::tools::ToolOutput::text(format!(
+                                        "TOOL_ERROR: timed out after {}s",
+                                        TOOL_TIMEOUT.as_secs()
+                                    )),
+                                )
+                            }
                         }
                     }
                 }
-            }
-        }).collect();
+            })
+            .collect();
 
         // Run tools in a spawned task so we can send heartbeats concurrently.
         // Heartbeat keeps the WS alive during long tool executions (prevents proxy timeouts).
-        let mut tools_handle = tokio::spawn(async move {
-            futures_util::future::join_all(tool_futures).await
-        });
+        let mut tools_handle =
+            tokio::spawn(async move { futures_util::future::join_all(tool_futures).await });
         let mut heartbeat_interval = tokio::time::interval(Duration::from_secs(15));
         heartbeat_interval.tick().await; // consume immediate first tick
         let tool_results = loop {
@@ -848,7 +1103,8 @@ async fn execute_streaming_gemini(
         // Gemini 3 Thought Signatures: build name→signature map from function call parts.
         // raw_part (from SseParsedEvent::FunctionCall) is part.clone() which captures
         // thoughtSignature if present. Must echo back on functionResponse parts (400 if missing).
-        let sig_map: std::collections::HashMap<&str, &Value> = fcs.iter()
+        let sig_map: std::collections::HashMap<&str, &Value> = fcs
+            .iter()
             .filter_map(|(name, _, raw)| {
                 raw.get("thoughtSignature").map(|sig| (name.as_str(), sig))
             })
@@ -856,7 +1112,9 @@ async fn execute_streaming_gemini(
 
         // Track file-modifying tool usage (write_file or edit_file) — only on success
         for (name, output) in &tool_results {
-            if (name == "write_file" || name == "edit_file") && !output.text.starts_with("TOOL_ERROR:") {
+            if (name == "write_file" || name == "edit_file")
+                && !output.text.starts_with("TOOL_ERROR:")
+            {
                 has_written_file = true;
             }
         }
@@ -865,7 +1123,16 @@ async fn execute_streaming_gemini(
         let mut res_parts = Vec::new();
         for (name, output) in &tool_results {
             let success = !output.text.starts_with("TOOL_ERROR:");
-            let _ = ws_send(sender, &WsServerMessage::ToolResult { name: name.clone(), success, summary: output.text.chars().take(200).collect(), iteration: iter as u32 + 1 }).await;
+            let _ = ws_send(
+                sender,
+                &WsServerMessage::ToolResult {
+                    name: name.clone(),
+                    success,
+                    summary: output.text.chars().take(200).collect(),
+                    iteration: iter as u32 + 1,
+                },
+            )
+            .await;
 
             let header = format!("\n\n---\n**🔧 Tool:** `{}`\n", name);
             full_text.push_str(&header);
@@ -876,7 +1143,13 @@ async fn execute_streaming_gemini(
             let _ = ws_send(sender, &WsServerMessage::Token { content: res_md }).await;
 
             // #26 — Dynamic context limit based on iteration (earlier = more generous)
-            let context_limit = if iter < 3 { 25000 } else if iter < 6 { 15000 } else { 8000 };
+            let context_limit = if iter < 3 {
+                25000
+            } else if iter < 6 {
+                15000
+            } else {
+                8000
+            };
             let context_output = truncate_for_context_with_limit(&output.text, context_limit);
             let mut fn_response = json!({ "functionResponse": { "name": name, "response": { "result": context_output } } });
             // Gemini 3 multimodal function response: attach inline data if tool returned binary
@@ -894,17 +1167,30 @@ async fn execute_streaming_gemini(
         }
 
         // #27 — Approximate context usage metadata (incremental — no re-serialization)
-        let context_hint = format!("[CONTEXT: ~{}KB used across {} messages, iteration {}/{}]",
-            approx_context_bytes / 1024, contents.len(), iter + 1, max_iterations);
+        let context_hint = format!(
+            "[CONTEXT: ~{}KB used across {} messages, iteration {}/{}]",
+            approx_context_bytes / 1024,
+            contents.len(),
+            iter + 1,
+            max_iterations
+        );
 
         // #34 — Iteration reminders (analysis-aware: different nudges for analysis vs editing)
         if iter >= 3 {
             let is_analysis = {
                 let lower = ctx.final_user_prompt.to_lowercase();
-                lower.contains("analiz") || lower.contains("audyt") || lower.contains("review")
-                    || lower.contains("sprawdź") || lower.contains("describe") || lower.contains("explain")
-                    || lower.contains("raport") || lower.contains("report") || lower.contains("check")
-                    || lower.contains("przegląd") || lower.contains("summarize") || lower.contains("list")
+                lower.contains("analiz")
+                    || lower.contains("audyt")
+                    || lower.contains("review")
+                    || lower.contains("sprawdź")
+                    || lower.contains("describe")
+                    || lower.contains("explain")
+                    || lower.contains("raport")
+                    || lower.contains("report")
+                    || lower.contains("check")
+                    || lower.contains("przegląd")
+                    || lower.contains("summarize")
+                    || lower.contains("list")
             };
             let write_nudge = if is_analysis {
                 "This is an analytical task. Focus on writing your report/summary with the data gathered so far."
@@ -914,16 +1200,31 @@ async fn execute_streaming_gemini(
                 "Reminder: if you found issues, use edit_file/write_file to apply fixes."
             };
             let urgency = if iter >= 12 {
-                format!("[SYSTEM: Approaching iteration limit ({}/{}). {} {} STOP gathering data and write your final response NOW.]", iter + 1, max_iterations, context_hint, write_nudge)
+                format!(
+                    "[SYSTEM: Approaching iteration limit ({}/{}). {} {} STOP gathering data and write your final response NOW.]",
+                    iter + 1,
+                    max_iterations,
+                    context_hint,
+                    write_nudge
+                )
             } else if iter >= 8 {
-                format!("[SYSTEM: {} {} You are past iteration 8 — start synthesizing your findings into a response.]", context_hint, write_nudge)
+                format!(
+                    "[SYSTEM: {} {} You are past iteration 8 — start synthesizing your findings into a response.]",
+                    context_hint, write_nudge
+                )
             } else {
-                format!("[SYSTEM: {} Continue working. {} iterations remaining.]", context_hint, max_iterations - iter - 1)
+                format!(
+                    "[SYSTEM: {} Continue working. {} iterations remaining.]",
+                    context_hint,
+                    max_iterations - iter - 1
+                )
             };
             res_parts.push(json!({ "text": urgency }));
         }
         contents.push(json!({ "role": "user", "parts": res_parts }));
-        approx_context_bytes += serde_json::to_string(contents.last().unwrap()).map(|s| s.len()).unwrap_or(0);
+        if let Some(last) = contents.last() {
+            approx_context_bytes += serde_json::to_string(last).map(|s| s.len()).unwrap_or(0);
+        }
     }
 
     // #34a — Write-phase enforcement: if agent described a fix but never called edit_file/write_file,
@@ -931,17 +1232,23 @@ async fn execute_streaming_gemini(
     // Only trigger when the agent's text actually describes code modifications (not simple Q&A).
     let describes_fix = {
         let lower = full_text.to_lowercase();
-        lower.contains("edit_file") || lower.contains("write_file") ||
-         lower.contains("zmienił") || lower.contains("zmodyfikował") ||
-         lower.contains("naprawił") || lower.contains("poprawił") ||
-         (lower.contains("fix") && (lower.contains("file") || lower.contains("code") || lower.contains("bug"))) ||
-         (lower.contains("changed") && lower.contains("line")) ||
-         (lower.contains("modified") && lower.contains("file")) ||
-         (lower.contains("applied") && lower.contains("fix")) ||
-         (lower.contains("updated") && lower.contains("code"))
+        lower.contains("edit_file")
+            || lower.contains("write_file")
+            || lower.contains("zmienił")
+            || lower.contains("zmodyfikował")
+            || lower.contains("naprawił")
+            || lower.contains("poprawił")
+            || (lower.contains("fix")
+                && (lower.contains("file") || lower.contains("code") || lower.contains("bug")))
+            || (lower.contains("changed") && lower.contains("line"))
+            || (lower.contains("modified") && lower.contains("file"))
+            || (lower.contains("applied") && lower.contains("fix"))
+            || (lower.contains("updated") && lower.contains("code"))
     };
     if !has_written_file && !full_text.is_empty() && agent_text_len > 50 && describes_fix {
-        tracing::info!("execute_streaming_gemini: agent described a fix but never applied it — forcing edit phase");
+        tracing::info!(
+            "execute_streaming_gemini: agent described a fix but never applied it — forcing edit phase"
+        );
         contents.push(json!({
             "role": "user",
             "parts": [{
@@ -980,22 +1287,40 @@ async fn execute_streaming_gemini(
             "tools": edit_only_tools,
             "generationConfig": gen_config
         });
-        if let Ok(resp) = gemini_request_with_retry(&state.client, &parsed_url, &ctx.api_key, ctx.is_oauth, &body).await {
+        if let Ok(resp) = gemini_request_with_retry(
+            &state.client,
+            &parsed_url,
+            &ctx.api_key,
+            ctx.is_oauth,
+            &body,
+        )
+        .await
+        {
             state.gemini_circuit.record_success().await;
             let (write_text, write_fcs, _, _) = consume_gemini_stream(resp, sender, &cancel).await;
             full_text.push_str(&write_text);
             agent_text_len += write_text.trim().len();
             for (name, args, _) in &write_fcs {
                 if name == "write_file" || name == "edit_file" {
-                    tracing::info!("execute_streaming_gemini: edit-phase enforcement — executing {}", name);
-                    match tokio::time::timeout(TOOL_TIMEOUT, crate::tools::execute_tool(name, args, &state, &ctx.working_directory)).await {
+                    tracing::info!(
+                        "execute_streaming_gemini: edit-phase enforcement — executing {}",
+                        name
+                    );
+                    match tokio::time::timeout(
+                        TOOL_TIMEOUT,
+                        crate::tools::execute_tool(name, args, state, &ctx.working_directory),
+                    )
+                    .await
+                    {
                         Ok(Ok(output)) => {
                             let header = format!("\n\n---\n**Tool:** `{}`\n", name);
                             full_text.push_str(&header);
-                            let _ = ws_send(sender, &WsServerMessage::Token { content: header }).await;
+                            let _ =
+                                ws_send(sender, &WsServerMessage::Token { content: header }).await;
                             let res_md = format!("```\n{}\n```\n---\n\n", output.text);
                             full_text.push_str(&res_md);
-                            let _ = ws_send(sender, &WsServerMessage::Token { content: res_md }).await;
+                            let _ =
+                                ws_send(sender, &WsServerMessage::Token { content: res_md }).await;
                         }
                         Ok(Err(e)) => {
                             tracing::warn!("edit-phase {} failed: {}", name, e);
@@ -1014,20 +1339,31 @@ async fn execute_streaming_gemini(
     // WITHOUT tools so it summarizes all gathered data into a proper report.
     // Also trigger if agent produced minimal meaningful text (fallback for edge cases).
     let needs_synthesis = if loop_ended_naturally && !full_text.is_empty() {
-        tracing::info!("execute_streaming_gemini: loop exhausted max_iterations ({}) — agent was still calling tools, forcing synthesis", max_iterations);
+        tracing::info!(
+            "execute_streaming_gemini: loop exhausted max_iterations ({}) — agent was still calling tools, forcing synthesis",
+            max_iterations
+        );
         true
     } else {
-        let meaningful_len: usize = full_text.lines()
+        let meaningful_len: usize = full_text
+            .lines()
             .filter(|l| {
                 let t = l.trim();
-                !t.is_empty() && !t.starts_with("---") && !t.starts_with("```")
-                    && !t.starts_with("**🔧") && !t.starts_with("[SYSTEM")
+                !t.is_empty()
+                    && !t.starts_with("---")
+                    && !t.starts_with("```")
+                    && !t.starts_with("**🔧")
+                    && !t.starts_with("[SYSTEM")
                     && t.len() > 20
             })
             .map(|l| l.trim().len())
             .sum();
         if meaningful_len < 200 && !full_text.is_empty() {
-            tracing::info!("execute_streaming_gemini: no synthesis text detected (meaningful_len={}, agent_text_len={}) — forcing synthesis", meaningful_len, agent_text_len);
+            tracing::info!(
+                "execute_streaming_gemini: no synthesis text detected (meaningful_len={}, agent_text_len={}) — forcing synthesis",
+                meaningful_len,
+                agent_text_len
+            );
             true
         } else {
             false
@@ -1053,15 +1389,31 @@ async fn execute_streaming_gemini(
             "contents": contents,
             "generationConfig": gen_config
         });
-        match gemini_request_with_retry(&state.client, &parsed_url, &ctx.api_key, ctx.is_oauth, &body).await {
+        match gemini_request_with_retry(
+            &state.client,
+            &parsed_url,
+            &ctx.api_key,
+            ctx.is_oauth,
+            &body,
+        )
+        .await
+        {
             Ok(resp) => {
                 state.gemini_circuit.record_success().await;
-                let (synth_text, synth_fcs, _, _) = consume_gemini_stream(resp, sender, &cancel).await;
-                tracing::info!("execute_streaming_gemini: synthesis call returned {} chars text, {} function_calls", synth_text.len(), synth_fcs.len());
+                let (synth_text, synth_fcs, _, _) =
+                    consume_gemini_stream(resp, sender, &cancel).await;
+                tracing::info!(
+                    "execute_streaming_gemini: synthesis call returned {} chars text, {} function_calls",
+                    synth_text.len(),
+                    synth_fcs.len()
+                );
                 full_text.push_str(&synth_text);
             }
             Err(e) => {
-                tracing::warn!("execute_streaming_gemini: synthesis Gemini call failed: {}", e);
+                tracing::warn!(
+                    "execute_streaming_gemini: synthesis Gemini call failed: {}",
+                    e
+                );
             }
         }
     }
@@ -1138,16 +1490,21 @@ async fn consume_gemini_stream(
 // DB Helpers
 // ---------------------------------------------------------------------------
 
-async fn resolve_session_agent(state: &AppState, sid: &Uuid, prompt: &str) -> (String, f64, String) {
-    if let Some(aid) = sqlx::query_as::<_, (Option<String>,)>("SELECT agent_id FROM gh_sessions WHERE id = $1")
-        .bind(sid)
-        .fetch_optional(&state.db)
-        .await
-        .map_err(|e| tracing::error!("Failed to resolve session agent: {}", e))
-        .ok()
-        .flatten()
-        .and_then(|(a,)| a)
-        .filter(|s| !s.is_empty())
+async fn resolve_session_agent(
+    state: &AppState,
+    sid: &Uuid,
+    prompt: &str,
+) -> (String, f64, String) {
+    if let Some(aid) =
+        sqlx::query_as::<_, (Option<String>,)>("SELECT agent_id FROM gh_sessions WHERE id = $1")
+            .bind(sid)
+            .fetch_optional(&state.db)
+            .await
+            .map_err(|e| tracing::error!("Failed to resolve session agent: {}", e))
+            .ok()
+            .flatten()
+            .and_then(|(a,)| a)
+            .filter(|s| !s.is_empty())
     {
         return (aid, 0.95, "Locked".into());
     }
@@ -1180,39 +1537,47 @@ async fn load_session_history(db: &sqlx::PgPool, sid: &Uuid) -> Vec<Value> {
 
     // #23 — Compress old messages: truncate everything except the last 6 messages
     for i in 0..messages.len() {
-        if i < messages.len().saturating_sub(6) {
-            if let Some(text) = messages[i].get_mut("parts")
+        if i < messages.len().saturating_sub(6)
+            && let Some(text) = messages[i]
+                .get_mut("parts")
                 .and_then(|p| p.get_mut(0))
                 .and_then(|p0| p0.get_mut("text"))
-            {
-                if let Some(s) = text.as_str().map(|s| s.to_string()) {
-                    if s.len() > 500 {
-                        let boundary = s.char_indices()
-                            .take_while(|(idx, _)| *idx < 500)
-                            .last()
-                            .map(|(idx, c)| idx + c.len_utf8())
-                            .unwrap_or(500.min(s.len()));
-                        *text = json!(format!("{}... [message truncated for context efficiency]", &s[..boundary]));
-                    }
-                }
-            }
+            && let Some(s) = text.as_str().map(|s| s.to_string())
+            && s.len() > 500
+        {
+            let boundary = s
+                .char_indices()
+                .take_while(|(idx, _)| *idx < 500)
+                .last()
+                .map(|(idx, c)| idx + c.len_utf8())
+                .unwrap_or(500.min(s.len()));
+            *text = json!(format!(
+                "{}... [message truncated for context efficiency]",
+                &s[..boundary]
+            ));
         }
     }
 
     messages
 }
 
-async fn store_messages(db: &sqlx::PgPool, sid: Option<Uuid>, rid: Uuid, prompt: &str, result: &str, ctx: &ExecuteContext) {
+async fn store_messages(
+    db: &sqlx::PgPool,
+    sid: Option<Uuid>,
+    rid: Uuid,
+    prompt: &str,
+    result: &str,
+    ctx: &ExecuteContext,
+) {
     if let Err(e) = sqlx::query("INSERT INTO gh_chat_messages (id, role, content, model, agent, session_id) VALUES ($1, 'user', $2, $3, $4, $5)")
         .bind(rid).bind(prompt).bind(Some(&ctx.model)).bind(Some(&ctx.agent_id)).bind(sid).execute(db).await
     {
         tracing::error!("Failed to store chat message: {}", e);
     }
-    if !result.is_empty() {
-        if let Err(e) = sqlx::query("INSERT INTO gh_chat_messages (id, role, content, model, agent, session_id) VALUES ($1, 'assistant', $2, $3, $4, $5)")
+    if !result.is_empty()
+        && let Err(e) = sqlx::query("INSERT INTO gh_chat_messages (id, role, content, model, agent, session_id) VALUES ($1, 'assistant', $2, $3, $4, $5)")
             .bind(Uuid::new_v4()).bind(result).bind(Some(&ctx.model)).bind(Some(&ctx.reasoning)).bind(sid).execute(db).await
         {
             tracing::error!("Failed to store chat message: {}", e);
         }
-    }
 }

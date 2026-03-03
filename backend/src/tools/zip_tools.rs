@@ -35,10 +35,10 @@ pub async fn tool_list_zip(path: &str) -> Result<String, String> {
 
     let path_owned = path.to_string();
     tokio::task::spawn_blocking(move || {
-        let file = std::fs::File::open(&path_owned)
-            .map_err(|e| format!("Cannot open file: {}", e))?;
-        let mut archive = zip::ZipArchive::new(file)
-            .map_err(|e| format!("Not a valid ZIP archive: {}", e))?;
+        let file =
+            std::fs::File::open(&path_owned).map_err(|e| format!("Cannot open file: {}", e))?;
+        let mut archive =
+            zip::ZipArchive::new(file).map_err(|e| format!("Not a valid ZIP archive: {}", e))?;
 
         let mut output = format!(
             "### ZIP: {} ({} entries)\n\n{:<60} {:>12} {:>12}\n{}\n",

@@ -23,7 +23,11 @@ fn get_cpu_times() -> (u64, u64, u64) {
     unsafe {
         GetSystemTimes(Some(&mut idle), Some(&mut kernel), Some(&mut user)).unwrap();
     }
-    (filetime_to_u64(&idle), filetime_to_u64(&kernel), filetime_to_u64(&user))
+    (
+        filetime_to_u64(&idle),
+        filetime_to_u64(&kernel),
+        filetime_to_u64(&user),
+    )
 }
 
 /// Spawn a background task that refreshes system stats every 5 seconds.
@@ -76,8 +80,7 @@ pub fn spawn(system_monitor: Arc<RwLock<SystemSnapshot>>) {
                 if sys.cpus().is_empty() {
                     0.0
                 } else {
-                    sys.cpus().iter().map(|c| c.cpu_usage()).sum::<f32>()
-                        / sys.cpus().len() as f32
+                    sys.cpus().iter().map(|c| c.cpu_usage()).sum::<f32>() / sys.cpus().len() as f32
                 }
             };
 

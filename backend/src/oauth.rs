@@ -2,14 +2,14 @@
 // Two auth methods: (1) Google API key stored encrypted in DB, (2) Google OAuth 2.0 PKCE
 // Priority: DB OAuth token → DB API key → GOOGLE_API_KEY env var
 
+use axum::Json;
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse};
-use axum::Json;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use crate::state::AppState;
@@ -19,8 +19,8 @@ use crate::state::AppState;
 // is set. Graceful degradation: stores plaintext if neither key is available.
 
 use aes_gcm::{
-    aead::{Aead, KeyInit},
     Aes256Gcm, Nonce,
+    aead::{Aead, KeyInit},
 };
 
 /// Derive a 32-byte AES-256 key from a secret string via SHA-256.
@@ -47,13 +47,16 @@ pub(crate) fn encrypt_token(plaintext: &str) -> String {
     let Some(key_bytes) = get_encryption_key() else {
         return plaintext.to_string();
     };
-    let cipher = Aes256Gcm::new_from_slice(&key_bytes)
-        .expect("AES-256-GCM key is always 32 bytes");
+    let cipher = Aes256Gcm::new_from_slice(&key_bytes).expect("AES-256-GCM key is always 32 bytes");
     let nonce_bytes: [u8; 12] = rand::random();
     let nonce = Nonce::from_slice(&nonce_bytes);
     match cipher.encrypt(nonce, plaintext.as_bytes()) {
         Ok(ciphertext) => {
-            format!("enc:{}:{}", hex::encode(nonce_bytes), hex::encode(ciphertext))
+            format!(
+                "enc:{}:{}",
+                hex::encode(nonce_bytes),
+                hex::encode(ciphertext)
+            )
         }
         Err(e) => {
             tracing::error!("Failed to encrypt token: {}", e);
@@ -75,15 +78,15 @@ pub(crate) fn decrypt_token(stored: &str) -> Result<String, String> {
     if parts.len() != 3 {
         return Err("Malformed encrypted token format".into());
     }
-    let nonce_bytes = hex::decode(parts[1])
-        .map_err(|e| format!("Invalid nonce hex: {}", e))?;
-    let ciphertext = hex::decode(parts[2])
-        .map_err(|e| format!("Invalid ciphertext hex: {}", e))?;
+    let nonce_bytes = hex::decode(parts[1]).map_err(|e| format!("Invalid nonce hex: {}", e))?;
+    let ciphertext = hex::decode(parts[2]).map_err(|e| format!("Invalid ciphertext hex: {}", e))?;
     if nonce_bytes.len() != 12 {
-        return Err(format!("Invalid nonce length: {} (expected 12)", nonce_bytes.len()));
+        return Err(format!(
+            "Invalid nonce length: {} (expected 12)",
+            nonce_bytes.len()
+        ));
     }
-    let cipher = Aes256Gcm::new_from_slice(&key_bytes)
-        .expect("AES-256-GCM key is always 32 bytes");
+    let cipher = Aes256Gcm::new_from_slice(&key_bytes).expect("AES-256-GCM key is always 32 bytes");
     let nonce = Nonce::from_slice(&nonce_bytes);
     let plaintext = cipher
         .decrypt(nonce, ciphertext.as_ref())
@@ -468,9 +471,7 @@ pub async fn save_api_key(
 }
 
 /// DELETE /api/auth/apikey — remove stored API key
-pub async fn delete_api_key(
-    State(state): State<AppState>,
-) -> Json<Value> {
+pub async fn delete_api_key(State(state): State<AppState>) -> Json<Value> {
     sqlx::query("DELETE FROM gh_google_auth WHERE id = 1")
         .execute(&state.db)
         .await
@@ -517,7 +518,9 @@ pub async fn get_google_credential(state: &AppState) -> Option<(String, bool)> {
                 Err(e) => {
                     tracing::error!("Failed to decrypt OAuth access token: {}", e);
                     // Fall through to other methods
-                    return try_db_api_key(state, &row).await.or_else(|| try_env_key(state));
+                    return try_db_api_key(state, &row)
+                        .await
+                        .or_else(|| try_env_key(state));
                 }
             };
 
@@ -534,9 +537,7 @@ pub async fn get_google_credential(state: &AppState) -> Option<(String, bool)> {
             // Refresh failed — fall through to API key
             tracing::warn!("OAuth token expired and refresh failed, trying API key fallback");
         } else if !oauth_valid {
-            tracing::debug!(
-                "Skipping OAuth token — marked invalid for Gemini API, using API key"
-            );
+            tracing::debug!("Skipping OAuth token — marked invalid for Gemini API, using API key");
         }
 
         // DB API key
@@ -568,10 +569,10 @@ pub fn mark_oauth_gemini_valid(state: &AppState) {
 /// Get Google credential skipping OAuth — only DB API key or env var.
 /// Used as fallback when OAuth token is rejected by Google API (401/403).
 pub async fn get_google_api_key_credential(state: &AppState) -> Option<(String, bool)> {
-    if let Some(row) = get_auth_row(state).await {
-        if let Some(pair) = try_db_api_key(state, &row).await {
-            return Some(pair);
-        }
+    if let Some(row) = get_auth_row(state).await
+        && let Some(pair) = try_db_api_key(state, &row).await
+    {
+        return Some(pair);
     }
     try_env_key(state)
 }

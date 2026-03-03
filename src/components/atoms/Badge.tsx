@@ -1,5 +1,5 @@
 import { cva, type VariantProps } from 'class-variance-authority';
-import { forwardRef, type HTMLAttributes, memo, type ReactNode } from 'react';
+import { type HTMLAttributes, memo, type ReactNode } from 'react';
 import { cn } from '@/shared/utils/cn';
 
 // ============================================
@@ -43,6 +43,7 @@ const dotColorMap: Record<string, string> = {
 // ============================================
 
 export interface BadgeProps extends HTMLAttributes<HTMLSpanElement>, VariantProps<typeof badgeVariants> {
+  ref?: React.Ref<HTMLSpanElement>;
   /** Show a small colored dot before the text */
   dot?: boolean;
   /** Optional icon before the text (ignored if dot is true) */
@@ -50,21 +51,17 @@ export interface BadgeProps extends HTMLAttributes<HTMLSpanElement>, VariantProp
   children: ReactNode;
 }
 
-export const Badge = memo(
-  forwardRef<HTMLSpanElement, BadgeProps>(
-    ({ className, variant, size, dot = false, icon, children, ...props }, ref) => {
-      const resolvedVariant = variant ?? 'default';
-      const dotColor = dotColorMap[resolvedVariant] ?? dotColorMap.default;
+export const Badge = memo(({ className, variant, size, dot = false, icon, children, ref, ...props }: BadgeProps) => {
+  const resolvedVariant = variant ?? 'default';
+  const dotColor = dotColorMap[resolvedVariant] ?? dotColorMap.default;
 
-      return (
-        <span ref={ref} className={cn(badgeVariants({ variant, size }), className)} {...props}>
-          {dot && <span className={cn('h-1.5 w-1.5 rounded-full flex-shrink-0', dotColor)} aria-hidden="true" />}
-          {!dot && icon && <span className="flex-shrink-0">{icon}</span>}
-          {children}
-        </span>
-      );
-    },
-  ),
-);
+  return (
+    <span ref={ref} className={cn(badgeVariants({ variant, size }), className)} {...props}>
+      {dot && <span className={cn('h-1.5 w-1.5 rounded-full flex-shrink-0', dotColor)} aria-hidden="true" />}
+      {!dot && icon && <span className="flex-shrink-0">{icon}</span>}
+      {children}
+    </span>
+  );
+});
 
 Badge.displayName = 'Badge';

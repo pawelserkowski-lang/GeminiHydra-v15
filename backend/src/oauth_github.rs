@@ -2,12 +2,12 @@
 // Stores GitHub OAuth access tokens with AES-256-GCM encryption.
 // Reuses encrypt_token/decrypt_token from oauth.rs.
 
+use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
-use axum::Json;
 use base64::Engine;
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::oauth::{decrypt_token, encrypt_token};
 use crate::state::AppState;
@@ -197,14 +197,10 @@ pub async fn github_auth_callback(
 
 /// POST /api/auth/github/logout — delete stored GitHub OAuth token
 pub async fn github_auth_logout(State(state): State<AppState>) -> Json<Value> {
-    sqlx::query(concat!(
-        "DELETE FROM ",
-        "gh_oauth_github",
-        " WHERE id = 1"
-    ))
-    .execute(&state.db)
-    .await
-    .ok();
+    sqlx::query(concat!("DELETE FROM ", "gh_oauth_github", " WHERE id = 1"))
+        .execute(&state.db)
+        .await
+        .ok();
     tracing::info!("GitHub OAuth token deleted");
     Json(json!({ "status": "ok" }))
 }

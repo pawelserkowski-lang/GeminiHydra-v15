@@ -1,6 +1,10 @@
 // GeminiHydra v15 - Sidebar component tests
+
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+const queryClient = new QueryClient();
 
 // Mock dependencies before importing Sidebar
 vi.mock('react-i18next', () => ({
@@ -84,13 +88,21 @@ describe('Sidebar', () => {
 
   it('renders without crashing', async () => {
     const { Sidebar } = await import('../Sidebar');
-    const { container } = render(<Sidebar />);
+    const { container } = render(
+      <QueryClientProvider client={queryClient}>
+        <Sidebar />
+      </QueryClientProvider>,
+    );
     expect(container.firstChild).toBeTruthy();
   });
 
   it('renders the logo button', async () => {
     const { Sidebar } = await import('../Sidebar');
-    render(<Sidebar />);
+    render(
+      <QueryClientProvider client={queryClient}>
+        <Sidebar />
+      </QueryClientProvider>,
+    );
     const logo = screen.queryByTestId('logo-button');
     // LogoButton renders a <button> with data-testid="logo-button"
     expect(logo || document.querySelector('button')).toBeTruthy();
@@ -98,7 +110,11 @@ describe('Sidebar', () => {
 
   it('displays session titles when expanded', async () => {
     const { Sidebar } = await import('../Sidebar');
-    render(<Sidebar />);
+    render(
+      <QueryClientProvider client={queryClient}>
+        <Sidebar />
+      </QueryClientProvider>,
+    );
     // Sessions should be visible in expanded state
     const sessionElements = screen.queryAllByText(/Test Session/);
     // May or may not find them depending on collapsed state in mock

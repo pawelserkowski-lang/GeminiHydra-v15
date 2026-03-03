@@ -2,7 +2,9 @@
 // context.rs — Execution context preparation (extracted from handlers/mod.rs)
 // ---------------------------------------------------------------------------
 
-use crate::classify::{classify_agent_score, classify_prompt, classify_with_gemini, strip_diacritics};
+use crate::classify::{
+    classify_agent_score, classify_prompt, classify_with_gemini, strip_diacritics,
+};
 use crate::prompt::{build_system_prompt, fetch_knowledge_context};
 use crate::state::AppState;
 
@@ -13,9 +15,13 @@ use crate::state::AppState;
 /// Context window token budget per model tier.
 pub fn tier_token_budget(model: &str) -> i32 {
     let lower = model.to_lowercase();
-    if lower.contains("flash") { 8192 }
-    else if lower.contains("pro") { 65536 }
-    else { 32768 }
+    if lower.contains("flash") {
+        8192
+    } else if lower.contains("pro") {
+        65536
+    } else {
+        32768
+    }
 }
 
 /// Whether an HTTP status code is retryable (transient failure).
@@ -67,11 +73,19 @@ pub async fn prepare_execution(
     let (prompt_clean, agent_override_from_prefix) = if prompt.starts_with('@') {
         if let Some(space_idx) = prompt.find(' ') {
             let agent_name = prompt[1..space_idx].to_lowercase();
-            if let Some(matched_agent) = agents_lock.iter()
+            if let Some(matched_agent) = agents_lock
+                .iter()
                 .find(|a| a.id == agent_name || a.name.to_lowercase() == agent_name)
             {
                 let aid = matched_agent.id.clone();
-                (prompt[space_idx + 1..].trim().to_string(), Some((aid, 0.99, "User explicitly selected agent via @prefix".to_string())))
+                (
+                    prompt[space_idx + 1..].trim().to_string(),
+                    Some((
+                        aid,
+                        0.99,
+                        "User explicitly selected agent via @prefix".to_string(),
+                    )),
+                )
             } else {
                 (prompt.to_string(), None)
             }
@@ -91,26 +105,37 @@ pub async fn prepare_execution(
         let (kw_agent, kw_conf, kw_reason) = classify_prompt(&prompt_clean, &agents_lock);
         // #28 — If keyword confidence is low, try Gemini Flash as fallback (with timeout)
         if kw_conf < 0.65 {
-            let gemini_result = tokio::time::timeout(
-                std::time::Duration::from_secs(8),
-                async {
-                    let classify_cred = crate::oauth::get_google_credential(&state).await;
-                    if let Some((classify_key, classify_is_oauth)) = classify_cred {
-                        classify_with_gemini(&state.client, &classify_key, classify_is_oauth, &prompt_clean, &agents_lock).await
-                    } else {
-                        None
-                    }
-                },
-            )
+            let gemini_result = tokio::time::timeout(std::time::Duration::from_secs(8), async {
+                let classify_cred = crate::oauth::get_google_credential(state).await;
+                if let Some((classify_key, classify_is_oauth)) = classify_cred {
+                    classify_with_gemini(
+                        &state.client,
+                        &classify_key,
+                        classify_is_oauth,
+                        &prompt_clean,
+                        &agents_lock,
+                    )
+                    .await
+                } else {
+                    None
+                }
+            })
             .await;
             match gemini_result {
                 Ok(Some(result)) => {
-                    tracing::info!("classify: Gemini Flash override — {} (keyword was {} @ {:.0}%)", result.0, kw_agent, kw_conf * 100.0);
+                    tracing::info!(
+                        "classify: Gemini Flash override — {} (keyword was {} @ {:.0}%)",
+                        result.0,
+                        kw_agent,
+                        kw_conf * 100.0
+                    );
                     result
                 }
                 Ok(None) => (kw_agent, kw_conf, kw_reason),
                 Err(_) => {
-                    tracing::warn!("classify: Gemini Flash classification timed out after 8s, using keyword result");
+                    tracing::warn!(
+                        "classify: Gemini Flash classification timed out after 8s, using keyword result"
+                    );
                     (kw_agent, kw_conf, kw_reason)
                 }
             }
@@ -121,7 +146,8 @@ pub async fn prepare_execution(
 
     // #30 — Multi-agent collaboration hint
     let lower_prompt = strip_diacritics(&prompt_clean.to_lowercase());
-    let mut top_agents: Vec<_> = agents_lock.iter()
+    let mut top_agents: Vec<_> = agents_lock
+        .iter()
         .map(|a| {
             let score = classify_agent_score(&lower_prompt, a);
             (a.id.clone(), a.name.clone(), score)
@@ -130,8 +156,11 @@ pub async fn prepare_execution(
         .collect();
     top_agents.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
     let collab_hint = if let Some(secondary) = top_agents.first() {
-        format!("\n[SYSTEM: This task also relates to {} ({:.0}% match). Consider their perspective in your analysis.]\n",
-            secondary.1, secondary.2 * 100.0)
+        format!(
+            "\n[SYSTEM: This task also relates to {} ({:.0}% match). Consider their perspective in your analysis.]\n",
+            secondary.1,
+            secondary.2 * 100.0
+        )
     } else {
         String::new()
     };
@@ -148,7 +177,11 @@ pub async fn prepare_execution(
         ));
 
     // Session WD takes priority over global settings WD
-    let working_directory = if !session_wd.is_empty() { session_wd.to_string() } else { settings_wd };
+    let working_directory = if !session_wd.is_empty() {
+        session_wd.to_string()
+    } else {
+        settings_wd
+    };
 
     // #48 — Per-agent temperature override
     let matched_agent = agents_lock.iter().find(|a| a.id == agent_id);
@@ -181,13 +214,28 @@ pub async fn prepare_execution(
     let model = if let Some(agent) = matched_agent {
         if let (Some(model_b), Some(split)) = (&agent.model_b, agent.ab_split) {
             if rand::random::<f64>() < split {
-                tracing::info!("A/B test: agent {} using model_b={} (split={:.0}%)", agent.id, model_b, split * 100.0);
+                tracing::info!(
+                    "A/B test: agent {} using model_b={} (split={:.0}%)",
+                    agent.id,
+                    model_b,
+                    split * 100.0
+                );
                 model_b.clone()
-            } else { model }
-        } else { model }
-    } else { model };
+            } else {
+                model
+            }
+        } else {
+            model
+        }
+    } else {
+        model
+    };
 
-    let language = match lang.as_str() { "pl" => "Polish", "en" => "English", other => other };
+    let language = match lang.as_str() {
+        "pl" => "Polish",
+        "en" => "English",
+        other => other,
+    };
 
     let (api_key, is_oauth) = crate::oauth::get_google_credential(state)
         .await
@@ -198,8 +246,15 @@ pub async fn prepare_execution(
     let system_prompt = {
         let cache = state.prompt_cache.read().await;
         cache.get(&prompt_cache_key).cloned()
-    }.unwrap_or_else(|| {
-        let prompt = build_system_prompt(&agent_id, &agents_lock, language, &model, &working_directory);
+    }
+    .unwrap_or_else(|| {
+        let prompt = build_system_prompt(
+            &agent_id,
+            &agents_lock,
+            language,
+            &model,
+            &working_directory,
+        );
         let cache_clone = prompt.clone();
         let state_clone = state.prompt_cache.clone();
         let key_clone = prompt_cache_key.clone();
@@ -236,17 +291,19 @@ pub async fn prepare_execution(
         if mcp_tools.is_empty() {
             system_prompt
         } else {
-            let tool_list: Vec<&str> = mcp_tools.iter()
-                .map(|t| t.prefixed_name.as_str())
-                .collect();
-            format!("{}\n\n## MCP Tools (PRIORITY)\n\
+            let tool_list: Vec<&str> = mcp_tools.iter().map(|t| t.prefixed_name.as_str()).collect();
+            format!(
+                "{}\n\n## MCP Tools (PRIORITY)\n\
                 You have access to **{} external MCP tools** from connected servers.\n\
                 **ALWAYS prefer MCP tools over native equivalents when available.** \
                 MCP tools provide richer functionality and are maintained by their respective servers.\n\
                 Available: `{}`\n\
                 MCP tools are prefixed with `mcp_` followed by server and tool name.\n\
                 Use `list_mcp_tools` to see full descriptions, or call them directly by name.",
-                system_prompt, mcp_tools.len(), tool_list.join("`, `"))
+                system_prompt,
+                mcp_tools.len(),
+                tool_list.join("`, `")
+            )
         }
     };
 
@@ -283,47 +340,66 @@ pub async fn prepare_execution(
     };
 
     let skip_warning = if !context_errors.is_empty() {
-        format!("\n[SYSTEM: {} file(s) could not be auto-loaded (size/quota exceeded). Use read_file or read_file_section to inspect them manually.]\n", context_errors.len())
+        format!(
+            "\n[SYSTEM: {} file(s) could not be auto-loaded (size/quota exceeded). Use read_file or read_file_section to inspect them manually.]\n",
+            context_errors.len()
+        )
     } else {
         String::new()
     };
 
-    let files_loaded = if !file_context.is_empty() { sorted_paths } else { Vec::new() };
+    let files_loaded = if !file_context.is_empty() {
+        sorted_paths
+    } else {
+        Vec::new()
+    };
 
     // #24 — Add file context summary
     let context_summary = if !files_loaded.is_empty() {
         let total_size = file_context.len();
-        format!("\n[AUTO-LOADED: {} file(s), ~{}KB total: {}]\n",
+        format!(
+            "\n[AUTO-LOADED: {} file(s), ~{}KB total: {}]\n",
             files_loaded.len(),
             total_size / 1024,
-            files_loaded.join(", "))
+            files_loaded.join(", ")
+        )
     } else {
         String::new()
     };
 
-    let dir_hint = detected_paths.iter()
+    let dir_hint = detected_paths
+        .iter()
         .filter(|p| std::path::Path::new(p).is_dir())
         .map(|p| format!("\"{}\"", p))
         .collect::<Vec<_>>();
 
     let dir_hint_str = if !dir_hint.is_empty() {
-        format!("\n[SYSTEM HINT: Directory paths detected: {}. Use list_directory to explore them IMMEDIATELY.]\n", dir_hint.join(", "))
+        format!(
+            "\n[SYSTEM HINT: Directory paths detected: {}. Use list_directory to explore them IMMEDIATELY.]\n",
+            dir_hint.join(", ")
+        )
     } else {
         String::new()
     };
 
     // #47 — Response style hint
     let style_hint = match response_style.as_str() {
-        "concise" => "\n[STYLE: Be extremely concise. Max 500 words. Tables over paragraphs. No filler or repetition.]\n",
-        "detailed" => "\n[STYLE: Provide thorough analysis with examples, code snippets, and detailed explanations.]\n",
-        "technical" => "\n[STYLE: Assume expert reader. Skip basics. Focus on implementation details, edge cases, and architecture.]\n",
+        "concise" => {
+            "\n[STYLE: Be extremely concise. Max 500 words. Tables over paragraphs. No filler or repetition.]\n"
+        }
+        "detailed" => {
+            "\n[STYLE: Provide thorough analysis with examples, code snippets, and detailed explanations.]\n"
+        }
+        "technical" => {
+            "\n[STYLE: Assume expert reader. Skip basics. Focus on implementation details, edge cases, and architecture.]\n"
+        }
         _ => "", // "balanced" = default, no override
     };
 
     // #50 — Rating-based quality warning (fire-and-forget, don't block on failure)
     let rating_warning = match sqlx::query_as::<_, (f64, i64)>(
         "SELECT COALESCE(avg_rating, 5.0)::FLOAT8, COALESCE(total_ratings, 0)::BIGINT \
-         FROM gh_agent_rating_stats WHERE agent_id = $1"
+         FROM gh_agent_rating_stats WHERE agent_id = $1",
     )
     .bind(&agent_id)
     .fetch_optional(&state.db)
@@ -341,7 +417,14 @@ pub async fn prepare_execution(
 
     let final_user_prompt = format!(
         "{}{}{}{}{}{}{}{}",
-        file_context, context_summary, prompt_clean, dir_hint_str, skip_warning, style_hint, rating_warning, collab_hint
+        file_context,
+        context_summary,
+        prompt_clean,
+        dir_hint_str,
+        skip_warning,
+        style_hint,
+        rating_warning,
+        collab_hint
     );
 
     let steps = vec![

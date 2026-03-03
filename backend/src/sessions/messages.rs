@@ -1,14 +1,14 @@
 //! Message-level handlers: global history CRUD and per-session message operations.
 
+use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use axum::Json;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::models::{ChatMessage, ChatMessageRow};
 use crate::state::AppState;
 
-use super::{AddMessageRequest, HistoryParams, PaginationParams, SearchQuery, MAX_MESSAGE_LENGTH};
+use super::{AddMessageRequest, HistoryParams, MAX_MESSAGE_LENGTH, PaginationParams, SearchQuery};
 
 // ============================================================================
 // History handlers (global, not session-scoped)
@@ -126,9 +126,7 @@ pub async fn add_message(
 #[utoipa::path(delete, path = "/api/history", tag = "history",
     responses((status = 200, description = "History cleared", body = Value))
 )]
-pub async fn clear_history(
-    State(state): State<AppState>,
-) -> Result<Json<Value>, StatusCode> {
+pub async fn clear_history(State(state): State<AppState>) -> Result<Json<Value>, StatusCode> {
     sqlx::query("DELETE FROM gh_chat_messages")
         .execute(&state.db)
         .await
@@ -174,13 +172,12 @@ pub async fn get_session_messages(
         .ok_or(StatusCode::NOT_FOUND)?;
 
     // Total message count for this session
-    let total: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM gh_chat_messages WHERE session_id = $1",
-    )
-    .bind(session_id)
-    .fetch_one(&state.db)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let total: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM gh_chat_messages WHERE session_id = $1")
+            .bind(session_id)
+            .fetch_one(&state.db)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // Fetch paginated messages in chronological order
     let rows = sqlx::query_as::<_, ChatMessageRow>(

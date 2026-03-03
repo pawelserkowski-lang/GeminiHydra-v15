@@ -1,11 +1,11 @@
 // Jaskier Shared Pattern -- mcp/config
 //! MCP server configuration: CRUD for gh_mcp_servers + gh_mcp_discovered_tools.
 
+use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use axum::Json;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use sqlx::{FromRow, PgPool};
 
 use crate::state::AppState;
@@ -77,10 +77,17 @@ pub async fn get_mcp_server(db: &PgPool, id: &str) -> Result<Option<McpServerCon
         .await
 }
 
-pub async fn create_mcp_server_db(db: &PgPool, req: &CreateMcpServer) -> Result<McpServerConfig, sqlx::Error> {
+pub async fn create_mcp_server_db(
+    db: &PgPool,
+    req: &CreateMcpServer,
+) -> Result<McpServerConfig, sqlx::Error> {
     let args_json = serde_json::to_string(&req.args.as_deref().unwrap_or(&[]))
         .unwrap_or_else(|_| "[]".to_string());
-    let env_json = req.env_vars.as_ref().map(|v| v.to_string()).unwrap_or_else(|| "{}".to_string());
+    let env_json = req
+        .env_vars
+        .as_ref()
+        .map(|v| v.to_string())
+        .unwrap_or_else(|| "{}".to_string());
 
     sqlx::query_as::<_, McpServerConfig>(
         "INSERT INTO gh_mcp_servers (name, transport, command, args, env_vars, url, enabled, auth_token, timeout_secs) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *",
@@ -98,7 +105,11 @@ pub async fn create_mcp_server_db(db: &PgPool, req: &CreateMcpServer) -> Result<
     .await
 }
 
-pub async fn update_mcp_server_db(db: &PgPool, id: &str, req: &UpdateMcpServer) -> Result<Option<McpServerConfig>, sqlx::Error> {
+pub async fn update_mcp_server_db(
+    db: &PgPool,
+    id: &str,
+    req: &UpdateMcpServer,
+) -> Result<Option<McpServerConfig>, sqlx::Error> {
     let current = match get_mcp_server(db, id).await? {
         Some(c) => c,
         None => return Ok(None),
@@ -106,10 +117,14 @@ pub async fn update_mcp_server_db(db: &PgPool, id: &str, req: &UpdateMcpServer) 
     let name = req.name.as_deref().unwrap_or(&current.name);
     let transport = req.transport.as_deref().unwrap_or(&current.transport);
     let command = req.command.as_deref().or(current.command.as_deref());
-    let args = req.args.as_ref()
+    let args = req
+        .args
+        .as_ref()
         .map(|a| serde_json::to_string(a).unwrap_or_else(|_| "[]".to_string()))
         .unwrap_or(current.args.clone());
-    let env_vars = req.env_vars.as_ref()
+    let env_vars = req
+        .env_vars
+        .as_ref()
         .map(|v| v.to_string())
         .unwrap_or(current.env_vars.clone());
     let url = req.url.as_deref().or(current.url.as_deref());
@@ -128,7 +143,9 @@ pub async fn update_mcp_server_db(db: &PgPool, id: &str, req: &UpdateMcpServer) 
 
 pub async fn delete_mcp_server_db(db: &PgPool, id: &str) -> Result<bool, sqlx::Error> {
     let result = sqlx::query("DELETE FROM gh_mcp_servers WHERE id = $1")
-        .bind(id).execute(db).await?;
+        .bind(id)
+        .execute(db)
+        .await?;
     Ok(result.rows_affected() > 0)
 }
 
@@ -140,29 +157,56 @@ pub async fn save_discovered_tools(
     tools: &[(String, Option<String>, String)],
 ) -> Result<(), sqlx::Error> {
     sqlx::query("DELETE FROM gh_mcp_discovered_tools WHERE server_id = $1")
-        .bind(server_id).execute(db).await?;
-    for (name, desc, schema) in tools {
-        sqlx::query(
-            "INSERT INTO gh_mcp_discovered_tools (server_id, tool_name, description, input_schema) VALUES ($1, $2, $3, $4)",
-        )
-        .bind(server_id).bind(name).bind(desc.as_deref()).bind(schema)
-        .execute(db).await?;
+        .bind(server_id)
+        .execute(db)
+        .await?;
+        
+    if tools.is_empty() {
+        return Ok(());
     }
+
+    let mut names = Vec::with_capacity(tools.len());
+    let mut descs = Vec::with_capacity(tools.len());
+    let mut schemas = Vec::with_capacity(tools.len());
+
+    for (name, desc, schema) in tools {
+        names.push(name.clone());
+        descs.push(desc.clone());
+        schemas.push(schema.clone());
+    }
+
+    sqlx::query(
+        "INSERT INTO gh_mcp_discovered_tools (server_id, tool_name, description, input_schema) 
+         SELECT $1, * FROM UNNEST($2::text[], $3::text[], $4::text[])",
+    )
+    .bind(server_id)
+    .bind(&names)
+    .bind(&descs)
+    .bind(&schemas)
+    .execute(db)
+    .await?;
+
     Ok(())
 }
 
-pub async fn list_discovered_tools(db: &PgPool, server_id: &str) -> Result<Vec<McpDiscoveredTool>, sqlx::Error> {
+pub async fn list_discovered_tools(
+    db: &PgPool,
+    server_id: &str,
+) -> Result<Vec<McpDiscoveredTool>, sqlx::Error> {
     sqlx::query_as::<_, McpDiscoveredTool>(
         "SELECT * FROM gh_mcp_discovered_tools WHERE server_id = $1 ORDER BY tool_name ASC",
     )
-    .bind(server_id).fetch_all(db).await
+    .bind(server_id)
+    .fetch_all(db)
+    .await
 }
 
 pub async fn list_all_discovered_tools(db: &PgPool) -> Result<Vec<McpDiscoveredTool>, sqlx::Error> {
     sqlx::query_as::<_, McpDiscoveredTool>(
         "SELECT * FROM gh_mcp_discovered_tools ORDER BY server_id, tool_name ASC",
     )
-    .fetch_all(db).await
+    .fetch_all(db)
+    .await
 }
 
 // ── HTTP Handlers ──────────────────────────────────────────────────────────
@@ -173,87 +217,160 @@ pub async fn mcp_server_list(State(state): State<AppState>) -> (StatusCode, Json
             let val = serde_json::to_value(&servers).unwrap_or_else(|_| json!([]));
             (StatusCode::OK, Json(json!({ "servers": val })))
         }
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": format!("DB error: {}", e) }))),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": format!("DB error: {}", e) })),
+        ),
     }
 }
 
-pub async fn mcp_server_create(State(state): State<AppState>, Json(body): Json<CreateMcpServer>) -> (StatusCode, Json<Value>) {
+pub async fn mcp_server_create(
+    State(state): State<AppState>,
+    Json(body): Json<CreateMcpServer>,
+) -> (StatusCode, Json<Value>) {
     if body.name.trim().is_empty() {
-        return (StatusCode::BAD_REQUEST, Json(json!({ "error": "Server name is required" })));
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "Server name is required" })),
+        );
     }
     if body.transport != "stdio" && body.transport != "http" {
-        return (StatusCode::BAD_REQUEST, Json(json!({ "error": "Transport must be stdio or http" })));
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "Transport must be stdio or http" })),
+        );
     }
     match create_mcp_server_db(&state.db, &body).await {
         Ok(server) => {
-            let val = serde_json::to_value(&server).unwrap_or_else(|_| json!({"error": "serialization failed"}));
+            let val = serde_json::to_value(&server)
+                .unwrap_or_else(|_| json!({"error": "serialization failed"}));
             (StatusCode::CREATED, Json(val))
         }
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": format!("Failed to create: {}", e) }))),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": format!("Failed to create: {}", e) })),
+        ),
     }
 }
 
-pub async fn mcp_server_update(State(state): State<AppState>, Path(id): Path<String>, Json(body): Json<UpdateMcpServer>) -> (StatusCode, Json<Value>) {
+pub async fn mcp_server_update(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(body): Json<UpdateMcpServer>,
+) -> (StatusCode, Json<Value>) {
     match update_mcp_server_db(&state.db, &id, &body).await {
         Ok(Some(server)) => {
-            let val = serde_json::to_value(&server).unwrap_or_else(|_| json!({"error": "serialization failed"}));
+            let val = serde_json::to_value(&server)
+                .unwrap_or_else(|_| json!({"error": "serialization failed"}));
             (StatusCode::OK, Json(val))
         }
-        Ok(None) => (StatusCode::NOT_FOUND, Json(json!({ "error": "MCP server not found" }))),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": format!("Failed to update: {}", e) }))),
+        Ok(None) => (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "MCP server not found" })),
+        ),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": format!("Failed to update: {}", e) })),
+        ),
     }
 }
 
-pub async fn mcp_server_delete(State(state): State<AppState>, Path(id): Path<String>) -> (StatusCode, Json<Value>) {
+pub async fn mcp_server_delete(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> (StatusCode, Json<Value>) {
     state.mcp_client.disconnect_server(&id).await;
     match delete_mcp_server_db(&state.db, &id).await {
         Ok(true) => (StatusCode::OK, Json(json!({ "deleted": true }))),
-        Ok(false) => (StatusCode::NOT_FOUND, Json(json!({ "error": "MCP server not found" }))),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": format!("Failed to delete: {}", e) }))),
+        Ok(false) => (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "MCP server not found" })),
+        ),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": format!("Failed to delete: {}", e) })),
+        ),
     }
 }
 
-pub async fn mcp_server_connect(State(state): State<AppState>, Path(id): Path<String>) -> (StatusCode, Json<Value>) {
+pub async fn mcp_server_connect(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> (StatusCode, Json<Value>) {
     let server = match get_mcp_server(&state.db, &id).await {
         Ok(Some(s)) => s,
-        Ok(None) => return (StatusCode::NOT_FOUND, Json(json!({ "error": "MCP server not found" }))),
-        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": format!("DB error: {}", e) }))),
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(json!({ "error": "MCP server not found" })),
+            );
+        }
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": format!("DB error: {}", e) })),
+            );
+        }
     };
     match state.mcp_client.connect_server(&server).await {
         Ok(()) => {
             let tools = state.mcp_client.get_server_tools(&id).await;
-            (StatusCode::OK, Json(json!({
-                "connected": true,
-                "tools_discovered": tools.len(),
-                "tools": tools.iter().map(|t| json!({"name": t.name, "prefixed_name": t.prefixed_name, "description": t.description})).collect::<Vec<_>>()
-            })))
+            (
+                StatusCode::OK,
+                Json(json!({
+                    "connected": true,
+                    "tools_discovered": tools.len(),
+                    "tools": tools.iter().map(|t| json!({"name": t.name, "prefixed_name": t.prefixed_name, "description": t.description})).collect::<Vec<_>>()
+                })),
+            )
         }
-        Err(e) => (StatusCode::BAD_GATEWAY, Json(json!({ "error": format!("Failed to connect: {}", e) }))),
+        Err(e) => (
+            StatusCode::BAD_GATEWAY,
+            Json(json!({ "error": format!("Failed to connect: {}", e) })),
+        ),
     }
 }
 
-pub async fn mcp_server_disconnect(State(state): State<AppState>, Path(id): Path<String>) -> (StatusCode, Json<Value>) {
+pub async fn mcp_server_disconnect(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> (StatusCode, Json<Value>) {
     state.mcp_client.disconnect_server(&id).await;
     (StatusCode::OK, Json(json!({ "disconnected": true })))
 }
 
-pub async fn mcp_server_tools(State(state): State<AppState>, Path(id): Path<String>) -> (StatusCode, Json<Value>) {
+pub async fn mcp_server_tools(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> (StatusCode, Json<Value>) {
     let live_tools = state.mcp_client.get_server_tools(&id).await;
     if !live_tools.is_empty() {
         let tools_val: Vec<Value> = live_tools.iter().map(|t| json!({"name": t.name, "prefixed_name": t.prefixed_name, "description": t.description, "input_schema": t.input_schema, "source": "live"})).collect();
-        return (StatusCode::OK, Json(json!({ "tools": tools_val, "source": "live" })));
+        return (
+            StatusCode::OK,
+            Json(json!({ "tools": tools_val, "source": "live" })),
+        );
     }
     match list_discovered_tools(&state.db, &id).await {
         Ok(tools) => {
             let tools_val: Vec<Value> = tools.iter().map(|t| json!({"name": t.tool_name, "description": t.description, "input_schema": t.input_schema, "source": "db"})).collect();
-            (StatusCode::OK, Json(json!({ "tools": tools_val, "source": "db" })))
+            (
+                StatusCode::OK,
+                Json(json!({ "tools": tools_val, "source": "db" })),
+            )
         }
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": format!("Failed to list tools: {}", e) }))),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": format!("Failed to list tools: {}", e) })),
+        ),
     }
 }
 
 pub async fn mcp_all_tools(State(state): State<AppState>) -> (StatusCode, Json<Value>) {
     let tools = state.mcp_client.list_all_tools().await;
     let tools_val: Vec<Value> = tools.iter().map(|t| json!({"name": t.name, "prefixed_name": t.prefixed_name, "server_name": t.server_name, "server_id": t.server_id, "description": t.description, "input_schema": t.input_schema})).collect();
-    (StatusCode::OK, Json(json!({ "tools": tools_val, "total": tools_val.len() })))
+    (
+        StatusCode::OK,
+        Json(json!({ "tools": tools_val, "total": tools_val.len() })),
+    )
 }

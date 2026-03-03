@@ -2,7 +2,7 @@
 // tool_defs.rs — Gemini tool definitions (extracted from handlers/mod.rs)
 // ---------------------------------------------------------------------------
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 /// Tool definitions are static and never change — compute once via AppState OnceLock.
 /// Byte-identical tools JSON across all requests enables Gemini implicit caching.
@@ -240,11 +240,12 @@ pub async fn build_tools_with_mcp(state: &crate::state::AppState) -> serde_json:
 
     // MCP tools go FIRST — position advantage for model tool selection
     let mut result = native.clone();
-    if let Some(arr) = result.get_mut(0)
+    if let Some(arr) = result
+        .get_mut(0)
         .and_then(|v| v.get_mut("function_declarations"))
         .and_then(|v| v.as_array_mut())
     {
-        let native_tools: Vec<serde_json::Value> = arr.drain(..).collect();
+        let native_tools: Vec<serde_json::Value> = std::mem::take(arr);
         arr.extend(mcp_decls);
         arr.extend(native_tools);
     }

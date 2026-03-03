@@ -2,7 +2,7 @@
 // Agent tools for GitHub API interactions.
 // Reads token from gh_oauth_github table via oauth_github module.
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::oauth_github;
 use crate::state::AppState;
@@ -31,11 +31,7 @@ fn validate_github_param<'a>(param: &'a str, name: &str) -> Result<&'a str, Stri
 //  Tool execution
 // ═══════════════════════════════════════════════════════════════════════
 
-pub async fn execute(
-    tool_name: &str,
-    input: &Value,
-    state: &AppState,
-) -> Result<String, String> {
+pub async fn execute(tool_name: &str, input: &Value, state: &AppState) -> Result<String, String> {
     let token = match oauth_github::get_github_access_token(state).await {
         Some(t) => t,
         None => {
@@ -75,7 +71,10 @@ async fn exec_list_repos(
         .unwrap_or(30)
         .min(100);
 
-    let url = format!("{}/user/repos?sort={}&per_page={}", GITHUB_API_BASE, sort, per_page);
+    let url = format!(
+        "{}/user/repos?sort={}&per_page={}",
+        GITHUB_API_BASE, sort, per_page
+    );
 
     let body = github_get(client, token, &url).await?;
     let repos = body
@@ -267,7 +266,13 @@ async fn exec_create_issue(
 
     let url = format!("{}/repos/{}/{}/issues", GITHUB_API_BASE, owner, repo);
 
-    let resp = github_post(client, token, &url, &json!({ "title": title, "body": body })).await?;
+    let resp = github_post(
+        client,
+        token,
+        &url,
+        &json!({ "title": title, "body": body }),
+    )
+    .await?;
     let result = json!({
         "number": resp.get("number"),
         "title": resp.get("title"),
@@ -321,11 +326,7 @@ async fn exec_create_pr(
 
 // ── HTTP helpers ─────────────────────────────────────────────────────────
 
-async fn github_get(
-    client: &reqwest::Client,
-    token: &str,
-    url: &str,
-) -> Result<Value, String> {
+async fn github_get(client: &reqwest::Client, token: &str, url: &str) -> Result<Value, String> {
     let resp = client
         .get(url)
         .header("authorization", format!("Bearer {}", token))
@@ -339,7 +340,10 @@ async fn github_get(
 
     if !resp.status().is_success() {
         let status = resp.status();
-        let body = resp.text().await.unwrap_or_else(|e| format!("(failed to read response body: {})", e));
+        let body = resp
+            .text()
+            .await
+            .unwrap_or_else(|e| format!("(failed to read response body: {})", e));
         return Err(format!("GitHub API error {}: {}", status, body));
     }
 
@@ -368,7 +372,10 @@ async fn github_post(
 
     if !resp.status().is_success() {
         let status = resp.status();
-        let body = resp.text().await.unwrap_or_else(|e| format!("(failed to read response body: {})", e));
+        let body = resp
+            .text()
+            .await
+            .unwrap_or_else(|e| format!("(failed to read response body: {})", e));
         return Err(format!("GitHub API error {}: {}", status, body));
     }
 

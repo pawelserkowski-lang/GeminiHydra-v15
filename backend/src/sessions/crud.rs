@@ -1,10 +1,10 @@
 //! Session CRUD handlers: create, get, list, update, delete, rename,
 //! working directory, unlock agent, generate title, and message rating.
 
+use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use axum::Json;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::models::{
     CreateSessionRequest, RatingRequest, RatingResponse, Session, SessionRow, SessionSummary,
@@ -12,7 +12,7 @@ use crate::models::{
 };
 use crate::state::AppState;
 
-use super::{PaginationParams, MAX_TITLE_LENGTH};
+use super::{MAX_TITLE_LENGTH, PaginationParams};
 
 // ============================================================================
 // Session CRUD handlers
@@ -181,13 +181,12 @@ pub async fn get_session(
     .ok_or(StatusCode::NOT_FOUND)?;
 
     // Total message count for pagination metadata
-    let total_messages: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM gh_chat_messages WHERE session_id = $1",
-    )
-    .bind(session_id)
-    .fetch_one(&state.db)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let total_messages: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM gh_chat_messages WHERE session_id = $1")
+            .bind(session_id)
+            .fetch_one(&state.db)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // Fetch the most recent N messages (subquery DESC, then re-sort ASC)
     let message_rows = sqlx::query_as::<_, crate::models::ChatMessageRow>(
@@ -204,8 +203,10 @@ pub async fn get_session(
     .await
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let messages: Vec<crate::models::ChatMessage> =
-        message_rows.into_iter().map(super::row_to_message).collect();
+    let messages: Vec<crate::models::ChatMessage> = message_rows
+        .into_iter()
+        .map(super::row_to_message)
+        .collect();
 
     let session = Session {
         id: session_row.id.to_string(),
@@ -498,19 +499,18 @@ pub async fn unlock_session_agent(
         )
     })?;
 
-    let prev = sqlx::query_as::<_, (Option<String>,)>(
-        "SELECT agent_id FROM gh_sessions WHERE id = $1",
-    )
-    .bind(sid)
-    .fetch_optional(&state.db)
-    .await
-    .map_err(|e| {
-        (
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": format!("DB error: {}", e)})),
-        )
-    })?
-    .and_then(|(a,)| a);
+    let prev =
+        sqlx::query_as::<_, (Option<String>,)>("SELECT agent_id FROM gh_sessions WHERE id = $1")
+            .bind(sid)
+            .fetch_optional(&state.db)
+            .await
+            .map_err(|e| {
+                (
+                    axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({"error": format!("DB error: {}", e)})),
+                )
+            })?
+            .and_then(|(a,)| a);
 
     sqlx::query("UPDATE gh_sessions SET agent_id = NULL WHERE id = $1")
         .bind(sid)
@@ -524,7 +524,7 @@ pub async fn unlock_session_agent(
         })?;
 
     Ok(Json(serde_json::json!(UnlockAgentResponse {
-        session_id: session_id,
+        session_id,
         previous_agent: prev,
         unlocked: true,
     })))

@@ -4,12 +4,12 @@
 use std::convert::Infallible;
 use std::time::Duration;
 
+use axum::Json;
 use axum::extract::{Path, State};
 use axum::response::sse::{Event, Sse};
-use axum::Json;
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tokio_stream::wrappers::ReceiverStream;
 use uuid::Uuid;
 
@@ -142,14 +142,21 @@ pub async fn message_send(
     }
 
     // Determine target agent
-    let agent_override = body.agent_id.map(|id| (id, 0.99_f64, "A2A explicit agent_id".to_string()));
+    let agent_override = body
+        .agent_id
+        .map(|id| (id, 0.99_f64, "A2A explicit agent_id".to_string()));
 
     // Record task as submitted
     if let Err(e) = sqlx::query(
         "INSERT INTO gh_a2a_tasks (id, agent_id, status, prompt) VALUES ($1, $2, 'submitted', $3)",
     )
     .bind(&task_id)
-    .bind(agent_override.as_ref().map(|o| o.0.as_str()).unwrap_or("auto"))
+    .bind(
+        agent_override
+            .as_ref()
+            .map(|o| o.0.as_str())
+            .unwrap_or("auto"),
+    )
     .bind(&prompt)
     .execute(&state.db)
     .await
@@ -191,7 +198,9 @@ pub async fn message_stream(
 ) -> Sse<impl futures_util::Stream<Item = Result<Event, Infallible>>> {
     let (tx, rx) = tokio::sync::mpsc::channel::<Event>(64);
     let prompt = extract_text_from_parts(&body.message.parts);
-    let agent_override = body.agent_id.map(|id| (id, 0.99_f64, "A2A stream".to_string()));
+    let agent_override = body
+        .agent_id
+        .map(|id| (id, 0.99_f64, "A2A stream".to_string()));
     let task_id = Uuid::new_v4().to_string();
     let task_id_clone = task_id.clone();
 
@@ -200,7 +209,12 @@ pub async fn message_stream(
         "INSERT INTO gh_a2a_tasks (id, agent_id, status, prompt) VALUES ($1, $2, 'submitted', $3)",
     )
     .bind(&task_id)
-    .bind(agent_override.as_ref().map(|o| o.0.as_str()).unwrap_or("auto"))
+    .bind(
+        agent_override
+            .as_ref()
+            .map(|o| o.0.as_str())
+            .unwrap_or("auto"),
+    )
     .bind(&prompt)
     .execute(&state.db)
     .await;
@@ -249,7 +263,9 @@ pub async fn message_stream(
                     .send(
                         Event::default()
                             .event("task_status_update")
-                            .json_data(json!({ "task_id": task_id_clone, "status": "failed", "error": e }))
+                            .json_data(
+                                json!({ "task_id": task_id_clone, "status": "failed", "error": e }),
+                            )
                             .unwrap_or_default(),
                     )
                     .await;
@@ -257,7 +273,7 @@ pub async fn message_stream(
         }
     });
 
-    let stream = ReceiverStream::new(rx).map(|event| Ok::<_, Infallible>(event));
+    let stream = ReceiverStream::new(rx).map(Ok::<_, Infallible>);
     Sse::new(stream).keep_alive(
         axum::response::sse::KeepAlive::new()
             .interval(Duration::from_secs(15))
@@ -269,10 +285,7 @@ pub async fn message_stream(
 // Handler: GET /a2a/tasks/{id}
 // ---------------------------------------------------------------------------
 
-pub async fn tasks_get(
-    State(state): State<AppState>,
-    Path(id): Path<String>,
-) -> Json<Value> {
+pub async fn tasks_get(State(state): State<AppState>, Path(id): Path<String>) -> Json<Value> {
     match build_task_response(&state, &id).await {
         Some(task) => Json(json!({ "task": task })),
         None => Json(json!({ "error": "Task not found" })),
@@ -283,10 +296,7 @@ pub async fn tasks_get(
 // Handler: POST /a2a/tasks/{id}/cancel
 // ---------------------------------------------------------------------------
 
-pub async fn tasks_cancel(
-    State(state): State<AppState>,
-    Path(id): Path<String>,
-) -> Json<Value> {
+pub async fn tasks_cancel(State(state): State<AppState>, Path(id): Path<String>) -> Json<Value> {
     let result = sqlx::query_scalar::<_, String>(
         "UPDATE gh_a2a_tasks SET status = 'canceled', updated_at = NOW() \
          WHERE id = $1 AND status IN ('submitted', 'working') \
@@ -322,10 +332,11 @@ async fn execute_a2a_task(
     call_depth: u32,
 ) -> Result<(String, String), String> {
     // Update status to working
-    let _ = sqlx::query("UPDATE gh_a2a_tasks SET status = 'working', updated_at = NOW() WHERE id = $1")
-        .bind(task_id)
-        .execute(&state.db)
-        .await;
+    let _ =
+        sqlx::query("UPDATE gh_a2a_tasks SET status = 'working', updated_at = NOW() WHERE id = $1")
+            .bind(task_id)
+            .execute(&state.db)
+            .await;
 
     let mut ctx = crate::context::prepare_execution(state, prompt, None, agent_override, "").await;
     ctx.call_depth = call_depth;
@@ -374,24 +385,30 @@ async fn execute_a2a_task(
             ctx.model
         );
 
-        let resp = crate::oauth::apply_google_auth(
-                state.client.post(&url), &ctx.api_key, ctx.is_oauth,
-            )
-            .json(&body)
-            .timeout(Duration::from_secs(120))
-            .send()
-            .await
-            .map_err(|e| format!("Gemini request failed: {}", e))?;
+        let resp =
+            crate::oauth::apply_google_auth(state.client.post(&url), &ctx.api_key, ctx.is_oauth)
+                .json(&body)
+                .timeout(Duration::from_secs(120))
+                .send()
+                .await
+                .map_err(|e| format!("Gemini request failed: {}", e))?;
 
         if !resp.status().is_success() {
             let status = resp.status();
             let text = resp.text().await.unwrap_or_default();
             state.gemini_circuit.record_failure().await;
-            return Err(format!("Gemini API error {}: {}", status, &text[..text.len().min(500)]));
+            return Err(format!(
+                "Gemini API error {}: {}",
+                status,
+                &text[..text.len().min(500)]
+            ));
         }
 
         state.gemini_circuit.record_success().await;
-        let json_resp: Value = resp.json().await.map_err(|e| format!("JSON parse error: {}", e))?;
+        let json_resp: Value = resp
+            .json()
+            .await
+            .map_err(|e| format!("JSON parse error: {}", e))?;
 
         let parts = json_resp["candidates"][0]["content"]["parts"]
             .as_array()
@@ -451,7 +468,11 @@ async fn execute_a2a_task(
                         let text = out.text;
                         if text.len() > 15000 {
                             let truncated: String = text.chars().take(15000).collect();
-                            format!("{}...\n[TRUNCATED: {} → 15000 chars]", truncated, text.len())
+                            format!(
+                                "{}...\n[TRUNCATED: {} → 15000 chars]",
+                                truncated,
+                                text.len()
+                            )
                         } else {
                             text
                         }
@@ -464,9 +485,18 @@ async fn execute_a2a_task(
             // Track tool errors and abort if too many consecutive failures
             if output.starts_with("TOOL_ERROR:") || output.starts_with("AGENT_CALL_ERROR:") {
                 tool_error_count += 1;
-                tracing::warn!("A2A tool error ({}/{}): {} — {}", tool_error_count, MAX_TOOL_ERRORS, name, &output[..output.len().min(200)]);
+                tracing::warn!(
+                    "A2A tool error ({}/{}): {} — {}",
+                    tool_error_count,
+                    MAX_TOOL_ERRORS,
+                    name,
+                    &output[..output.len().min(200)]
+                );
                 if tool_error_count >= MAX_TOOL_ERRORS {
-                    tracing::error!("A2A: too many tool errors ({}) — aborting task", tool_error_count);
+                    tracing::error!(
+                        "A2A: too many tool errors ({}) — aborting task",
+                        tool_error_count
+                    );
                     result_parts.push(json!({
                         "functionResponse": {
                             "name": name,
@@ -488,7 +518,10 @@ async fn execute_a2a_task(
         // Track cumulative errors across turns
         cumulative_tool_errors += tool_error_count;
         if cumulative_tool_errors >= MAX_CUMULATIVE_ERRORS {
-            tracing::error!("A2A: cumulative tool errors ({}) exceeded limit — terminating", cumulative_tool_errors);
+            tracing::error!(
+                "A2A: cumulative tool errors ({}) exceeded limit — terminating",
+                cumulative_tool_errors
+            );
             break;
         }
 
@@ -503,7 +536,11 @@ async fn execute_a2a_task(
     .execute(&state.db)
     .await;
 
-    Ok((agent_id, "Agent reached maximum iterations. Partial results may be available in the task history.".to_string()))
+    Ok((
+        agent_id,
+        "Agent reached maximum iterations. Partial results may be available in the task history."
+            .to_string(),
+    ))
 }
 
 // ---------------------------------------------------------------------------
@@ -561,7 +598,11 @@ pub(crate) async fn execute_agent_call(
     .execute(&state.db)
     .await;
 
-    let override_tuple = Some((agent_id.to_string(), 0.99, "A2A call_agent delegation".to_string()));
+    let override_tuple = Some((
+        agent_id.to_string(),
+        0.99,
+        "A2A call_agent delegation".to_string(),
+    ));
 
     match execute_a2a_task(state, &task_id, task_prompt, override_tuple, depth).await {
         Ok((_agent, result)) => Ok(result),
@@ -584,7 +625,13 @@ fn extract_text_from_parts(parts: &[Part]) -> String {
         .join("\n")
 }
 
-async fn save_message(state: &AppState, task_id: &str, role: &str, content: &str, agent_id: Option<&str>) {
+async fn save_message(
+    state: &AppState,
+    task_id: &str,
+    role: &str,
+    content: &str,
+    agent_id: Option<&str>,
+) {
     let id = Uuid::new_v4().to_string();
     let _ = sqlx::query(
         "INSERT INTO gh_a2a_messages (id, task_id, role, content, agent_id) VALUES ($1, $2, $3, $4, $5)",
@@ -626,7 +673,9 @@ async fn build_task_response(state: &AppState, task_id: &str) -> Option<A2aTask>
     if let Some(ref result) = row.4 {
         artifacts.push(A2aArtifact {
             name: Some("response".to_string()),
-            parts: vec![Part::Text { text: result.clone() }],
+            parts: vec![Part::Text {
+                text: result.clone(),
+            }],
         });
     }
 

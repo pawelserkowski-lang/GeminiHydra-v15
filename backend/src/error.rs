@@ -3,9 +3,9 @@
 // Jaskier Shared Pattern -- error
 // ---------------------------------------------------------------------------
 
-use axum::http::StatusCode;
 use axum::Json;
-use serde_json::{json, Value};
+use axum::http::StatusCode;
+use serde_json::{Value, json};
 use uuid::Uuid;
 
 /// Centralized API error type for all handlers.

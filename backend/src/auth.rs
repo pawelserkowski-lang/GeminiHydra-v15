@@ -113,13 +113,19 @@ mod tests {
 
     #[test]
     fn ws_token_multiple_params() {
-        assert!(validate_ws_token("session=abc&token=s3cret&lang=en", Some("s3cret")));
+        assert!(validate_ws_token(
+            "session=abc&token=s3cret&lang=en",
+            Some("s3cret")
+        ));
     }
 
     #[test]
     fn ws_token_duplicate_token_first_wrong() {
         // If there are two "token" params, any match should succeed
-        assert!(validate_ws_token("token=wrong&token=correct", Some("correct")));
+        assert!(validate_ws_token(
+            "token=wrong&token=correct",
+            Some("correct")
+        ));
     }
 
     #[test]
@@ -151,7 +157,10 @@ mod tests {
 
     #[test]
     fn bearer_basic_auth_rejected() {
-        assert!(!check_bearer_token(Some("Basic not-a-bearer-token"), "mysecret"));
+        assert!(!check_bearer_token(
+            Some("Basic not-a-bearer-token"),
+            "mysecret"
+        ));
     }
 
     #[test]

@@ -61,16 +61,23 @@ pub fn analyze_file(path: &str, content: &str) -> Option<FileStructure> {
     }
 
     // Try tree-sitter AST analysis first (most accurate)
-    if let Some(result) = analyze_treesitter(path, content, extension) {
-        if !result.symbols.is_empty() {
-            return Some(result);
-        }
+    if let Some(result) = analyze_treesitter(path, content, extension)
+        && !result.symbols.is_empty()
+    {
+        return Some(result);
     }
 
     // Fallback: regex-based analysis (handles newer syntax tree-sitter may not support)
-    tracing::debug!("Tree-sitter returned no symbols for '{}', using regex fallback", path);
+    tracing::debug!(
+        "Tree-sitter returned no symbols for '{}', using regex fallback",
+        path
+    );
     let result = analyze_regex(path, content, extension);
-    if result.symbols.is_empty() { None } else { Some(result) }
+    if result.symbols.is_empty() {
+        None
+    } else {
+        Some(result)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -102,35 +109,29 @@ fn rust_queries() -> &'static [&'static str] {
 }
 
 fn ts_queries() -> &'static [&'static str] {
-    &[
-        r#"
+    &[r#"
             (function_declaration name: (identifier) @name) @func
             (class_declaration name: (type_identifier) @name) @class
             (interface_declaration name: (type_identifier) @name) @interface
             (type_alias_declaration name: (type_identifier) @name) @type
             (method_definition name: (property_identifier) @name) @method
             (export_statement declaration: (_) @decl)
-        "#,
-    ]
+        "#]
 }
 
 fn py_queries() -> &'static [&'static str] {
-    &[
-        r#"
+    &[r#"
             (function_definition name: (identifier) @name) @func
             (class_definition name: (identifier) @name) @class
-        "#,
-    ]
+        "#]
 }
 
 fn go_queries() -> &'static [&'static str] {
-    &[
-        r#"
+    &[r#"
             (function_declaration name: (identifier) @name) @func
             (type_declaration (type_spec name: (type_identifier) @name)) @type
             (method_declaration name: (field_identifier) @name) @method
-        "#,
-    ]
+        "#]
 }
 
 fn analyze_treesitter(path: &str, content: &str, extension: &str) -> Option<FileStructure> {
@@ -145,7 +146,10 @@ fn analyze_treesitter(path: &str, content: &str, extension: &str) -> Option<File
     };
 
     if parser.set_language(&language).is_err() {
-        tracing::warn!("Tree-sitter: failed to set language for extension '{}'", extension);
+        tracing::warn!(
+            "Tree-sitter: failed to set language for extension '{}'",
+            extension
+        );
         return None;
     }
 
@@ -167,7 +171,10 @@ fn analyze_treesitter(path: &str, content: &str, extension: &str) -> Option<File
     };
 
     // Try each query variant until one succeeds
-    let query = match query_variants.iter().find_map(|qs| Query::new(&language, qs).ok()) {
+    let query = match query_variants
+        .iter()
+        .find_map(|qs| Query::new(&language, qs).ok())
+    {
         Some(q) => q,
         None => {
             tracing::warn!("Tree-sitter: all query variants failed for '{}'", path);
@@ -190,7 +197,11 @@ fn analyze_treesitter(path: &str, content: &str, extension: &str) -> Option<File
             .and_then(|idx| {
                 m.captures.iter().find(|c| c.index == idx).map(|c| {
                     let r = c.node.byte_range();
-                    if r.end <= content.len() { content[r].to_string() } else { "???".to_string() }
+                    if r.end <= content.len() {
+                        content[r].to_string()
+                    } else {
+                        "???".to_string()
+                    }
                 })
             })
             .or_else(|| {
@@ -243,7 +254,10 @@ fn analyze_treesitter(path: &str, content: &str, extension: &str) -> Option<File
 fn analyze_regex(path: &str, content: &str, extension: &str) -> FileStructure {
     let patterns: &[(&str, &str)] = match extension {
         "rs" => &[
-            (r"(?m)^\s*(?:pub(?:\(crate\))?\s+)?(?:async\s+)?fn\s+(\w+)", "function"),
+            (
+                r"(?m)^\s*(?:pub(?:\(crate\))?\s+)?(?:async\s+)?fn\s+(\w+)",
+                "function",
+            ),
             (r"(?m)^\s*(?:pub(?:\(crate\))?\s+)?struct\s+(\w+)", "struct"),
             (r"(?m)^\s*(?:pub(?:\(crate\))?\s+)?enum\s+(\w+)", "enum"),
             (r"(?m)^\s*(?:pub(?:\(crate\))?\s+)?trait\s+(\w+)", "trait"),
@@ -251,11 +265,20 @@ fn analyze_regex(path: &str, content: &str, extension: &str) -> FileStructure {
             (r"(?m)^\s*(?:pub(?:\(crate\))?\s+)?mod\s+(\w+)", "mod"),
         ],
         "ts" | "tsx" | "js" | "jsx" => &[
-            (r"(?m)^\s*(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s+(\w+)", "function"),
-            (r"(?m)^\s*(?:export\s+)?(?:default\s+)?class\s+(\w+)", "class"),
+            (
+                r"(?m)^\s*(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s+(\w+)",
+                "function",
+            ),
+            (
+                r"(?m)^\s*(?:export\s+)?(?:default\s+)?class\s+(\w+)",
+                "class",
+            ),
             (r"(?m)^\s*(?:export\s+)?interface\s+(\w+)", "interface"),
             (r"(?m)^\s*(?:export\s+)?type\s+(\w+)", "type"),
-            (r"(?m)^\s*(?:export\s+)?(?:const|let)\s+(\w+)\s*=\s*(?:async\s+)?\(", "arrow_fn"),
+            (
+                r"(?m)^\s*(?:export\s+)?(?:const|let)\s+(\w+)\s*=\s*(?:async\s+)?\(",
+                "arrow_fn",
+            ),
         ],
         "py" => &[
             (r"(?m)^\s*(?:async\s+)?def\s+(\w+)", "function"),
@@ -281,7 +304,9 @@ fn analyze_regex(path: &str, content: &str, extension: &str) -> FileStructure {
                     .find_map(|i| cap.get(i).map(|m| m.as_str().to_string()))
                     .unwrap_or_else(|| "anonymous".to_string());
 
-                if name == "anonymous" { continue; }
+                if name == "anonymous" {
+                    continue;
+                }
 
                 let byte_offset = cap.get(0).map(|m| m.start()).unwrap_or(0);
                 let line_num = content[..byte_offset].matches('\n').count();

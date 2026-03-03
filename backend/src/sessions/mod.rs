@@ -9,8 +9,8 @@ mod memory;
 mod messages;
 mod settings;
 
-use axum::routing::{get, patch, post};
 use axum::Router;
+use axum::routing::{get, patch, post};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -255,7 +255,9 @@ pub fn session_routes() -> Router<AppState> {
         .route("/api/sessions", get(list_sessions).post(create_session))
         .route(
             "/api/sessions/{id}",
-            get(get_session).patch(update_session).delete(delete_session),
+            get(get_session)
+                .patch(update_session)
+                .delete(delete_session),
         )
         .route(
             "/api/sessions/{id}/messages",
@@ -265,10 +267,7 @@ pub fn session_routes() -> Router<AppState> {
             "/api/sessions/{id}/generate-title",
             post(generate_session_title),
         )
-        .route(
-            "/api/sessions/{id}/unlock",
-            post(unlock_session_agent),
-        )
+        .route("/api/sessions/{id}/unlock", post(unlock_session_agent))
         .route(
             "/api/sessions/{id}/working-directory",
             patch(update_session_working_directory),
@@ -349,6 +348,7 @@ mod tests {
             max_iterations: 15,
             thinking_level: "high".to_string(),
             working_directory: "C:\\Users\\test".to_string(),
+            force_model: None,
         };
         let settings = row_to_settings(row);
         assert!((settings.temperature - 0.7).abs() < f64::EPSILON);
@@ -426,8 +426,7 @@ mod tests {
 
     #[test]
     fn add_message_request_deserializes_with_all_fields() {
-        let json =
-            r#"{"role":"assistant","content":"hi","model":"gemini-pro","agent":"Geralt"}"#;
+        let json = r#"{"role":"assistant","content":"hi","model":"gemini-pro","agent":"Geralt"}"#;
         let req: AddMessageRequest = serde_json::from_str(json).unwrap();
         assert_eq!(req.role, "assistant");
         assert_eq!(req.content, "hi");
@@ -453,8 +452,7 @@ mod tests {
 
     #[test]
     fn partial_settings_picks_up_subset() {
-        let json =
-            r#"{"temperature":0.5,"theme":"light","top_p":0.8,"response_style":"concise"}"#;
+        let json = r#"{"temperature":0.5,"theme":"light","top_p":0.8,"response_style":"concise"}"#;
         let patch: PartialSettings = serde_json::from_str(json).unwrap();
         assert!((patch.temperature.unwrap() - 0.5).abs() < f64::EPSILON);
         assert_eq!(patch.theme, Some("light".to_string()));

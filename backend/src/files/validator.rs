@@ -1,6 +1,6 @@
 // backend/src/files/validator.rs
-use std::path::{Path, PathBuf};
 use crate::files::FileError;
+use std::path::{Path, PathBuf};
 
 /// Backup / swap file extensions that should never be read or written.
 const BLOCKED_EXTENSIONS: &[&str] = &[".bak", ".old", ".orig", ".swp", ".swo"];
@@ -8,34 +8,112 @@ const BLOCKED_EXTENSIONS: &[&str] = &[".bak", ".old", ".orig", ".swp", ".swo"];
 /// Text file extensions we allow reading.
 const TEXT_EXTENSIONS: &[&str] = &[
     // Code
-    "rs", "ts", "tsx", "js", "jsx", "py", "go", "java", "kt", "c", "cpp",
-    "h", "hpp", "cs", "rb", "php", "swift", "scala", "zig", "lua", "r",
-    "sql", "sh", "bash", "zsh", "ps1", "bat", "cmd",
+    "rs",
+    "ts",
+    "tsx",
+    "js",
+    "jsx",
+    "py",
+    "go",
+    "java",
+    "kt",
+    "c",
+    "cpp",
+    "h",
+    "hpp",
+    "cs",
+    "rb",
+    "php",
+    "swift",
+    "scala",
+    "zig",
+    "lua",
+    "r",
+    "sql",
+    "sh",
+    "bash",
+    "zsh",
+    "ps1",
+    "bat",
+    "cmd",
     // Code — additional module formats
-    "mjs", "cjs", "mts", "cts",
+    "mjs",
+    "cjs",
+    "mts",
+    "cts",
     // Config / Data
-    "json", "yaml", "yml", "toml", "xml", "csv", "env", "ini", "cfg",
-    "properties", "lock",
+    "json",
+    "yaml",
+    "yml",
+    "toml",
+    "xml",
+    "csv",
+    "env",
+    "ini",
+    "cfg",
+    "properties",
+    "lock",
     // Schema / IaC
-    "graphql", "gql", "proto", "prisma", "gradle", "tf", "hcl",
-    "dockerfile", "makefile", "cmake",
+    "graphql",
+    "gql",
+    "proto",
+    "prisma",
+    "gradle",
+    "tf",
+    "hcl",
+    "dockerfile",
+    "makefile",
+    "cmake",
     // Web
-    "html", "htm", "css", "scss", "sass", "less", "svg",
+    "html",
+    "htm",
+    "css",
+    "scss",
+    "sass",
+    "less",
+    "svg",
     // Web — frameworks
-    "svelte", "vue", "astro",
+    "svelte",
+    "vue",
+    "astro",
     // Templating
-    "njk", "ejs", "hbs", "pug",
+    "njk",
+    "ejs",
+    "hbs",
+    "pug",
     // Docs
-    "md", "txt", "rst", "log", "gitignore", "dockerignore", "editorconfig",
+    "md",
+    "txt",
+    "rst",
+    "log",
+    "gitignore",
+    "dockerignore",
+    "editorconfig",
 ];
 
 /// Extension-less filenames recognized as text files.
 const TEXT_FILENAMES: &[&str] = &[
-    "Dockerfile", "Makefile", "Makefile.am", "Rakefile", "Gemfile",
-    "Procfile", "Vagrantfile", "Justfile", "Taskfile",
-    ".gitignore", ".dockerignore", ".editorconfig", ".eslintrc",
-    ".prettierrc", ".babelrc", ".npmrc", ".nvmrc", ".env.example",
-    ".env.local", ".env.production", ".env.development",
+    "Dockerfile",
+    "Makefile",
+    "Makefile.am",
+    "Rakefile",
+    "Gemfile",
+    "Procfile",
+    "Vagrantfile",
+    "Justfile",
+    "Taskfile",
+    ".gitignore",
+    ".dockerignore",
+    ".editorconfig",
+    ".eslintrc",
+    ".prettierrc",
+    ".babelrc",
+    ".npmrc",
+    ".nvmrc",
+    ".env.example",
+    ".env.local",
+    ".env.production",
+    ".env.development",
 ];
 
 pub fn is_text_extension(ext: &str) -> bool {
@@ -43,10 +121,10 @@ pub fn is_text_extension(ext: &str) -> bool {
 }
 
 pub fn is_text_file(path: &Path) -> bool {
-    if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-        if is_text_extension(ext) {
-            return true;
-        }
+    if let Some(ext) = path.extension().and_then(|e| e.to_str())
+        && is_text_extension(ext)
+    {
+        return true;
     }
     if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
         return TEXT_FILENAMES.contains(&name);
