@@ -5,11 +5,10 @@
 use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
-use base64::Engine;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use crate::oauth::{decrypt_token, encrypt_token};
+use crate::oauth::{decrypt_token, encrypt_token, random_base64url};
 use crate::state::AppState;
 
 // ── Vercel OAuth constants ───────────────────────────────────────────────
@@ -60,10 +59,7 @@ pub async fn vercel_auth_login(State(state): State<AppState>) -> Json<Value> {
         .unwrap_or_else(|_| "http://localhost:5176/api/auth/vercel/callback".to_string());
 
     // Generate random state
-    let oauth_state = {
-        let buf: Vec<u8> = (0..32).map(|_| rand::random::<u8>()).collect();
-        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&buf)
-    };
+    let oauth_state = random_base64url(32);
 
     {
         let mut stored = state.vercel_oauth_state.write().await;

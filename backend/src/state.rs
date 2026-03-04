@@ -8,6 +8,7 @@ use std::time::Instant;
 
 use reqwest::Client;
 use sqlx::PgPool;
+use tokio::sync::broadcast;
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 
@@ -272,6 +273,8 @@ pub struct AppState {
     pub tool_defs_cache: Arc<OnceLock<serde_json::Value>>,
     /// MCP client manager — connects to external MCP servers, discovers tools.
     pub mcp_client: Arc<McpClientManager>,
+    /// Google OAuth PKCE state (separated from generic oauth).
+    pub google_oauth_pkce: Arc<RwLock<Option<OAuthPkceState>>>,
     /// GitHub OAuth state (CSRF protection).
     pub github_oauth_state: Arc<RwLock<Option<String>>>,
     /// Vercel OAuth state (CSRF protection).
@@ -280,6 +283,8 @@ pub struct AppState {
     pub knowledge_api_url: Option<String>,
     /// Optional auth secret for the Knowledge API.
     pub knowledge_auth_secret: Option<String>,
+    /// Swarm SSE multi-agent broadcasting channel.
+    pub swarm_tx: broadcast::Sender<crate::handlers::streaming::AgentMessage>,
 }
 
 // ── Shared: readiness helpers ───────────────────────────────────────────────
@@ -411,10 +416,12 @@ impl AppState {
             log_buffer,
             tool_defs_cache: Arc::new(OnceLock::new()),
             mcp_client,
+            google_oauth_pkce: Arc::new(RwLock::new(None)),
             github_oauth_state: Arc::new(RwLock::new(None)),
             vercel_oauth_state: Arc::new(RwLock::new(None)),
             knowledge_api_url,
             knowledge_auth_secret,
+            swarm_tx: tokio::sync::broadcast::channel(100).0,
         }
     }
 

@@ -1,26 +1,32 @@
 /// <reference types="vitest/config" />
-import { defineConfig } from 'vite';
+import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import { visualizer } from 'rollup-plugin-visualizer';
 import { resolve } from 'path';
 
-const backendUrl = process.env.VITE_BACKEND_URL || 'http://localhost:8081';
-const partnerBackendUrl = process.env.VITE_PARTNER_BACKEND_URL || 'http://localhost:8082';
-const adkUrl = process.env.VITE_ADK_URL || 'http://localhost:8000';
+export default defineConfig(({ mode }) => {
+  // Load ALL env vars (empty prefix = no VITE_ filter)
+  const env = loadEnv(mode, process.cwd(), '');
+  const backendUrl = env.VITE_BACKEND_URL || 'http://localhost:8081';
+  const partnerBackendUrl = env.VITE_PARTNER_BACKEND_URL || 'http://localhost:8082';
+  const adkUrl = env.VITE_ADK_URL || 'http://localhost:8000';
 
-export default defineConfig(({ mode }) => ({
-  plugins: [
-    react({
-      babel: {
-        plugins: [['babel-plugin-react-compiler', { target: '19' }]],
-      },
-    }),
-    tailwindcss(),
-    ...(mode === 'analyze'
-      ? [visualizer({ open: true, filename: 'dist/stats.html', gzipSize: true })]
-      : []),
-  ],
+  return {
+    plugins: [
+      react({
+        babel: {
+          plugins: [['babel-plugin-react-compiler', { target: '19' }]],
+        },
+      }),
+      tailwindcss(),
+      // Bundle size tracking: always generate stats.html on build, auto-open in analyze mode
+      ...(mode === 'production'
+        ? [visualizer({ open: false, filename: 'dist/stats.html', gzipSize: true, brotliSize: true })]
+        : mode === 'analyze'
+          ? [visualizer({ open: true, filename: 'dist/stats.html', gzipSize: true, brotliSize: true })]
+          : []),
+    ],
   resolve: {
     alias: {
       '@': resolve(__dirname, './src'),
@@ -35,7 +41,7 @@ export default defineConfig(({ mode }) => ({
         secure: backendUrl.startsWith('https'),
       },
       '/ws': {
-        target: backendUrl,
+        target: backendUrl.replace(/^http/, 'ws'),
         changeOrigin: true,
         ws: true,
       },
@@ -60,7 +66,7 @@ export default defineConfig(({ mode }) => ({
         secure: backendUrl.startsWith('https'),
       },
       '/ws': {
-        target: backendUrl,
+        target: backendUrl.replace(/^http/, 'ws'),
         changeOrigin: true,
         ws: true,
       },
@@ -91,10 +97,11 @@ export default defineConfig(({ mode }) => ({
       },
     },
   },
-  test: {
-    globals: true,
-    environment: 'jsdom',
-    setupFiles: ['./src/test/setup.ts'],
-    include: ['src/**/*.test.{ts,tsx}'],
-  },
-}));
+    test: {
+      globals: true,
+      environment: 'jsdom',
+      setupFiles: ['./src/test/setup.ts'],
+      include: ['src/**/*.test.{ts,tsx}'],
+    },
+  };
+});

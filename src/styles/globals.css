@@ -4,7 +4,7 @@
 @import "tailwindcss";
 @import "./base.css";
 
-/* .markdown-body styles removed — chat now uses .chat-markdown (base.css) */
+/* prose.prose-invert overrides removed — chat now uses .chat-markdown (base.css) */
 
 /* ============================================
    FOCUS VISIBLE — Keyboard Navigation
@@ -22,4 +22,388 @@ header,
 footer {
   user-select: none;
   -webkit-user-select: none;
+}
+
+/* ============================================
+   BUTTON STYLES
+   ============================================ */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+  font-weight: 500;
+  font-size: 0.875rem;
+  transition: all 0.2s ease;
+  cursor: pointer;
+  border: 1px solid transparent;
+  text-decoration: none;
+}
+
+.btn-primary {
+  background: var(--matrix-accent);
+  color: var(--matrix-bg-primary);
+  border-color: var(--matrix-accent);
+}
+
+.btn-primary:hover {
+  background: var(--matrix-accent-glow);
+  box-shadow: 0 0 15px var(--matrix-accent);
+}
+
+.btn-secondary {
+  background: var(--glass-bg);
+  color: var(--matrix-text-primary);
+  border-color: var(--matrix-border);
+}
+
+.btn-secondary:hover {
+  background: var(--matrix-bg-tertiary);
+  border-color: var(--matrix-accent-dim);
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--matrix-text-secondary);
+  border-color: transparent;
+}
+
+.btn-ghost:hover {
+  color: var(--matrix-accent);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.btn-danger {
+  background: var(--matrix-error);
+  color: white;
+  border-color: var(--matrix-error);
+}
+
+.btn-danger:hover {
+  box-shadow: 0 0 15px var(--matrix-error);
+}
+
+/* Light mode buttons */
+[data-theme="light"] .btn-ghost:hover {
+  background: rgba(45, 106, 79, 0.1);
+}
+
+/* ============================================
+   LIGHT MODE — glass-input focus
+   ============================================ */
+[data-theme="light"] .glass-input:focus {
+  border-color: var(--matrix-accent);
+  box-shadow: 0 0 10px rgba(45, 106, 79, 0.15);
+}
+
+/* ============================================
+   BADGE STYLES
+   ============================================ */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.badge-default {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--matrix-text-secondary);
+  border: 1px solid var(--glass-border);
+}
+
+.badge-accent {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--matrix-accent);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.badge-success {
+  background: rgba(74, 222, 128, 0.15);
+  color: var(--matrix-success);
+}
+
+.badge-warning {
+  background: rgba(255, 170, 0, 0.15);
+  color: var(--matrix-warning);
+}
+
+.badge-error {
+  background: rgba(255, 68, 68, 0.15);
+  color: var(--matrix-error);
+}
+
+/* ============================================
+   CARD STYLES
+   ============================================ */
+.card {
+  background: var(--glass-bg);
+  border: 1px solid var(--matrix-border);
+  border-radius: 12px;
+  padding: 1rem;
+  transition: all 0.2s ease;
+}
+
+.card:hover {
+  border-color: var(--matrix-accent-dim);
+}
+
+.card-interactive:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.3);
+}
+
+/* ============================================
+   INPUT STYLES
+   ============================================ */
+.input {
+  width: 100%;
+  padding: 0.625rem 0.875rem;
+  background: var(--glass-bg);
+  border: 1px solid var(--matrix-border);
+  border-radius: 8px;
+  color: var(--matrix-text-primary);
+  font-size: 0.875rem;
+  transition: all 0.2s ease;
+}
+
+.input:focus {
+  outline: none;
+  border-color: var(--matrix-accent);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.2);
+}
+
+.input::placeholder {
+  color: var(--matrix-text-secondary);
+}
+
+/* ============================================
+   PROGRESS BAR
+   ============================================ */
+.progress-bar {
+  height: 4px;
+  background: var(--matrix-bg-tertiary);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.progress-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--matrix-accent-dim), var(--matrix-accent));
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+/* ============================================
+   BACKGROUND PATTERNS
+   ============================================ */
+.bg-grid-pattern {
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+  background-size: 20px 20px;
+}
+
+[data-theme="light"] .bg-grid-pattern {
+  background-image:
+    linear-gradient(rgba(45, 106, 79, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(45, 106, 79, 0.05) 1px, transparent 1px);
+}
+
+/* border-glow and scrollbar-thumb-matrix-accent removed (#40 — unused) */
+
+/* ============================================
+   TERMINAL STYLES
+   ============================================ */
+.terminal-container {
+  height: 100%;
+  width: 100%;
+  background: rgba(10, 14, 19, 0.4);
+  border-radius: 0.5rem;
+  overflow: hidden;
+}
+
+[data-theme="light"] .terminal-container {
+  background: rgba(245, 248, 245, 0.95);
+}
+
+/* ============================================
+   APPROVAL DIALOG
+   ============================================ */
+.approval-dialog {
+  position: fixed;
+  bottom: 1rem;
+  right: 1rem;
+  max-width: 400px;
+  z-index: 1000;
+  animation: slideUp 0.3s ease-out;
+}
+
+/* ============================================
+   STATUS INDICATORS
+   ============================================ */
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  animation: pulse-slow 2s ease-in-out infinite;
+}
+
+.status-dot-online {
+  background: var(--matrix-success);
+  box-shadow: 0 0 10px var(--matrix-success);
+}
+
+.status-dot-offline {
+  background: var(--matrix-error);
+  box-shadow: 0 0 10px var(--matrix-error);
+}
+
+.status-dot-pending {
+  background: var(--matrix-warning);
+  box-shadow: 0 0 10px var(--matrix-warning);
+}
+
+/* ============================================
+   SIDEBAR STYLES
+   ============================================ */
+.sidebar {
+  transition: width 0.3s ease;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.625rem 0.75rem;
+  border-radius: 0.5rem;
+  color: var(--matrix-text-secondary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-decoration: none;
+}
+
+.nav-item:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--matrix-accent);
+}
+
+.nav-item.active {
+  background: var(--matrix-accent);
+  color: var(--matrix-bg-primary);
+}
+
+[data-theme="light"] .nav-item:hover {
+  background: rgba(45, 106, 79, 0.08);
+}
+
+[data-theme="light"] .nav-item.active {
+  background: var(--matrix-accent);
+  color: white;
+}
+
+/* ============================================
+   HEADER STYLES
+   ============================================ */
+.header {
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 1rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+[data-theme="light"] .header {
+  border-bottom-color: rgba(45, 106, 79, 0.15);
+}
+
+/* ============================================
+   LOG STYLES
+   ============================================ */
+.log-entry {
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.375rem;
+  font-size: 0.8125rem;
+  border-left: 2px solid transparent;
+  transition: all 0.2s ease;
+}
+
+.log-entry:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.log-entry-approved {
+  border-left-color: #10b981;
+  background: rgba(16, 185, 129, 0.03);
+}
+
+.log-entry-denied {
+  border-left-color: #ff4141;
+  background: rgba(255, 65, 65, 0.03);
+}
+
+.log-entry-auto {
+  border-left-color: #6495ff;
+  background: rgba(100, 149, 255, 0.03);
+}
+
+/* scan-line class removed (#40 — unused, animation keyframes kept for potential reuse) */
+
+/* ============================================
+   APP-SPECIFIC ANIMATIONS
+   ============================================ */
+/* pulse-glow, scan-line, scan-line-vertical keyframes and animate-pulse-glow removed (#40 — unused) */
+
+/* animate-shimmer removed (#40 — unused) */
+
+/* ============================================
+   #48 — LIGHT MODE CONTRAST FIXES
+   Ensure WCAG AA contrast ratio (4.5:1) for text.
+   ============================================ */
+[data-theme="light"] .badge-warning {
+  color: #92400e;
+  background: rgba(251, 191, 36, 0.15);
+}
+
+[data-theme="light"] .badge-success {
+  color: #166534;
+  background: rgba(34, 197, 94, 0.12);
+}
+
+[data-theme="light"] .badge-error {
+  color: #991b1b;
+  background: rgba(239, 68, 68, 0.12);
+}
+
+[data-theme="light"] .status-dot-online {
+  background: #16a34a;
+  box-shadow: 0 0 8px rgba(22, 163, 74, 0.4);
+}
+
+[data-theme="light"] .status-dot-offline {
+  background: #dc2626;
+  box-shadow: 0 0 8px rgba(220, 38, 38, 0.4);
+}
+
+[data-theme="light"] .status-dot-pending {
+  background: #d97706;
+  box-shadow: 0 0 8px rgba(217, 119, 6, 0.4);
+}
+
+[data-theme="light"] .log-entry:hover {
+  background: rgba(45, 106, 79, 0.05);
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.3s ease-out;
+}
+
+.animate-slide-up {
+  animation: slideUp 0.3s ease-out;
 }

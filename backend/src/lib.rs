@@ -15,6 +15,7 @@ pub mod model_registry;
 pub mod models;
 pub mod oauth;
 pub mod oauth_github;
+pub mod oauth_google;
 pub mod oauth_vercel;
 pub mod ocr;
 pub mod prompt;
@@ -199,6 +200,28 @@ pub fn create_test_router(state: AppState) -> Router {
 }
 
 fn create_router_inner(state: AppState, rate_limit: bool) -> Router {
+    // ── Per-endpoint rate limiting — Jaskier Shared Pattern ──────
+    let rl_ws = GovernorConfigBuilder::default()
+        .per_second(6)
+        .burst_size(10)
+        .use_headers()
+        .finish()
+        .expect("rate limiter config: ws");
+        
+    let rl_execute = GovernorConfigBuilder::default()
+        .per_second(2)
+        .burst_size(30)
+        .use_headers()
+        .finish()
+        .expect("rate limiter config: execute");
+        
+    let rl_default = GovernorConfigBuilder::default()
+        .per_millisecond(100) // Much faster limit
+        .burst_size(500)      // Massive burst
+        .use_headers()
+        .finish()
+        .expect("rate limiter config: default");
+
     // ── Public routes (no auth) ──────────────────────────────────────
     let public_health = Router::new()
         .route("/api/health", get(handlers::health))
@@ -206,13 +229,18 @@ fn create_router_inner(state: AppState, rate_limit: bool) -> Router {
         .route("/api/health/detailed", get(handlers::health_detailed))
         .route("/api/auth/status", get(oauth::auth_status))
         .route("/api/auth/login", post(oauth::auth_login))
-        .route("/api/auth/google/redirect", get(oauth::google_redirect))
         .route("/api/auth/logout", post(oauth::auth_logout))
         .route(
             "/api/auth/apikey",
             post(oauth::save_api_key).delete(oauth::delete_api_key),
         )
         .route("/api/auth/mode", get(handlers::auth_mode))
+        // Google OAuth
+        .route("/api/auth/google/status", get(oauth_google::google_auth_status))
+        .route("/api/auth/google/login", post(oauth_google::google_auth_login))
+        .route("/api/auth/google/redirect", get(oauth_google::google_redirect))
+        .route("/api/auth/google/logout", post(oauth_google::google_auth_logout))
+        .route("/api/auth/google/apikey", post(oauth_google::google_save_api_key).delete(oauth_google::google_delete_api_key))
         // A2A v0.3 — Agent Card discovery (public, no auth)
         .route("/.well-known/agent-card.json", get(a2a::agent_card))
         // ADK sidecar internal tool bridge (localhost only, no auth)
@@ -256,37 +284,27 @@ fn create_router_inner(state: AppState, rate_limit: bool) -> Router {
 
     // WebSocket — rate-limited only in production (requires ConnectInfo)
     let ws_routes = if rate_limit {
-        let ws_governor = GovernorConfigBuilder::default()
-            .per_second(6)
-            .burst_size(10)
-            .use_headers()
-            .finish()
-            .expect("WS rate-limit config is valid");
         Router::new()
             .route("/ws/execute", get(handlers::ws_execute))
-            .layer(GovernorLayer::new(ws_governor))
+            .layer(GovernorLayer::new(rl_ws))
     } else {
         Router::new().route("/ws/execute", get(handlers::ws_execute))
     };
 
     // Execute endpoint — auth always, rate-limit only in production
     let execute_routes = if rate_limit {
-        let execute_governor = GovernorConfigBuilder::default()
-            .per_second(2)
-            .burst_size(30)
-            .use_headers()
-            .finish()
-            .expect("Execute rate-limit config is valid");
         Router::new()
             .route("/api/execute", post(handlers::execute))
+            .route("/api/v1/swarm/stream", get(handlers::streaming::swarm_sse_handler))
             .route_layer(middleware::from_fn_with_state(
                 state.clone(),
                 auth::require_auth,
             ))
-            .layer(GovernorLayer::new(execute_governor))
+            .layer(GovernorLayer::new(rl_execute))
     } else {
         Router::new()
             .route("/api/execute", post(handlers::execute))
+            .route("/api/v1/swarm/stream", get(handlers::streaming::swarm_sse_handler))
             .route_layer(middleware::from_fn_with_state(
                 state.clone(),
                 auth::require_auth,
@@ -369,14 +387,8 @@ fn create_router_inner(state: AppState, rate_limit: bool) -> Router {
 
     // Apply global rate limit only in production (requires ConnectInfo from TCP listener)
     if rate_limit {
-        let default_governor = GovernorConfigBuilder::default()
-            .per_second(2)
-            .burst_size(120)
-            .use_headers()
-            .finish()
-            .expect("Default rate-limit config is valid");
         combined
-            .layer(GovernorLayer::new(default_governor))
+            .layer(GovernorLayer::new(rl_default))
             .with_state(state)
     } else {
         combined.with_state(state)

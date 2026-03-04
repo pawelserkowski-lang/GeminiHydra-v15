@@ -1581,3 +1581,36 @@ async fn store_messages(
             tracing::error!("Failed to store chat message: {}", e);
         }
 }
+
+// ── Agent Swarm SSE Integration ──────────────────────────────────────
+
+use axum::response::sse::{Event, Sse};
+use std::{convert::Infallible, sync::Arc};
+use tokio::sync::broadcast;
+use futures_util::stream::Stream;
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct AgentMessage {
+    pub agent_id: String,
+    pub content: String,
+    pub is_final: bool,
+}
+
+pub async fn swarm_sse_handler(
+    axum::extract::State(state): axum::extract::State<crate::state::AppState>,
+) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    let mut rx = state.swarm_tx.subscribe();
+    
+    let stream = async_stream::stream! {
+        while let Ok(msg) = rx.recv().await {
+            let json_str = serde_json::to_string(&msg).unwrap_or_default();
+            yield Ok(Event::default().data(json_str));
+        }
+    };
+
+    Sse::new(stream).keep_alive(
+        axum::response::sse::KeepAlive::new()
+            .interval(std::time::Duration::from_secs(15))
+            .text("keep-alive"),
+    )
+}

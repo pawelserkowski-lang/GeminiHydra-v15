@@ -6,11 +6,10 @@ use axum::Json;
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse};
-use base64::Engine;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
+use base64::Engine;
 
 use crate::state::AppState;
 
@@ -92,6 +91,27 @@ pub(crate) fn decrypt_token(stored: &str) -> Result<String, String> {
         .decrypt(nonce, ciphertext.as_ref())
         .map_err(|e| format!("Decryption failed (wrong key?): {}", e))?;
     String::from_utf8(plaintext).map_err(|e| format!("Decrypted token is not valid UTF-8: {}", e))
+}
+
+// ── Utilities (Used across all OAuth providers) ──────────────────────────
+
+/// Generate a cryptographically secure random base64url string (no padding).
+pub(crate) fn random_base64url(len: usize) -> String {
+    let buf: Vec<u8> = (0..len).map(|_| rand::random::<u8>()).collect();
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&buf)
+}
+
+/// Generate a SHA-256 hash encoded as base64url (no padding), used for PKCE.
+pub(crate) fn sha256_base64url(input: &str) -> String {
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(sha2::Sha256::digest(input.as_bytes()))
+}
+
+/// Escape HTML for secure rendering of OAuth error pages.
+pub(crate) fn html_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
 }
 
 // ── Google OAuth 2.0 constants ───────────────────────────────────────────
@@ -698,20 +718,4 @@ async fn get_auth_row(state: &AppState) -> Option<GoogleAuthRow> {
     .fetch_optional(&state.db)
     .await
     .ok()?
-}
-
-fn random_base64url(len: usize) -> String {
-    let buf: Vec<u8> = (0..len).map(|_| rand::random::<u8>()).collect();
-    URL_SAFE_NO_PAD.encode(&buf)
-}
-
-fn sha256_base64url(input: &str) -> String {
-    URL_SAFE_NO_PAD.encode(Sha256::digest(input.as_bytes()))
-}
-
-fn html_escape(s: &str) -> String {
-    s.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
 }
