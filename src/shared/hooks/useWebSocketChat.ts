@@ -309,6 +309,18 @@ export function useWebSocketChat(callbacks: WsCallbacks) {
     ws.send(JSON.stringify(msg));
   }, []);
 
+  const sendToolResponse = useCallback((tool_name: string, response: string) => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+
+    const msg: WsClientMessage = {
+      type: 'tool_response',
+      tool_name,
+      response,
+    };
+    ws.send(JSON.stringify(msg));
+  }, []);
+
   const cancelStream = useCallback(() => {
     const ws = wsRef.current;
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
@@ -334,6 +346,7 @@ export function useWebSocketChat(callbacks: WsCallbacks) {
     connectionGaveUp,
     sendExecute,
     sendOrchestrate,
+    sendToolResponse,
     cancelStream,
     manualReconnect,
   };

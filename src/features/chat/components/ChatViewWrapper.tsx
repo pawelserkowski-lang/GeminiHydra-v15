@@ -17,6 +17,7 @@ import { useViewStore } from '@/stores/viewStore';
 import { useOrchestration } from '../hooks/useOrchestration';
 import { usePromptHistory } from '../hooks/usePromptHistory';
 import { type AgentActivity, EMPTY_ACTIVITY, type ToolActivity } from './AgentActivityPanel';
+import { AskUserDialog } from './AskUserDialog';
 
 // ============================================================================
 // CONSTANTS
@@ -44,6 +45,8 @@ export function ChatViewWrapper() {
   const titleTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   // Agent activity tracking for live panel
   const [agentActivity, setAgentActivity] = useState<AgentActivity>(EMPTY_ACTIVITY);
+  // Ask User Dialog state
+  const [pendingAskUser, setPendingAskUser] = useState<{ question: string; options?: string[] } | null>(null);
 
   // ADK Orchestration state
   const {
@@ -147,6 +150,13 @@ export function ChatViewWrapper() {
         }));
       },
       onToolCall: (msg) => {
+        if (msg.name === 'ask_user') {
+          const args = msg.args as any;
+          setPendingAskUser({
+            question: args?.question || 'Proszę o decyzję...',
+            options: args?.options,
+          });
+        }
         const newTool: ToolActivity = {
           name: msg.name,
           args: msg.args,
@@ -160,6 +170,9 @@ export function ChatViewWrapper() {
         }));
       },
       onToolResult: (msg) => {
+        if (msg.name === 'ask_user') {
+          setPendingAskUser(null);
+        }
         setAgentActivity((prev) => ({
           ...prev,
           tools: prev.tools.map((t) =>
@@ -171,6 +184,7 @@ export function ChatViewWrapper() {
       },
       onComplete: (_msg, sessionId) => {
         if (!sessionId) return;
+        setPendingAskUser(null);
         // Flush any remaining batched tokens immediately (#43)
         if (flushTimerRef.current) {
           clearTimeout(flushTimerRef.current);
@@ -188,6 +202,7 @@ export function ChatViewWrapper() {
       },
       onError: (message, sessionId) => {
         if (!sessionId) return;
+        setPendingAskUser(null);
         // Flush any remaining batched tokens immediately (#43)
         if (flushTimerRef.current) {
           clearTimeout(flushTimerRef.current);
@@ -247,8 +262,13 @@ export function ChatViewWrapper() {
     ],
   );
 
-  const { status, streamingSessionId, connectionGaveUp, sendExecute, sendOrchestrate, cancelStream, manualReconnect } =
+  const { status, streamingSessionId, connectionGaveUp, sendExecute, sendOrchestrate, sendToolResponse, cancelStream, manualReconnect } =
     useWebSocketChat(wsCallbacks);
+
+  const handleAskUserSubmit = useCallback((response: string) => {
+    sendToolResponse('ask_user', response);
+    setPendingAskUser(null);
+  }, [sendToolResponse]);
 
   // Fallback: if WS never reaches 'connected' within 5s, switch to HTTP.
   // Only clear fallback when WS actually connects (not on reconnect attempts).
@@ -426,6 +446,13 @@ export function ChatViewWrapper() {
         agentActivity={agentActivity}
         orchestration={orchestration}
       />
+      {pendingAskUser && (
+        <AskUserDialog
+          question={pendingAskUser.question}
+          options={pendingAskUser.options}
+          onSubmit={handleAskUserSubmit}
+        />
+      )}
     </div>
   );
 }

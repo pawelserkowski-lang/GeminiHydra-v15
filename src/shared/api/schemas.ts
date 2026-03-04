@@ -332,7 +332,13 @@ interface WsPingMessage {
   type: 'ping';
 }
 
-export type WsClientMessage = WsExecuteMessage | WsOrchestrateMessage | WsCancelMessage | WsPingMessage;
+interface WsToolResponseMessage {
+  type: 'tool_response';
+  tool_name: string;
+  response: string;
+}
+
+export type WsClientMessage = WsExecuteMessage | WsOrchestrateMessage | WsCancelMessage | WsPingMessage | WsToolResponseMessage;
 
 // ============================================================================
 // SESSIONS
