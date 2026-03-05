@@ -11,9 +11,10 @@
  * GeminiHydra-v15: White/neutral accent with --matrix-* CSS variables.
  */
 
-import { Check, Clipboard, Terminal } from 'lucide-react';
+import { Check, Clipboard, Terminal, Maximize2 } from 'lucide-react';
+import { useViewStore } from '@/stores/viewStore';
 import { AnimatePresence, motion } from 'motion/react';
-import { memo, useCallback, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useMemo, useRef, useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/shared/utils/cn';
 
@@ -80,6 +81,11 @@ const LANGUAGE_NAMES: Record<string, string> = {
 };
 
 // ---------------------------------------------------------------------------
+// Auto-open tracking
+// ---------------------------------------------------------------------------
+const autoOpenedArtifacts = new Set<string>();
+
+// ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
@@ -100,8 +106,28 @@ export const CodeBlock = memo(function CodeBlock({
   const lang = language?.toLowerCase() ?? '';
   const displayName = LANGUAGE_NAMES[lang] ?? (lang ? lang.toUpperCase() : 'Code');
 
+  const setActiveArtifact = useViewStore((s) => s.setActiveArtifact);
+
   // Split into lines for line-number rendering
   const lines = useMemo(() => code.split('\n'), [code]);
+
+  // ----- Auto-open large artifacts -------------------------------------
+  const isArtifactLanguage = ['html', 'css', 'javascript', 'typescript', 'tsx', 'jsx', 'json', 'yaml', 'mermaid', 'svg', 'python', 'rust', 'go'].includes(lang);
+  
+  useEffect(() => {
+    if (isArtifactLanguage && lines.length >= 15 && code.length > 300) {
+      const artifactId = code.substring(0, 100).replace(/\s/g, '');
+      if (!autoOpenedArtifacts.has(artifactId)) {
+        autoOpenedArtifacts.add(artifactId);
+        setActiveArtifact({ id: artifactId, code, language: lang, title: 'Generated Artifact' });
+      } else {
+        const currentActive = useViewStore.getState().activeArtifact;
+        if (currentActive?.id === artifactId) {
+          setActiveArtifact({ id: artifactId, code, language: lang, title: 'Generated Artifact' });
+        }
+      }
+    }
+  }, [code, isArtifactLanguage, lines.length, lang, setActiveArtifact]);
 
   // Auto-collapse large code blocks (#44)
   const isLong = lines.length > AUTO_COLLAPSE_THRESHOLD;
@@ -142,6 +168,23 @@ export const CodeBlock = memo(function CodeBlock({
             {displayName}
           </span>
         </div>
+
+        <div className="flex items-center gap-1">
+          {/* Artifact button */}
+          {isArtifactLanguage && lines.length >= 5 && (
+            <button
+              type="button"
+              onClick={() => setActiveArtifact({ id: code.substring(0, 50), code, language: lang, title: 'Code Artifact' })}
+              className={cn(
+                'flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-mono transition-colors',
+                'text-[var(--matrix-text-dim)] hover:text-[var(--matrix-accent)] hover:bg-white/10',
+              )}
+              title="Open in Side Panel"
+            >
+              <Maximize2 size={14} />
+              Open Panel
+            </button>
+          )}
 
         {/* Copy button */}
         <button
@@ -267,3 +310,4 @@ export const CodeBlock = memo(function CodeBlock({
     </div>
   );
 });
+

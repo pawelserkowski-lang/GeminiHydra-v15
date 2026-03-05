@@ -7,7 +7,9 @@ export interface ViewSlice {
   sidebarCollapsed: boolean;
   /** Model ID reported by the last WS Start message (e.g. "gemini-3.1-pro-preview") */
   activeModel: string | null;
+  activeArtifact: import('../types').Artifact | null;
   setCurrentView: (view: View) => void;
+  setActiveArtifact: (artifact: import('../types').Artifact | null) => void;
   setSidebarCollapsed: (collapsed: boolean) => void;
   toggleSidebar: () => void;
   setActiveModel: (model: string) => void;
@@ -27,8 +29,10 @@ export const createViewSlice: StateCreator<ViewStoreState, [], [], ViewSlice> = 
   currentView: 'home',
   sidebarCollapsed: false,
   activeModel: null,
+  activeArtifact: null,
 
   setCurrentView: (view) => set({ currentView: view }),
+  setActiveArtifact: (artifact) => set({ activeArtifact: artifact }),
   setActiveModel: (model) => set({ activeModel: model }),
 
   setSidebarCollapsed: (collapsed) => {
@@ -43,3 +47,4 @@ export const createViewSlice: StateCreator<ViewStoreState, [], [], ViewSlice> = 
       return { sidebarCollapsed: next };
     }),
 });
+

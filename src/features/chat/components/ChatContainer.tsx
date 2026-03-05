@@ -47,6 +47,7 @@ import { NewMessagesButton } from './NewMessagesButton';
 import { OfflineBanner } from './OfflineBanner';
 import { SearchOverlay } from './SearchOverlay';
 import { StreamingIndicator } from './StreamingIndicator';
+import { ArtifactPanel } from './ArtifactPanel';
 
 // Lazy-loaded panels — only downloaded when agent activity or orchestration is active
 const AgentActivityPanel = lazy(() => import('./AgentActivityPanel').then((m) => ({ default: m.AgentActivityPanel })));
@@ -366,6 +367,9 @@ export const ChatContainer = memo<ChatContainerProps>(
           {/* Offline banner (#25) */}
           <OfflineBanner />
 
+          {/* Messages panel + Artifact panel wrapper */}
+          <div className="flex-1 min-h-0 flex relative overflow-hidden gap-2">
+          
           {/* Messages panel */}
           <div className={cn('flex-1 min-h-0 flex flex-col overflow-hidden rounded-xl relative', theme.glassPanel)}>
             {/* Search overlay (#19) */}
@@ -473,6 +477,11 @@ export const ChatContainer = memo<ChatContainerProps>(
             />
           </div>
 
+          <AnimatePresence>
+            {useViewStore((s) => s.activeArtifact) && <ArtifactPanel />}
+          </AnimatePresence>
+          </div>
+
           {/* Context menu */}
           {contextMenu && (
             <ChatContextMenu
@@ -558,3 +567,4 @@ export const ChatContainer = memo<ChatContainerProps>(
 ChatContainer.displayName = 'ChatContainer';
 
 export default ChatContainer;
+

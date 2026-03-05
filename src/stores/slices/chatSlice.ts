@@ -12,7 +12,17 @@ function appendMessage(history: Record<string, Message[]>, sessionId: string, ms
   const current = history[sessionId] || [];
   const sanitizedMsg: Message = { ...msg, content: sanitizeContent(msg.content, MAX_CONTENT_LENGTH) };
   let updated = [...current, sanitizedMsg];
-  if (updated.length > MAX_MESSAGES_PER_SESSION) {
+  
+  // Auto-compaction: if messages exceed 25, keep the last 15 to save tokens
+  if (updated.length > 25) {
+    const compactedMessage: Message = {
+      id: crypto.randomUUID(),
+      role: 'system',
+      content: '_[System] History automatically compacted to save tokens. Older messages archived._',
+      timestamp: Date.now()
+    };
+    updated = [compactedMessage, ...updated.slice(updated.length - 15)];
+  } else if (updated.length > MAX_MESSAGES_PER_SESSION) {
     updated = updated.slice(-MAX_MESSAGES_PER_SESSION);
   }
   return updated;
@@ -223,3 +233,4 @@ export const createChatSlice: StateCreator<ViewStoreState, [], [], ChatSlice> = 
       return { chatHistory: { ...state.chatHistory, [sessionId]: newMessages } };
     }),
 });
+

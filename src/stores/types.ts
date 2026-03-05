@@ -1,4 +1,3 @@
-// src/stores/types.ts
 import type {
   ChatMessage,
   ChatSession,
@@ -8,9 +7,17 @@ import type {
 
 export type View = 'home' | 'login' | 'chat' | 'agents' | 'brain' | 'settings' | 'logs';
 
+export type ViewId = View;
+
+export interface Artifact {
+  id: string;
+  code: string;
+  language: string;
+  title?: string;
+}
+
 /**
- * GeminiHydra session — extends shared ChatSession.
- * Local alias `Session` kept for backward compatibility across all slices.
+ * GeminiHydra session
  */
 export type Session = Pick<ChatSession, 'id' | 'title' | 'createdAt' | 'workingDirectory' | 'agentId'>;
 
@@ -18,8 +25,4 @@ export type { SharedChatTab as ChatTab };
 
 export type MessageRole = SharedMessageRole;
 
-/**
- * GeminiHydra message — matches shared ChatMessage.
- * Local alias `Message` kept for backward compatibility.
- */
 export type Message = ChatMessage;
