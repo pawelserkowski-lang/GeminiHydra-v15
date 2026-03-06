@@ -287,6 +287,11 @@ pub fn list_available_tools() -> Vec<ToolInfo> {
             name: "call_agent",
             category: "a2a",
         },
+        // Image generation (browser proxy)
+        ToolInfo {
+            name: "generate_image",
+            category: "image",
+        },
         // MCP proxy
         ToolInfo {
             name: "list_mcp_tools",
@@ -569,6 +574,19 @@ pub async fn execute_tool(
                 .as_str()
                 .ok_or("Missing required argument: file_path")?;
             zip_tools::tool_extract_zip_file(&resolved, file_path)
+                .await
+                .map(ToolOutput::text)
+        }
+        // ── Image generation (browser proxy) ──
+        "generate_image" => {
+            let image_path = args["image_path"]
+                .as_str()
+                .ok_or("Missing required argument: image_path")?;
+            let resolved = resolve_path(image_path, working_directory);
+            let prompt = args["prompt"]
+                .as_str()
+                .ok_or("Missing required argument: prompt")?;
+            tool_generate_image(&resolved, prompt, state)
                 .await
                 .map(ToolOutput::text)
         }
@@ -1900,5 +1918,98 @@ async fn tool_ocr_document(
         mime_type,
         metadata.len(),
         text
+    ))
+}
+
+// ---------------------------------------------------------------------------
+// generate_image — AI image generation/editing via browser proxy
+// ---------------------------------------------------------------------------
+
+const GENERATE_IMAGE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "webp"];
+
+async fn tool_generate_image(
+    path: &str,
+    prompt: &str,
+    state: &AppState,
+) -> Result<String, String> {
+    if !crate::browser_proxy::is_enabled() {
+        return Err(
+            "Browser proxy not enabled. Set BROWSER_PROXY_URL env var to use generate_image."
+                .to_string(),
+        );
+    }
+
+    let file_path = std::path::Path::new(path);
+    if !file_path.exists() {
+        return Err(format!("File not found: {}", path));
+    }
+
+    let ext = file_path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_lowercase())
+        .unwrap_or_default();
+
+    if !GENERATE_IMAGE_EXTENSIONS.contains(&ext.as_str()) {
+        return Err(format!(
+            "Unsupported image type: .{}. Supported: {:?}",
+            ext, GENERATE_IMAGE_EXTENSIONS
+        ));
+    }
+
+    let metadata = tokio::fs::metadata(file_path)
+        .await
+        .map_err(|e| format!("Cannot read metadata: {}", e))?;
+    if metadata.len() > 20_000_000 {
+        return Err(format!(
+            "Image too large: {} bytes (max 20 MB)",
+            metadata.len()
+        ));
+    }
+
+    let bytes = tokio::fs::read(file_path)
+        .await
+        .map_err(|e| format!("Cannot read file: {}", e))?;
+    let image_b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+
+    let mime_type = match ext.as_str() {
+        "png" => "image/png",
+        "webp" => "image/webp",
+        _ => "image/jpeg",
+    };
+
+    let result_b64 =
+        crate::browser_proxy::generate_image(&state.client, &image_b64, mime_type, prompt, "agent-tool")
+            .await?;
+
+    // Save result next to the original file
+    let stem = file_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("output");
+    let output_path = file_path.with_file_name(format!("{}_generated.png", stem));
+
+    let decoded = base64::engine::general_purpose::STANDARD
+        .decode(&result_b64)
+        .map_err(|e| format!("Failed to decode result image: {}", e))?;
+
+    tokio::fs::write(&output_path, &decoded)
+        .await
+        .map_err(|e| format!("Failed to save result image: {}", e))?;
+
+    let filename = file_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("image");
+    Ok(format!(
+        "Image generated successfully!\n\
+         Input: {} ({} bytes)\n\
+         Output: {} ({} bytes)\n\
+         Prompt: {}",
+        filename,
+        metadata.len(),
+        output_path.display(),
+        decoded.len(),
+        prompt
     ))
 }

@@ -5,6 +5,10 @@ set "LIB=C:\Users\BIURODOM\Desktop\ClaudeDesktop\jaskier-lib.bat"
 
 :: Init colors
 call "%LIB%" :init_colors
+:: Kill previous instances
+taskkill /F /FI "WINDOWTITLE eq [Jaskier] GeminiHydra*" >nul 2>&1
+powershell -NoProfile -Command "Get-Process | Where-Object { $_.Name -eq 'powershell' -and $_.CommandLine -like '*tray-minimizer.ps1*' -and $_.CommandLine -like '*GeminiHydra Release*' } | Stop-Process -Force -ErrorAction SilentlyContinue" >nul 2>&1
+title [Jaskier] GeminiHydra v15 Release
 echo !BOLD!!MAGENTA!=== GeminiHydra v15 Release ===!RESET!
 
 :: [#1] Start timer
@@ -66,7 +70,7 @@ call "%LIB%" :partner_check 8082 "ClaudeHydra"
 
 :: Start backend
 echo !CYAN![START]!RESET! Backend on port 8081...
-start "GeminiHydra Backend" /min cmd /c "cd /d %~dp0backend && target\release\geminihydra-backend.exe 2>&1"
+start "[Jaskier] GeminiHydra Backend" /min cmd /c "cd /d %~dp0backend && target\release\geminihydra-backend.exe 2>&1"
 %SYSTEMROOT%\System32\timeout.exe /t 2 /nobreak >nul
 
 :: [#2] Health check — fatal on failure (abort if backend doesn't start)
@@ -87,7 +91,7 @@ echo !GREEN![BUILD]!RESET! Frontend built in !_fe_dur!s
 
 :: Start preview (BEFORE Chrome — so port is ready)
 echo !CYAN![PREVIEW]!RESET! Starting preview on port 4176...
-start "GeminiHydra Preview" /min cmd /c "cd /d %~dp0 && npm run preview 2>&1"
+start "[Jaskier] GeminiHydra Preview" /min cmd /c "cd /d %~dp0 && npm run preview 2>&1"
 %SYSTEMROOT%\System32\timeout.exe /t 2 /nobreak >nul
 call "%LIB%" :port_validate 4176 10
 
@@ -122,10 +126,9 @@ echo.
 
 :: [#8] Wait loop with cleanup on exit
 :wait_loop
-echo Press !BOLD!Q!RESET! to stop all services, or close this window.
-set /p "_quit=>"
-if /i "!_quit!"=="Q" goto :cleanup
-goto :wait_loop
+echo !YELLOW!Hiding to tray... Check the system tray icon to restore or stop.!RESET!
+powershell -NoProfile -ExecutionPolicy Bypass -File "C:\Users\BIURODOM\Desktop\ClaudeDesktop\tray-minimizer.ps1" -AppTitle "GeminiHydra Release" -IconPath "C:\Users\BIURODOM\Desktop\ClaudeDesktop\.jaskier-icons\geminihydra.ico" -KillExe "geminihydra-backend" -KillTitle "[Jaskier] GeminiHydra"
+goto :cleanup
 
 :cleanup
 echo !YELLOW![STOP]!RESET! Shutting down services...

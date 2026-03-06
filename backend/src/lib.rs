@@ -4,6 +4,7 @@ pub mod a2a;
 pub mod analysis;
 pub mod audit;
 pub mod auth;
+pub mod browser_proxy;
 pub mod classify;
 pub mod context;
 pub mod error;
