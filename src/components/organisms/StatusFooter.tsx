@@ -12,6 +12,7 @@
 
 import { Cloud, Cpu, Zap } from 'lucide-react';
 import { memo, useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { StatusIndicator } from '@/components/molecules/StatusIndicator';
 import { useTheme } from '@/contexts/ThemeContext';
 import type { BrowserProxyStatus } from '@/features/settings/hooks/useBrowserProxy';
@@ -57,13 +58,14 @@ const proxyDotColor: Record<ProxyState, string> = {
   offline: 'bg-red-500',
 };
 
-const proxyLabel: Record<ProxyState, string> = {
-  ready: 'Proxy',
-  starting: 'Proxy starting',
-  offline: 'Proxy offline',
+const proxyLabelKey: Record<ProxyState, string> = {
+  ready: 'footer.proxyReady',
+  starting: 'footer.proxyStarting',
+  offline: 'footer.proxyOffline',
 };
 
 function BrowserProxyBadge({ status }: { status: BrowserProxyStatus }) {
+  const { t } = useTranslation();
   const state = getProxyState(status);
   const h = status.health;
   const shouldPulse = state === 'ready' && (h?.workers_busy ?? 0) > 0;
@@ -87,7 +89,7 @@ function BrowserProxyBadge({ status }: { status: BrowserProxyStatus }) {
           <span className={cn('absolute h-1.5 w-1.5 rounded-full animate-ping opacity-75', proxyDotColor[state])} />
         )}
       </span>
-      <span className="text-[10px] font-mono leading-none text-inherit opacity-70">{proxyLabel[state]}</span>
+      <span className="text-[10px] font-mono leading-none text-inherit opacity-70">{t(proxyLabelKey[state])}</span>
     </div>
   );
 }

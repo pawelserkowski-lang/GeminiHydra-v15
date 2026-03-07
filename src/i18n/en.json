@@ -22,7 +22,10 @@
     "openSidebar": "Open sidebar"
   },
   "footer": {
-    "tagline": "Wolf Swarm"
+    "tagline": "Wolf Swarm",
+    "proxyReady": "Proxy",
+    "proxyStarting": "Proxy starting",
+    "proxyOffline": "Proxy offline"
   },
   "common": {
     "delete": "Delete",

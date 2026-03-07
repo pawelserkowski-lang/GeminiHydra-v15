@@ -22,7 +22,10 @@
     "openSidebar": "Otwórz pasek boczny"
   },
   "footer": {
-    "tagline": "Wilczy Rój"
+    "tagline": "Wilczy Rój",
+    "proxyReady": "Proxy",
+    "proxyStarting": "Proxy startuje",
+    "proxyOffline": "Proxy offline"
   },
   "common": {
     "delete": "Usuń",

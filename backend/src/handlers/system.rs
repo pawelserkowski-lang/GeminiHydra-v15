@@ -147,7 +147,7 @@ pub async fn browser_proxy_history(
 ) -> Json<ProxyHistoryResponse> {
     let limit = params.limit.unwrap_or(50).min(50);
     let events = state.browser_proxy_history.recent(limit);
-    let total = events.len();
+    let total = state.browser_proxy_history.len();
     Json(ProxyHistoryResponse { events, total })
 }
 
