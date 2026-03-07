@@ -309,7 +309,7 @@ export function Sidebar() {
       {/* Collapse Toggle Button (desktop only) */}
       <button
         type="button"
-        data-testid="btn-sidebar-collapse"
+        data-testid="sidebar-collapse-toggle"
         onClick={toggleSidebar}
         className={cn(
           'absolute -right-4 top-1/2 -translate-y-1/2 z-30 hidden md:flex items-center justify-center w-9 h-9 border rounded-full shadow-lg backdrop-blur-sm transition-all duration-200 hover:scale-110 active:scale-95',
